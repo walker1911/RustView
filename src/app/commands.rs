@@ -1640,7 +1640,7 @@ fn source_key(source: &Source) -> Result<String, String> {
     serde_json::to_string(&(path.to_string_lossy(), entry)).map_err(|error| error.to_string())
 }
 
-fn path_identity(path:&Path)->String{let value=path.to_string_lossy().replace('\\',"/");let value=if let Some(rest)=value.strip_prefix("//?/UNC/"){format!("//{rest}")}else{value.strip_prefix("//?/").unwrap_or(&value).to_owned()};value.trim_end_matches('/').to_ascii_lowercase()}
+fn path_identity(path:&Path)->String{crate::recipes::normal_path(path)}
 
 fn completed_key_moves(sources: &[Source], directory: &Path, completed: &[PathBuf]) -> KeyMoves {
     let completed: HashSet<_> = completed.iter().collect();

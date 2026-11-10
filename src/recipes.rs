@@ -46,8 +46,12 @@ pub fn read_for_in(root: &Path, source: &Path, entry: Option<&str>) -> Option<Ed
     (record.source == canonical && record.entry.as_deref() == entry).then_some(record)
 }
 
-fn normal_path(path: &Path) -> String {
-    let path = path.to_string_lossy().replace('\\', "/");
+pub(crate) fn normal_path(path: &Path) -> String {
+    // Resolve Windows short-name aliases even when a completed rename removed the leaf.
+    let resolved = path.canonicalize().ok().or_else(|| {
+        Some(path.parent()?.canonicalize().ok()?.join(path.file_name()?))
+    });
+    let path = resolved.as_deref().unwrap_or(path).to_string_lossy().replace('\\', "/");
     let path = if let Some(rest) = path.strip_prefix("//?/UNC/") {
         format!("//{rest}")
     } else {
@@ -546,6 +550,31 @@ fn atomic_json_mode(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn path_identity_resolves_short_parent_alias_after_file_is_removed() {
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+        let directory = tempfile::Builder::new()
+            .prefix("RustView path identity ")
+            .tempdir()
+            .unwrap();
+        let wide = directory.path().as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
+        let mut short = vec![0u16; 32768];
+        let length = unsafe {
+            windows_sys::Win32::Storage::FileSystem::GetShortPathNameW(
+                wide.as_ptr(), short.as_mut_ptr(), short.len() as u32,
+            )
+        } as usize;
+        assert!(length > 0 && length < short.len());
+        let alias = PathBuf::from(std::ffi::OsString::from_wide(&short[..length]));
+        let source = directory.path().join("images.zip");
+        fs::write(&source, [1, 2, 3]).unwrap();
+        let canonical = source.canonicalize().unwrap();
+        assert_eq!(normal_path(&alias.join("images.zip")), normal_path(&canonical));
+        fs::remove_file(&source).unwrap();
+        assert_eq!(normal_path(&alias.join("images.zip")), normal_path(&canonical));
+        assert_ne!(normal_path(&alias.join("other.zip")), normal_path(&canonical));
+    }
     #[test]
     fn record_preserves_original_and_rejects_changed_source() {
         let d = tempfile::tempdir().unwrap();
