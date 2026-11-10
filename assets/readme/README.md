@@ -1,0 +1,1 @@
+These original SVG illustrations are part of RustView and use the root MIT license. They are concept / architecture illustrations, not application screenshots. No user photographs, vendor logos, or external images are embedded.

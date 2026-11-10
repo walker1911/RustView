@@ -1,0 +1,58 @@
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
+mod animation;
+mod animation_player;
+mod app;
+mod archive;
+mod catalog;
+mod clipboard;
+mod desktop;
+mod editing;
+mod fileops;
+mod imaging;
+mod native_keys;
+mod metadata;
+mod legacy_settings;
+mod pages;
+mod printing;
+mod precision;
+mod recipes;
+mod shortcuts;
+mod worker;
+
+fn main() -> eframe::Result {
+    if std::env::args().nth(1).as_deref() == Some("--request-probe") {
+        worker::request_probe_main();
+        return Ok(());
+    }
+    if std::env::args().nth(1).as_deref() == Some("--animation-probe") {
+        animation_player::probe_main();
+        return Ok(());
+    }
+    if std::env::args().nth(1).as_deref() == Some("--animation-worker") {
+        animation_player::worker_main();
+        return Ok(());
+    }
+    if std::env::args().nth(1).as_deref() == Some("--worker") {
+        worker::worker_main();
+        return Ok(());
+    }
+    if std::env::args().nth(1).as_deref() == Some("--probe") {
+        worker::probe_main();
+        return Ok(());
+    }
+    let initial = std::env::args_os().nth(1).map(std::path::PathBuf::from);
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1280.0, 840.0])
+            .with_min_inner_size([720.0, 480.0])
+            .with_drag_and_drop(true),
+        renderer: eframe::Renderer::Wgpu,
+        ..Default::default()
+    };
+    eframe::run_native(
+        "RustView 图片浏览器",
+        options,
+        Box::new(move |cc| Ok(Box::new(app::Viewer::new(cc, initial)))),
+    )
+}

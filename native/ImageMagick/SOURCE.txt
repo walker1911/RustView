@@ -1,0 +1,8 @@
+ImageMagick 7.1.2-35, official portable Q16-HDRI x64, 2026-10-31.
+https://github.com/ImageMagick/ImageMagick/releases/tag/7.1.2-35
+https://github.com/ImageMagick/ImageMagick/releases/download/7.1.2-35/ImageMagick-7.1.2-35-portable-Q16-HDRI-x64.7z
+Archive SHA256: 34DB4364DA26C88D6B8CC5BBC1FFF22B85D00D3B399C82FE85EE4790EFACBBF1
+Upstream archive retained at .tools/archives/ImageMagick-7.1.2-35-portable-Q16-HDRI-x64.7z
+Only magick.exe is used; duplicate executable entry points were removed.
+See LICENSE.txt and NOTICE.txt for upstream and bundled-code notices.
+RustView supplies its own image-only resource/delegate policy in policy.xml.

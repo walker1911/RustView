@@ -1,0 +1,8 @@
+Official LibRaw 0.22.3 Windows x64 runtime
+Source page: https://www.libraw.org/download
+Download: https://www.libraw.org/data/LibRaw-0.22.3-Win64.zip
+Downloaded archive SHA256: 4E2213A0B10E32199A30B9114A61376CDB40F94DF861262B4A6DCA659701276B
+Runtime DLL is unmodified. Original source and binaries retained in the ZIP.
+License choice: LGPL 2.1 or CDDL 1.0; see upstream license files.
+The application dynamically loads libraw.dll from this directory; users may replace it with an ABI-compatible official x64 build.
+Source is included in the original ZIP; no modifications to LibRaw source were made.

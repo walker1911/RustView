@@ -1,0 +1,27 @@
+ExifTool 13.62, Windows x64 portable package
+Retrieved 2026-11-10 from the download linked by the official site.
+
+Upstream: https://exiftool.org/
+Official download mirror: https://sourceforge.net/projects/exiftool/files/exiftool-13.62_64.zip/download
+Archive: exiftool-13.62_64.zip (11,215,424 bytes)
+SHA-256: 9c79e97a9444ba1f893da1dcbcae378fba0c0a0112afd8bf426b396c75f884ce
+The digest was compared with the SHA-256 published on that SourceForge file page.
+Upstream version check: https://exiftool.org/ver.txt
+Upstream source: https://github.com/exiftool/exiftool
+Release source: https://sourceforge.net/projects/exiftool/files/Image-ExifTool-13.62.tar.gz/download
+
+The downloaded exiftool(-k).exe was renamed to exiftool.exe to disable the
+interactive pause. No executable bytes or upstream Perl modules were changed.
+The entire exiftool_files directory is required beside the executable.
+
+Licensing and included components:
+- ExifTool by Phil Harvey: same terms as Perl (Artistic License or GPL).
+  The upstream Perl program and modules are included in exiftool_files.
+- Strawberry Perl runtime: its component notices and licenses are retained in
+  exiftool_files/Licenses_Strawberry_Perl.zip and upstream LICENSE documents.
+- Windows launcher by Oliver Betz: CC0. Source and upstream explanation:
+  https://oliverbetz.de/pages/Artikel/ExifTool-for-Windows
+- See exiftool_files/readme_windows.txt, LICENSE and the included license archive.
+
+RustView invokes this unmodified portable program as a separate process using
+JSON and UTF-8 stdin argument files. It does not link ExifTool into RustView.

@@ -1,0 +1,6 @@
+Original self-generated fixtures for RustView, available under the project MIT license. No third-party photographs or image data.
+All canvases are 4x2 RGBA, with three frames at 30ms, 50ms, and 0ms. Runtime clamps the final delay to 10ms.
+GIF frames are encoded with gif 0.14.2. First frame is red; second is blue plus transparent pixels in the left 2x2; third is green in the right 2x2.
+animation-previous.gif uses Previous disposal on frame two and Netscape repeat=1 (two total plays). animation-background.gif uses Background disposal and infinite repeat.
+animation-blend.webp uses image 0.25.9 lossless VP8L frame payloads in a standards-compliant RIFF/VP8X/ANIM/ANMF container assembled only by this test-data generator. Runtime decoding/compositing is provided by image/image-webp.
+WebP frame one is red. Frame two blends 50-percent-alpha blue in the left 2x2 and disposes that rectangle to the transparent ANIM background. Frame three replaces the right 2x2 with green. ANIM loop_count=2 means two total plays.

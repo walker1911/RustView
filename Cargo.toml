@@ -1,0 +1,41 @@
+[package]
+name = "rust-viewer"
+version = "0.3.0"
+edition = "2021"
+description = "A bounded-memory Windows image and archive viewer"
+license = "MIT"
+
+[[bin]]
+name = "RustView"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "=0.31.1", default-features = false, features = ["accesskit", "default_fonts", "wgpu"] }
+egui = "=0.31.1"
+image = { version = "=0.25.9", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp", "tiff", "ico", "pnm", "tga", "qoi"] }
+png = "0.18"
+libloading = "0.8"
+moxcms = "0.7.4"
+rfd = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+natord = "1"
+arboard = "3"
+trash = "5"
+gif = "=0.14.2"
+image-webp = "=0.2.4"
+tiff = "=0.10.3"
+rusqlite = { version = "=0.41.1", features = ["bundled"] }
+raw-window-handle = "0.6"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "=0.58.0", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell"] }
+windows-sys = { version = "0.59", features = ["Win32_System_Registry", "Win32_System_Time", "Win32_Graphics_Gdi", "Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_UI_Shell", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Controls", "Win32_UI_WindowsAndMessaging", "Win32_Storage_FileSystem", "Win32_Graphics_Printing", "Win32_UI_Controls_Dialogs", "Win32_Storage_Xps"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 8
+strip = "debuginfo"
+
