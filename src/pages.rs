@@ -42,8 +42,9 @@ pub(crate) fn decode_with_options(
     full_raw: bool,
 ) -> Result<Page, String> {
     let input_size = path.metadata().map_err(|error| error.to_string())?.len();
-    if input_size > 512 * 1024 * 1024 {
-        return Err("输入文件超过512MiB读取上限".into());
+    let input_limit = crate::imaging::input_byte_limit(&path.to_string_lossy());
+    if input_size > input_limit {
+        return Err(format!("输入文件超过{} MiB读取上限", input_limit / 1048576));
     }
     let mut signature = [0; 4];
     let mut input = File::open(path).map_err(|error| error.to_string())?;
@@ -245,5 +246,45 @@ mod tests {
             (page.width, page.height, page.index, page.total),
             (1, 1, 0, 1)
         );
+    }
+
+    #[test]
+    fn large_photoshop_container_keeps_one_full_resolution_page() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("large.psd");
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/psd/rgb8.psd");
+        std::fs::copy(fixture, &path).unwrap();
+        // Legal trailing padding tests container size without allocating a large canvas.
+        File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(512 * 1024 * 1024 + 1)
+            .unwrap();
+        let page = decode(&path, 20, true, 1024).unwrap();
+        assert_eq!(
+            (page.width, page.height, page.index, page.total),
+            (2, 1, 0, 1)
+        );
+        assert_eq!(page.rgba, [255, 0, 0, 255, 0, 255, 0, 255]);
+        assert!(decode(&path, 0, false, 7).is_err());
+    }
+
+    #[test]
+    fn ordinary_image_container_still_has_the_512_mib_limit() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("large.png");
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/image.png");
+        std::fs::copy(fixture, &path).unwrap();
+        File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(512 * 1024 * 1024 + 1)
+            .unwrap();
+        assert!(decode(&path, 0, false, 1024)
+            .err()
+            .unwrap()
+            .contains("512 MiB"));
     }
 }

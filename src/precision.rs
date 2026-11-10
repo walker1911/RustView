@@ -969,8 +969,14 @@ fn add_edit(
 }
 
 fn safe_source(input: &Path, work: &Path) -> Result<PathBuf, String> {
-    if !input.is_file() || input.metadata().map_err(|e| e.to_string())?.len() > MAX_OUTPUT_BYTES {
-        return Err("编辑源文件不存在或超过512 MiB".into());
+    let size = crate::imaging::checked_input_size(input)?;
+    if size > MAX_OUTPUT_BYTES {
+        // A layered PSD can be gigabytes while its saved composite is small.
+        // Read the validated PSD directly: copying it would defeat seek-based
+        // layer skipping. An absolute path cannot become an option or coder;
+        // the existing filename:literal setting preserves [] and % in names.
+        // Every PSD probe/decode/render still selects only composite scene [0].
+        return input.canonicalize().map_err(|e| e.to_string());
     }
     let extension = input
         .extension()
@@ -1001,13 +1007,16 @@ pub fn render(
     if !(1..=100).contains(&settings.quality) || !matches!(settings.depth, 8 | 16) {
         return Err("导出质量或位深无效".into());
     }
-    if settings.animation == AnimationMode::AllFrames
-        && !matches!(settings.format, OutputFormat::Gif | OutputFormat::WebP)
-    {
+    let photoshop = crate::imaging::is_photoshop(&input.to_string_lossy());
+    let all = settings.animation == AnimationMode::AllFrames && !photoshop;
+    if all && !matches!(settings.format, OutputFormat::Gif | OutputFormat::WebP) {
         return Err("完整动画输出请选择GIF或WebP".into());
     }
     if crate::imaging::is_raw(&destination.to_string_lossy()) {
         return Err("不覆盖RAW源文件，请另存图像或编辑记录".into());
+    }
+    if crate::imaging::is_photoshop(&destination.to_string_lossy()) {
+        return Err("PSD/PSB只读，请另存PNG/TIFF等图像或编辑记录".into());
     }
     raw.validate()?;
     let parent = destination
@@ -1030,7 +1039,12 @@ pub fn render(
     } else {
         safe_source(input, work)?
     };
-    let (source_width, source_height, _, _) = metadata(&source, work)?;
+    let metadata_source = if photoshop {
+        PathBuf::from(format!("{}[0]", source.display()))
+    } else {
+        source.clone()
+    };
+    let (source_width, source_height, _, _) = metadata(&metadata_source, work)?;
     if (source_width as u64) * (source_height as u64) * 8 > MAX_OUTPUT_BYTES {
         return Err("源画布超过512 MiB高位RGBA预算".into());
     }
@@ -1053,10 +1067,12 @@ pub fn render(
     fs::write(work.join("working.icc"), working).map_err(|e| e.to_string())?;
     fs::write(work.join("linear.icc"), linear).map_err(|e| e.to_string())?;
     let mut arguments = Vec::new();
-    let all = settings.animation == AnimationMode::AllFrames;
     let mut source_arg = source.as_os_str().to_owned();
     if !all {
-        source_arg.push(format!("[{}]", page.unwrap_or(0)));
+        source_arg.push(format!(
+            "[{}]",
+            if photoshop { 0 } else { page.unwrap_or(0) }
+        ));
     }
     arguments.push(source_arg);
     push(&mut arguments, ["-auto-orient"]);
@@ -1315,7 +1331,10 @@ pub fn decode_fallback(
         .map_err(|e| e.to_string())?;
     let work = work.path();
     let source = safe_source(input, work)?;
-    let (w, h, _, _) = metadata(&source, work)?;
+    // PSD/PSB scene zero is the composite. Restrict the probe as well as the
+    // decode so ImageMagick can skip layer pixels instead of listing them.
+    let first = PathBuf::from(format!("{}[0]", source.display()));
+    let (w, h, _, _) = metadata(&first, work)?;
     let allowed = (w as u64)
         .checked_mul(h as u64)
         .filter(|n| *n <= max_pixels)
@@ -1325,10 +1344,7 @@ pub fn decode_fallback(
         return Err("备用解码图像超过像素或RGBA内存预算".into());
     }
     let output = work.join("decoded.png");
-    let mut args = vec![
-        format!("{}[0]", source.display()).into(),
-        "-auto-orient".into(),
-    ];
+    let mut args = vec![first.into_os_string(), "-auto-orient".into()];
     if managed {
         push(
             &mut args,
@@ -1368,8 +1384,13 @@ pub fn decode_fallback(
         height: image.height(),
         rgba: image.into_raw(),
         note: format!(
-            "ImageMagick Q16-HDRI · {}解码{}",
+            "ImageMagick Q16-HDRI · {}解码{}{}",
             input.extension().and_then(|e| e.to_str()).unwrap_or("图像"),
+            if crate::imaging::is_photoshop(&input.to_string_lossy()) {
+                " · 文档合成预览"
+            } else {
+                ""
+            },
             if managed { " · ICC→sRGB" } else { "" }
         ),
     })
@@ -1890,6 +1911,170 @@ mod tests {
             let image = crate::imaging::decode(&encoded, 100, 1000, false).unwrap();
             assert_eq!((image.width, image.height), (6, 4));
             assert!(crate::imaging::decode(&encoded, 10, 1000, false).is_err());
+        }
+    }
+    #[test]
+    fn photoshop_composites_preserve_pixels_alpha_and_source() {
+        let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/psd");
+        let cases: &[(&str, &[u8])] = &[
+            ("rgb8.psd", &[255, 0, 0, 255, 0, 255, 0, 255]),
+            ("rgb-rle.psd", &[255, 0, 0, 255, 0, 255, 0, 255]),
+            ("rgba8.psd", &[255, 0, 0, 128, 0, 255, 0, 255]),
+            ("rgb16.psd", &[64, 128, 191, 255, 255, 0, 0, 255]),
+            ("cmyk8.psd", &[255, 255, 255, 255, 0, 255, 255, 255]),
+            ("rgb-icc.psd", &[90, 120, 180, 255, 90, 120, 180, 255]),
+            // The actual layer is blue; only the saved composite is orange.
+            ("layered.psd", &[240, 120, 30, 255, 240, 120, 30, 255]),
+            ("layered.psb", &[240, 120, 30, 255, 240, 120, 30, 255]),
+        ];
+        for (name, expected) in cases {
+            let source = fixtures.join(name);
+            let original = fs::read(&source).unwrap();
+            // PNG max_alloc includes codec scratch/metadata, not just RGBA.
+            // Exact pixel/RGBA rejection is covered separately below.
+            let image = crate::imaging::decode(&source, 2, 1024, false).unwrap();
+            assert_eq!((image.width, image.height), (2, 1), "{name}");
+            assert_eq!(&image.rgba, expected, "{name}");
+            assert!(image.note.contains("文档合成预览"), "{name}");
+            assert_eq!(fs::read(source).unwrap(), original, "{name}");
+        }
+    }
+    #[test]
+    fn large_photoshop_source_seeks_to_composite_without_copying_or_changing_budgets() {
+        use std::io::{Seek, SeekFrom, Write};
+        let directory = tempfile::tempdir().unwrap();
+        let work = tempfile::tempdir().unwrap();
+        let fixture = include_bytes!("../tests/fixtures/psd/rgb8.psd");
+        let layer_bytes = 512 * 1024 * 1024_u64;
+        for (name, version) in [("中文[7]100% &.PSD", 1_u16), ("-literal[0].PSB", 2_u16)] {
+            let source = directory.path().join(name);
+            let mut file = fs::File::create(&source).unwrap();
+            let mut header = fixture[..34].to_vec();
+            header[4..6].copy_from_slice(&version.to_be_bytes());
+            file.write_all(&header).unwrap();
+            if version == 1 {
+                file.write_all(&(layer_bytes as u32).to_be_bytes()).unwrap();
+            } else {
+                file.write_all(&layer_bytes.to_be_bytes()).unwrap();
+            }
+            let composite = file.stream_position().unwrap() + layer_bytes;
+            file.seek(SeekFrom::Start(composite)).unwrap();
+            file.write_all(&fixture[38..]).unwrap();
+            drop(file);
+            let size = fs::metadata(&source).unwrap().len();
+            assert!(size > MAX_OUTPUT_BYTES);
+            assert_eq!(crate::imaging::checked_input_size(&source).unwrap(), size);
+            assert_eq!(
+                safe_source(&source, work.path()).unwrap(),
+                source.canonicalize().unwrap()
+            );
+            assert!(!work.path().join("source.PSD").exists());
+            assert!(!work.path().join("source.PSB").exists());
+            let image = crate::imaging::decode(&source, 2, 1024, false).unwrap();
+            assert_eq!((image.width, image.height), (2, 1));
+            assert_eq!(image.rgba, &[255, 0, 0, 255, 0, 255, 0, 255]);
+            for (pixels, bytes) in [(1, 1024), (2, 7)] {
+                let error = crate::imaging::decode(&source, pixels, bytes, false)
+                    .err()
+                    .unwrap();
+                assert!(error.contains("超过像素或RGBA内存预算"), "{error}");
+            }
+            let output = work.path().join(format!("{name}.png"));
+            let summary = render(
+                &source,
+                None,
+                &[],
+                &ExportSettings::default(),
+                &RawSettings::default(),
+                work.path(),
+                &output,
+            )
+            .unwrap();
+            assert_eq!((summary.width, summary.height, summary.frames), (2, 1, 1));
+            assert_eq!(
+                image::open(&output).unwrap().into_rgba8().as_raw(),
+                &[255, 0, 0, 255, 0, 255, 0, 255]
+            );
+            assert_eq!(fs::metadata(&source).unwrap().len(), size);
+            fs::rename(
+                &source,
+                directory.path().join(format!("moved-{version}.psd")),
+            )
+            .unwrap();
+        }
+    }
+    #[test]
+    fn photoshop_decode_rejects_pixel_and_rgba_budgets_and_writing() {
+        let source =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/psd/layered.psd");
+        for (pixels, bytes) in [(1, 8), (2, 7)] {
+            let error = crate::imaging::decode(&source, pixels, bytes, false)
+                .err()
+                .unwrap();
+            assert!(error.contains("超过像素或RGBA内存预算"), "{error}");
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("forbidden.psd");
+        let error = run(
+            &[
+                format!("{}[0]", source.display()).into(),
+                format!("PSD:{}", output.display()).into(),
+            ],
+            directory.path(),
+        )
+        .unwrap_err();
+        assert!(error.contains("security policy"), "{error}");
+        assert!(OutputFormat::from_path(&output).is_err());
+    }
+    #[test]
+    fn photoshop_render_always_uses_composite_and_never_overwrites_psd() {
+        let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/psd");
+        let directory = tempfile::tempdir().unwrap();
+        for name in ["layered.psd", "layered.psb"] {
+            let source = directory.path().join(name);
+            fs::copy(fixtures.join(name), &source).unwrap();
+            let original = fs::read(&source).unwrap();
+            for format in [OutputFormat::Png, OutputFormat::WebP] {
+                let output = directory
+                    .path()
+                    .join(format!("{name}.{}", format.extension()));
+                let settings = ExportSettings {
+                    format,
+                    depth: 8,
+                    animation: AnimationMode::AllFrames,
+                    ..Default::default()
+                };
+                let summary = render(
+                    &source,
+                    Some(1),
+                    &[],
+                    &settings,
+                    &RawSettings::default(),
+                    directory.path(),
+                    &output,
+                )
+                .unwrap();
+                assert_eq!(summary.frames, 1, "{name}");
+                assert_eq!(
+                    image::open(&output).unwrap().into_rgba8().as_raw(),
+                    &[240, 120, 30, 255, 240, 120, 30, 255],
+                    "{name}"
+                );
+                let (_, _, _, frames) = metadata(&output, directory.path()).unwrap();
+                assert_eq!(frames, 1, "{name}");
+            }
+            let error = render(
+                &source,
+                None,
+                &[],
+                &ExportSettings::default(),
+                &RawSettings::default(),
+                directory.path(),
+                &source,
+            )
+            .unwrap_err();
+            assert!(error.contains("PSD/PSB只读"), "{error}");
+            assert_eq!(fs::read(&source).unwrap(), original, "{name}");
         }
     }
     #[test]

@@ -27,6 +27,8 @@ jobs:
         run: .\tools\fetch-native.ps1
       - name: Unit tests
         run: cargo test --locked -- --test-threads=2
+      - name: Reversible Windows integration tests
+        run: .\tools\test-windows-associations.ps1
       - name: Build the public bootstrap package
         run: .\tools\package-public.ps1
       - name: Test a fully prepared local runtime
@@ -37,6 +39,10 @@ jobs:
           python tools/smoke_test.py --exe $exe --output test-output/smoke-ci.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tools/animation_smoke.py --exe $exe --output test-output/animation-ci.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/thumbnail_smoke.py --exe $exe --output test-output/thumbnail-ci.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/psd_smoke.py --exe $exe --output test-output/psd-ci.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload only the bootstrap package
         uses: actions/upload-artifact@v4

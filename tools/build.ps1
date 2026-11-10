@@ -50,9 +50,10 @@ try {
         Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/NATIVE-SOURCES.md') -Destination (Join-Path $package 'sources/README.md') -Force
     }
     Copy-VcRuntime $package $RuntimeDirectory
+    Copy-WindowsIntegration $package
     $launcher = '@echo off' + "`r`n" + 'start "" "%~dp0RustView.exe" %*' + "`r`n"
     [IO.File]::WriteAllText((Join-Path $package 'Start-RustView.cmd'), $launcher, [Text.Encoding]::ASCII)
     $suffix = if ($Offline) { '-win-x64-offline.zip' } else { '-win-x64.zip' }
-    Write-PackageArchive $package (Join-Path $OutputRoot ('RustView-' + $version + $suffix)) @('native','docs','sources','assets','licenses')
+    Write-PackageArchive $package (Join-Path $OutputRoot ('RustView-' + $version + $suffix)) @('native','docs','sources','assets','licenses','tools')
     Write-Output $package
 } finally { Pop-Location }

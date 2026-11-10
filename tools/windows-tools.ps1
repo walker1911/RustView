@@ -64,3 +64,15 @@ function Write-PackageArchive([string]$Package, [string]$ZipPath, [string[]]$Fol
     Compress-Archive -LiteralPath $items -DestinationPath $ZipPath -CompressionLevel Optimal -Force
     ((Get-FileHash -LiteralPath $ZipPath -Algorithm SHA256).Hash + '  ' + (Split-Path -Leaf $ZipPath)) | Set-Content -LiteralPath ($ZipPath + '.sha256') -Encoding ascii
 }
+
+function Copy-WindowsIntegration([string]$Package) {
+    [void][IO.Directory]::CreateDirectory((Join-Path $Package 'tools'))
+    foreach ($file in @('windows-associations.ps1','configure-windows.ps1')) {
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination (Join-Path $Package ('tools/' + $file)) -Force
+    }
+    foreach ($action in @('Setup','Remove')) {
+        $argument = if ($action -eq 'Remove') { ' -Uninstall' } else { '' }
+        $launcher = '@echo off' + "`r`n" + 'powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\configure-windows.ps1"' + $argument + "`r`n" + 'if errorlevel 1 (pause & exit /b 1)' + "`r`n" + 'pause' + "`r`n"
+        [IO.File]::WriteAllText((Join-Path $Package ($action + '-File-Associations.cmd')), $launcher, [Text.Encoding]::ASCII)
+    }
+}

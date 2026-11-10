@@ -176,6 +176,7 @@ impl Viewer {
         if !self.browser {
             return;
         }
+        self.extra.coverflow.invalidate_sequence();
         self.poll_browser_metadata(ctx);
         self.ensure_management_order(ctx);
         self.poll_folder_tree(ctx);
@@ -361,6 +362,7 @@ impl Viewer {
             match result {
                 Ok(index) if index.generation == self.extra.browser_ui.generation => {
                     self.extra.visible = index.order;
+                    self.extra.coverflow.invalidate_sequence();
                     self.extra.browser_ui.order_hash = hash_indices(&self.extra.visible);
                     self.extra.browser_ui.metadata = index.values;
                     self.extra.browser_ui.groups = index.groups;
@@ -719,6 +721,7 @@ impl Viewer {
         self.entries
             .get(index)
             .is_some_and(|e| !e.directory && !e.archive)
+            && (!self.large_archived_photoshop(index) || self.selected == Some(index))
             && !self.extra.thumbnails.contains_key(&index)
             && !self.extra.browser_ui.thumb_failed.contains(&index)
             && self.extra.layout != 2011
@@ -1383,52 +1386,16 @@ fn select_visible(
 pub(super) mod tests {
     use super::*;
     pub(in crate::app) fn viewer(entries: Vec<Entry>) -> Viewer {
-        let mut extra = Extras::new();
-        extra.visible = (0..entries.len()).collect();
-        extra.selection.insert(0);
-        extra.browser_ui.folders = false;
-        extra.browser_ui.preview = false;
-        extra.browser_ui.tasks = false;
-        Viewer {
-            extra,
-            #[cfg(windows)]
-            native_keys: None,
-            source: None,
-            entries,
-            selected: Some(0),
-            browser: true,
-            password: None,
-            password_dialog: false,
-            password_focus: false,
-            password_input: String::new(),
-            retry: None,
-            serial: 0,
-            pending: None,
-            running: None,
-            status: String::new(),
-            cache: ImageCache::default(),
-            current: None,
-            current_key: None,
-            full_raw: false,
-            overview: None,
-            tiles: HashMap::new(),
-            tile_bytes: 0,
-            tick: 0,
-            scale: 1.0,
-            target_scale: 1.0,
-            pan: Vec2::ZERO,
-            fit: true,
-            rotation: 0,
-            flip_x: false,
-            flip_y: false,
-            zoom_anchor: None,
-            fullscreen: false,
-            last_frame: Instant::now(),
-            last_title: String::new(),
-            help: false,
-            properties: false,
-            error: None,
-        }
+        let mut app = Viewer::empty();
+        app.extra.visible = (0..entries.len()).collect();
+        app.extra.selection.insert(0);
+        app.extra.browser_ui.folders = false;
+        app.extra.browser_ui.preview = false;
+        app.extra.browser_ui.tasks = false;
+        app.entries = entries;
+        app.selected = Some(0);
+        app.status.clear();
+        app
     }
     fn entry(name: &str, size: u64, directory: bool) -> Entry {
         Entry {
@@ -1438,6 +1405,18 @@ pub(super) mod tests {
             archive: false,
             modified: Some(1_700_000_000),
         }
+    }
+
+    #[test]
+    fn large_archived_photoshop_management_thumbnail_requires_selection() {
+        let mut viewer = viewer(vec![entry("large.psd", worker::MAX_INPUT_BYTES + 1, false), entry("small.png", 1, false)]);
+        viewer.extra.layout = 2010;
+        viewer.source = Some("photos.zip".into());
+        viewer.selected = Some(1);
+        assert!(!viewer.wants_management_thumbnail(0));
+        assert!(viewer.wants_management_thumbnail(1));
+        viewer.selected = Some(0);
+        assert!(viewer.wants_management_thumbnail(0));
     }
     #[test]
     fn shift_selection_follows_filtered_visible_order() {

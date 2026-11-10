@@ -72,6 +72,10 @@ fn key_action(key: Key, modifiers: u8, browser: bool) -> Option<Action> {
         (0, Key::F) => Some(Fullscreen),
         (0, Key::G) => Some(ToggleAnimation),
         (0, Key::E) => Some(LegacyCommand(22067)),
+        (0, Key::ArrowLeft) => Some(Previous),
+        (0, Key::ArrowRight) => Some(Next),
+        (0, Key::ArrowUp) => Some(ZoomIn),
+        (0, Key::ArrowDown) => Some(ZoomOut),
         (1, Key::ArrowLeft) => Some(Previous),
         (1, Key::ArrowRight) => Some(Next),
         (5, Key::ArrowLeft) => Some(RotateLeft),
@@ -121,6 +125,15 @@ fn copy_action(input: &InputState, browser: bool) -> Option<Action> {
 }
 
 pub fn action(input: &InputState, browser: bool) -> Option<Action> {
+    action_with_view_arrows(input, browser, true)
+}
+
+/// Compare and processing may inherit View shortcuts without its single-image arrows.
+pub fn action_with_view_arrows(
+    input: &InputState,
+    browser: bool,
+    view_arrows: bool,
+) -> Option<Action> {
     input.events.iter().find_map(|event| match event {
         Event::Copy => copy_action(input, browser),
         Event::Cut => clipboard_command(input, browser, true),
@@ -132,7 +145,15 @@ pub fn action(input: &InputState, browser: bool) -> Option<Action> {
             repeat,
             ..
         } => {
-            let action = key_action(*key, modifier_bits(*modifiers), browser)?;
+            let bits = modifier_bits(*modifiers);
+            if !view_arrows
+                && !browser
+                && bits == 0
+                && matches!(key, Key::ArrowLeft | Key::ArrowRight | Key::ArrowUp | Key::ArrowDown)
+            {
+                return None;
+            }
+            let action = key_action(*key, bits, browser)?;
             (!*repeat
                 || matches!(
                     action,
@@ -533,7 +554,7 @@ pub fn action_for_command(command: u16) -> Option<Action> {
     allowed_command(command).then(|| command_action(command))
 }
 pub fn default_bindings() -> Vec<crate::legacy_settings::ShortcutBinding> {
-    ACCELERATORS
+    let mut bindings: Vec<_> = ACCELERATORS
         .iter()
         .filter(|(table, _, _, _, command)| {
             matches!(table, 2 | 552 | 553) && allowed_command(*command)
@@ -547,7 +568,17 @@ pub fn default_bindings() -> Vec<crate::legacy_settings::ShortcutBinding> {
                 command: *command,
             }
         })
-        .collect()
+        .collect();
+    for (key, command) in [(37, 2271), (38, 2238), (39, 2269), (40, 2239)] {
+        bindings.push(crate::legacy_settings::ShortcutBinding {
+            table: 552,
+            virtual_key: true,
+            modifiers: 0,
+            key,
+            command,
+        });
+    }
+    bindings
 }
 
 fn egui_virtual_key(key: Key) -> Option<u16> {
@@ -630,6 +661,15 @@ pub fn native_action_for_table(
     events: &[crate::native_keys::NativeKeyEvent],
     table: u16,
 ) -> Option<Action> {
+    native_action_for_table_with_view_arrows(events, table, true)
+}
+
+/// Disable single-image arrows when inheriting the View table in another context.
+pub fn native_action_for_table_with_view_arrows(
+    events: &[crate::native_keys::NativeKeyEvent],
+    table: u16,
+    view_arrows: bool,
+) -> Option<Action> {
     use crate::native_keys::NativeKeyEvent;
     events.iter().find_map(|event| {
         let (virtual_key, key, modifiers, repeat) = match event {
@@ -653,6 +693,13 @@ pub fn native_action_for_table(
             Action::ToggleAnimation // New, unoccupied G binding; not the removed Auto Advance shortcut.
         } else if virtual_key && modifiers == 0 && table == 552 && key == 0x45 {
             Action::LegacyCommand(22067) // Documented runtime E binding, absent from the resource table.
+        } else if virtual_key && modifiers == 0 && table == 552 && view_arrows && (0x25..=0x28).contains(&key) {
+            match key {
+                0x25 => Action::Previous,
+                0x26 => Action::ZoomIn,
+                0x27 => Action::Next,
+                _ => Action::ZoomOut,
+            }
         } else if virtual_key && modifiers == 1 && table == 552 && key == 0x25 {
             Action::Previous
         } else if virtual_key && modifiers == 1 && table == 552 && key == 0x27 {
@@ -728,12 +775,102 @@ mod tests {
             key_action(Key::ArrowLeft, 5, false),
             Some(Action::RotateLeft)
         );
-        assert_eq!(key_action(Key::ArrowLeft, 0, false), None);
+        assert_eq!(key_action(Key::ArrowLeft, 0, false), Some(Action::Previous));
         assert_eq!(
             key_action(Key::Delete, 2, false),
             Some(Action::DeletePermanently)
         );
         assert_eq!(key_action(Key::Num1, 0, false), None); // Do not confuse numpads.
+    }
+
+    #[test]
+    fn single_image_arrows_match_native_and_egui_and_repeat() {
+        for (key, virtual_key, expected) in [
+            (Key::ArrowLeft, 0x25, Action::Previous),
+            (Key::ArrowUp, 0x26, Action::ZoomIn),
+            (Key::ArrowRight, 0x27, Action::Next),
+            (Key::ArrowDown, 0x28, Action::ZoomOut),
+        ] {
+            for repeat in [false, true] {
+                let mut input = InputState::default();
+                input.events.push(Event::Key {
+                    key,
+                    physical_key: None,
+                    pressed: true,
+                    repeat,
+                    modifiers: Modifiers::NONE,
+                });
+                assert_eq!(action(&input, false), Some(expected), "{key:?}, {repeat}");
+                assert_eq!(action(&input, true), None, "Management owns {key:?}");
+                assert_eq!(action_with_view_arrows(&input, false, false), None);
+
+                let mut native = native_key(virtual_key, true, Modifiers::NONE);
+                if let crate::native_keys::NativeKeyEvent::Key { repeat: value, .. } = &mut native {
+                    *value = repeat;
+                }
+                let events = [native, native_key(virtual_key, false, Modifiers::NONE)];
+                assert_eq!(native_action_for_table(&events, 552), Some(expected));
+                for table in [2, 553, 22118] {
+                    assert_eq!(native_action_for_table(&events, table), None, "{table}");
+                }
+                assert_eq!(native_action_for_table_with_view_arrows(&events, 552, false), None);
+            }
+        }
+    }
+
+    #[test]
+    fn single_image_arrow_defaults_are_listed_once_in_shortcut_settings() {
+        let bindings = default_bindings();
+        for (key, command) in [(37, 2271), (38, 2238), (39, 2269), (40, 2239)] {
+            let matches: Vec<_> = bindings.iter().filter(|binding| {
+                binding.virtual_key && binding.modifiers == 0 && binding.key == key
+            }).collect();
+            assert_eq!(matches.len(), 1, "Duplicate or missing arrow {key}");
+            assert_eq!((matches[0].table, matches[0].command), (552, command));
+            assert_eq!(action_for_command(command), native_action_for_table(
+                &[native_key(key, true, Modifiers::NONE)], 552,
+            ));
+        }
+    }
+
+    #[test]
+    fn suppressing_single_image_arrows_keeps_other_fallbacks_and_modifiers() {
+        let mut input = InputState::default();
+        input.events = [Key::ArrowLeft, Key::E]
+            .into_iter()
+            .map(|key| Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            })
+            .collect();
+        let events = [
+            native_key(0x25, true, Modifiers::NONE),
+            native_key(0x45, true, Modifiers::NONE),
+        ];
+        assert_eq!(action_with_view_arrows(&input, false, false), Some(Action::LegacyCommand(22067)));
+        assert_eq!(native_action_for_table_with_view_arrows(&events, 552, false), Some(Action::LegacyCommand(22067)));
+
+        for (key, virtual_key, modifiers, expected) in [
+            (Key::ArrowLeft, 0x25, Modifiers::CTRL, Some(Action::Previous)),
+            (Key::ArrowRight, 0x27, Modifiers::CTRL, Some(Action::Next)),
+            (Key::ArrowLeft, 0x25, Modifiers { ctrl: true, alt: true, ..Modifiers::NONE }, Some(Action::RotateLeft)),
+            (Key::ArrowRight, 0x27, Modifiers { ctrl: true, alt: true, ..Modifiers::NONE }, Some(Action::RotateRight)),
+            (Key::ArrowDown, 0x28, Modifiers::ALT, Some(Action::LegacyCommand(2301))),
+            (Key::ArrowUp, 0x26, Modifiers::SHIFT, None),
+        ] {
+            input.events = vec![Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            }];
+            assert_eq!(action_with_view_arrows(&input, false, false), expected);
+            assert_eq!(native_action_for_table_with_view_arrows(&[native_key(virtual_key, true, modifiers)], 552, false), expected);
+        }
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{BufRead, BufReader, Cursor, Seek};
+use std::io::{BufRead, BufReader, Cursor, Read, Seek};
 use std::path::Path;
 
 use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, Limits};
@@ -54,8 +54,52 @@ pub fn is_raw(name: &str) -> bool {
     )
 }
 
+pub fn is_photoshop(name: &str) -> bool {
+    matches!(extension(name).as_str(), "psd" | "psb")
+}
+
+const MAX_INPUT_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_PHOTOSHOP_INPUT_BYTES: u64 = 64 * 1024 * 1024 * 1024;
+
+pub fn input_byte_limit(name: &str) -> u64 {
+    if is_photoshop(name) {
+        MAX_PHOTOSHOP_INPUT_BYTES
+    } else {
+        MAX_INPUT_BYTES
+    }
+}
+
+pub(crate) fn checked_input_size(input: &Path) -> Result<u64, String> {
+    let metadata = input
+        .metadata()
+        .map_err(|error| format!("无法打开图像：{error}"))?;
+    if !metadata.is_file() {
+        return Err("图像来源不是普通文件".into());
+    }
+    let size = metadata.len();
+    let limit = input_byte_limit(&input.to_string_lossy());
+    if size > limit {
+        return Err(if limit == MAX_PHOTOSHOP_INPUT_BYTES {
+            "PSD/PSB输入超过64 GiB，已停止读取".into()
+        } else {
+            "输入文件超过512 MiB，已停止读取".into()
+        });
+    }
+    if size > MAX_INPUT_BYTES {
+        let mut header = [0; 6];
+        File::open(input)
+            .and_then(|mut file| file.read_exact(&mut header))
+            .map_err(|error| format!("无法读取PSD/PSB文件头：{error}"))?;
+        if &header[..4] != b"8BPS" || !matches!(u16::from_be_bytes([header[4], header[5]]), 1 | 2) {
+            return Err("超过512 MiB的输入仅接受有效PSD/PSB文件头，不能仅改文件后缀".into());
+        }
+    }
+    Ok(size)
+}
+
 pub fn is_supported_image(name: &str) -> bool {
     is_raw(name)
+        || is_photoshop(name)
         || matches!(
             extension(name).as_str(),
             "jpg"
@@ -128,10 +172,7 @@ fn decode_options(
     raw_full: bool,
     managed: bool,
 ) -> Result<DecodedImage, String> {
-    let size = input.metadata().map_err(|error| error.to_string())?.len();
-    if size > 512 * 1024 * 1024 {
-        return Err("输入文件超过 512 MiB，已停止读取".into());
-    }
+    checked_input_size(input)?;
     if is_raw(&input.to_string_lossy()) {
         return decode_raw(input, max_pixels, max_output_bytes, raw_full);
     }
@@ -313,7 +354,7 @@ pub fn raw16_to_png(
 mod raw {
     use super::*;
     use libloading::Library;
-    use std::ffi::{CStr, c_char, c_int, c_void};
+    use std::ffi::{c_char, c_int, c_void, CStr};
     use std::os::windows::ffi::OsStrExt;
     use std::path::PathBuf;
 
@@ -835,9 +876,37 @@ mod tests {
     #[test]
     fn supported_extensions_are_case_insensitive() {
         assert!(is_supported_image("subfolder/PHOTO.WEBP"));
+        assert!(is_supported_image("design/PHOTO.PSD"));
+        assert!(is_supported_image("design/PHOTO.PSB"));
         assert!(is_raw("camera.CR3"));
         assert!(!is_supported_image("movie.mp4"));
         assert!(!is_supported_image("archive.zip"));
+    }
+
+    #[test]
+    fn large_input_allowance_requires_photoshop_name_and_file_header() {
+        use std::io::Write;
+        assert_eq!(input_byte_limit("document.PSD"), 64 * 1024 * 1024 * 1024);
+        assert_eq!(input_byte_limit("document.psb"), 64 * 1024 * 1024 * 1024);
+        for name in ["photo.png", "photo.jpg", "photo.nef", "photo.webp"] {
+            assert_eq!(input_byte_limit(name), 512 * 1024 * 1024);
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("renamed.psd");
+        let mut file = File::create(&input).unwrap();
+        file.write_all(b"\x89PNG\r\n").unwrap();
+        file.set_len(MAX_INPUT_BYTES + 1).unwrap();
+        drop(file);
+        assert!(checked_input_size(&input)
+            .unwrap_err()
+            .contains("不能仅改文件后缀"));
+        std::fs::rename(&input, directory.path().join("renamed.png")).unwrap();
+        assert!(checked_input_size(&directory.path().join("renamed.png"))
+            .unwrap_err()
+            .contains("超过512 MiB"));
+        assert!(checked_input_size(directory.path())
+            .unwrap_err()
+            .contains("普通文件"));
     }
 
     #[cfg(windows)]

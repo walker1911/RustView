@@ -26,6 +26,8 @@ struct CatalogFilterTask {
 
 pub(super) struct Extras {
     pub browser_ui:super::browser_ui::State,
+    pub coverflow:super::coverflow::State,
+    pub presentation:super::presentation::State,
     pub workspace:super::workspace::State,
     pub metadata_ui:super::metadata_ui::State,
     pub print_ui:super::print_ui::State,
@@ -126,6 +128,8 @@ impl Extras {
             .and_then(|p| p.parent().map(|p| p.join("RustView-data/catalog.sqlite")));
         Self {
             browser_ui:super::browser_ui::State::default(),
+            coverflow:super::coverflow::State::default(),
+            presentation:super::presentation::State::default(),
             workspace:super::workspace::State::default(),
             metadata_ui:super::metadata_ui::State::default(),
             print_ui:super::print_ui::State::default(),
@@ -294,6 +298,7 @@ impl Viewer {
         }
     }
     pub(super) fn rebuild_visible(&mut self) {
+        self.extra.coverflow.invalidate_sequence();
         if let Some(task) = &self.extra.catalog_filter_task {
             task.cancel.store(true, Ordering::Relaxed);
         }
@@ -364,6 +369,7 @@ impl Viewer {
         if let Some(result) = done {
             let task = self.extra.catalog_filter_task.take().unwrap();
             if !task.cancel.load(Ordering::Relaxed) {
+                self.extra.coverflow.invalidate_sequence();
                 match result {
                     Ok(mut indices) => {
                         indices.sort_unstable();
@@ -581,6 +587,10 @@ impl Viewer {
         }
     }
     pub(super) fn delete_selected(&mut self, permanent: bool) {
+        if !self.browser && self.current.is_none() && self.extra.presentation.has_frame() {
+            self.status = "当前显示加载预览；请等图片就绪，或回管理模式删除".into();
+            return;
+        }
         let sources = self.selected_sources();
         if sources.is_empty() {
             return;
@@ -685,6 +695,7 @@ impl Viewer {
                 }
             }
             2037 | 2038 | 2039 => {
+                self.extra.coverflow.invalidate_sequence();
                 self.extra.selection = self
                     .extra
                     .visible
@@ -697,9 +708,10 @@ impl Viewer {
                     })
                     .collect();
             }
-            2040 => self.extra.selection.clear(),
+            2040 => { self.extra.selection.clear(); self.extra.coverflow.invalidate_sequence(); },
             2279 => {self.extra.selection_rect=None;self.extra.selection_origin=None;},
             2494 => {
+                self.extra.coverflow.invalidate_sequence();
                 self.extra.selection = self
                     .extra
                     .visible

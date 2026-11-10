@@ -15,6 +15,8 @@ pub const MAX_IMAGE_BYTES: usize = 512 * 1024 * 1024;
 pub const MAX_INPUT_BYTES: u64 = 512 * 1024 * 1024;
 pub const WORKER_MEMORY: usize = 2 * 1024 * 1024 * 1024;
 pub const METADATA_MEMORY: usize = 256 * 1024 * 1024;
+pub const THUMBNAIL_MEMORY: usize = 512 * 1024 * 1024;
+pub const THUMBNAIL_SIDE: u32 = 128;
 pub const MAX_ENTRIES: usize = 100_000;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -188,16 +190,32 @@ pub(crate) fn prepare_image(request: &Request, output: &Path) -> Result<PathBuf,
             .take(12)
             .collect();
         let input = output.join(format!("input.{extension}"));
-        crate::archive::extract(path, entry, password.as_deref(), &input, MAX_INPUT_BYTES)
+        let input_limit = crate::imaging::input_byte_limit(entry);
+        crate::archive::extract_image(path, entry, password.as_deref(), &input, input_limit)
             .map_err(archive_error)?;
         input
     } else {
         path.clone()
     };
-    let input_size = fs::metadata(&input).map(|m| m.len());
-    if !matches!(input_size, Ok(size) if size <= MAX_INPUT_BYTES) {
+    let input_metadata = fs::metadata(&input).map_err(|error| Reply {
+        error: Some(format!("无法访问图像文件：{error}")),
+        ..Default::default()
+    })?;
+    if !input_metadata.is_file() {
         return Err(Reply {
-            error: Some("文件不存在或超过当前单文件 512 MiB 读取限额".into()),
+            error: Some("选择的路径不是图片文件".into()),
+            ..Default::default()
+        });
+    }
+    // Source bytes and decoded pixels have separate budgets. Large archive
+    // entries are streamed to a checked temporary disk by extract_image.
+    let input_limit = crate::imaging::input_byte_limit(&input.to_string_lossy());
+    if input_metadata.len() > input_limit {
+        return Err(Reply {
+            error: Some(format!(
+                "文件超过当前此格式 {} MiB 输入限额；像素内存预算另行检查",
+                input_limit / (1024 * 1024)
+            )),
             ..Default::default()
         });
     }
@@ -644,7 +662,7 @@ fn handle(request: Request, output: &Path) -> Reply {
                 let image = image::RgbaImage::from_raw(d.width, d.height, d.rgba)
                     .ok_or("缩略图尺寸无效")?;
                 let thumbnail = image::DynamicImage::ImageRgba8(image)
-                    .thumbnail(d.width.min(128), d.height.min(128))
+                    .thumbnail(d.width.min(THUMBNAIL_SIDE), d.height.min(THUMBNAIL_SIDE))
                     .into_rgba8();
                 let mut reply = write_image(
                     output,
@@ -653,6 +671,8 @@ fn handle(request: Request, output: &Path) -> Reply {
                     thumbnail.into_raw(),
                     d.note,
                 )?;
+                reply.source_width = d.width;
+                reply.source_height = d.height;
                 reply.page_index = index;
                 reply.page_total = total;
                 reply.editing_record = record;
@@ -867,6 +887,10 @@ pub(crate) struct Job(windows_sys::Win32::Foundation::HANDLE);
 
 #[cfg(windows)]
 impl Job {
+    fn terminate(&self) {
+        unsafe { windows_sys::Win32::System::JobObjects::TerminateJobObject(self.0, 1); }
+    }
+
     pub(crate) fn attach(child: &std::process::Child) -> Result<Self, String> {
         Self::attach_with_limit(child, WORKER_MEMORY)
     }
@@ -914,17 +938,53 @@ impl Drop for Job {
     }
 }
 
+fn resource_limits(request: &Request) -> (usize, Duration) {
+    match request {
+        Request::Thumbnail { .. } => (THUMBNAIL_MEMORY, Duration::from_secs(30)),
+        Request::MetadataRead { .. } | Request::MetadataWrite { .. } => {
+            (METADATA_MEMORY, Duration::from_secs(120))
+        }
+        _ => (WORKER_MEMORY, Duration::from_secs(120)),
+    }
+}
+
 pub fn execute(request: Request, cancel: Arc<AtomicBool>) -> Result<Output, String> {
     let directory = tempfile::Builder::new()
         .prefix("rustview-")
         .tempdir()
         .map_err(|e| e.to_string())?;
+    let result = execute_in_directory(request, cancel, directory.path());
+    // All process/job handles are dropped before deleting the private spool.
+    // Windows can briefly retain native I/O handles after job termination.
+    let directory_path = directory.path().to_owned();
+    if let Err(error) = directory.close() {
+        let mut cleaned = false;
+        for _ in 0..20 {
+            std::thread::sleep(Duration::from_millis(50));
+            match fs::remove_dir_all(&directory_path) {
+                Ok(()) => { cleaned = true; break; }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => { cleaned = true; break; }
+                Err(_) => {}
+            }
+        }
+        if !cleaned {
+            return Err(format!("读取已结束，但临时文件清理失败：{error}"));
+        }
+    }
+    result
+}
+
+fn execute_in_directory(request: Request, cancel: Arc<AtomicBool>, directory: &Path) -> Result<Output, String> {
     let error_file =
-        fs::File::create(directory.path().join("stderr.txt")).map_err(|e| e.to_string())?;
+        fs::File::create(directory.join("stderr.txt")).map_err(|e| e.to_string())?;
     let mut command = Command::new(std::env::current_exe().map_err(|e| e.to_string())?);
     command
         .arg("--worker")
-        .arg(directory.path())
+        .arg(directory)
+        // Nested codec scratch files must survive only inside the supervised
+        // directory: forced cancellation skips the worker's Rust destructors.
+        .env("TEMP", directory)
+        .env("TMP", directory)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::from(error_file));
@@ -937,14 +997,7 @@ pub fn execute(request: Request, cancel: Arc<AtomicBool>) -> Result<Output, Stri
         .spawn()
         .map_err(|e| format!("无法启动读取进程：{e}"))?;
     // The child blocks on stdin until it has been placed in the memory-limited job.
-    let memory_limit = if matches!(
-        &request,
-        Request::MetadataRead { .. } | Request::MetadataWrite { .. }
-    ) {
-        METADATA_MEMORY
-    } else {
-        WORKER_MEMORY
-    };
+    let (memory_limit, timeout) = resource_limits(&request);
     #[cfg(windows)]
     let _job = match Job::attach_with_limit(&child, memory_limit) {
         Ok(job) => job,
@@ -957,6 +1010,8 @@ pub fn execute(request: Request, cancel: Arc<AtomicBool>) -> Result<Output, Stri
     let json = serde_json::to_vec(&request).map_err(|e| e.to_string())?;
     if let Some(mut stdin) = child.stdin.take() {
         if let Err(e) = stdin.write_all(&json) {
+            #[cfg(windows)]
+            _job.terminate();
             let _ = child.kill();
             let _ = child.wait();
             return Err(e.to_string());
@@ -964,7 +1019,9 @@ pub fn execute(request: Request, cancel: Arc<AtomicBool>) -> Result<Output, Stri
     }
     let started = Instant::now();
     let exit = loop {
-        if cancel.load(Ordering::Relaxed) || started.elapsed() > Duration::from_secs(120) {
+        if cancel.load(Ordering::Relaxed) || started.elapsed() > timeout {
+            #[cfg(windows)]
+            _job.terminate();
             let _ = child.kill();
             let _ = child.wait();
             return Err(if cancel.load(Ordering::Relaxed) {
@@ -977,6 +1034,8 @@ pub fn execute(request: Request, cancel: Arc<AtomicBool>) -> Result<Output, Stri
             Ok(Some(exit)) => break exit,
             Ok(None) => std::thread::sleep(Duration::from_millis(15)),
             Err(e) => {
+                #[cfg(windows)]
+                _job.terminate();
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(e.to_string());
@@ -989,7 +1048,7 @@ pub fn execute(request: Request, cancel: Arc<AtomicBool>) -> Result<Output, Stri
             memory_limit / 1048576
         ));
     }
-    let reply_file = directory.path().join("reply.json");
+    let reply_file = directory.join("reply.json");
     if fs::metadata(&reply_file)
         .map(|m| m.len())
         .unwrap_or(u64::MAX)
@@ -999,17 +1058,22 @@ pub fn execute(request: Request, cancel: Arc<AtomicBool>) -> Result<Output, Stri
     }
     let reply: Reply = serde_json::from_slice(&fs::read(reply_file).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
+    let thumbnail = matches!(&request, Request::Thumbnail { .. });
+    let thumbnail_bytes = THUMBNAIL_SIDE as usize * THUMBNAIL_SIDE as usize * 4;
+    if thumbnail && (reply.width > THUMBNAIL_SIDE || reply.height > THUMBNAIL_SIDE) {
+        return Err("缩略图结果超过 128×128 上限".into());
+    }
     let rgba = read_pixels(
-        directory.path().join("pixels.rgba"),
+        directory.join("pixels.rgba"),
         reply.width,
         reply.height,
-        MAX_IMAGE_BYTES,
+        if thumbnail { thumbnail_bytes } else { MAX_IMAGE_BYTES },
     )?;
     let preview = read_pixels(
-        directory.path().join("preview.rgba"),
+        directory.join("preview.rgba"),
         reply.preview_width,
         reply.preview_height,
-        2048 * 2048 * 4,
+        if thumbnail { thumbnail_bytes } else { 2048 * 2048 * 4 },
     )?;
     Ok(Output {
         reply,
@@ -1093,7 +1157,20 @@ pub fn request_probe_main() {
             }
             serde_json::from_slice::<Request>(&json).map_err(|_| "无效的测试请求".to_owned())
         });
-    let result = request.and_then(|request| execute(request, Arc::new(AtomicBool::new(false))));
+    let result = request.and_then(|request| {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let arguments: Vec<_> = std::env::args().collect();
+        if let Some(index) = arguments.iter().position(|a| a == "--cancel-after-ms") {
+            let delay = arguments.get(index + 1).and_then(|s| s.parse::<u64>().ok())
+                .filter(|n| (1..=10_000).contains(n)).ok_or("取消延时必须在1–10000毫秒之间")?;
+            let flag = cancel.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(delay));
+                flag.store(true, Ordering::Relaxed);
+            });
+        }
+        execute(request, cancel)
+    });
     match result {
         Ok(output) => {
             println!("{}", serde_json::to_string(&output.reply).unwrap());
@@ -1111,6 +1188,71 @@ pub fn request_probe_main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn large_local_photoshop_source_is_not_rejected_as_rgba_memory() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("large.psd");
+        fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/psd/layered.psd"),
+            &input,
+        ).unwrap();
+        fs::OpenOptions::new().write(true).open(&input).unwrap()
+            .set_len(MAX_INPUT_BYTES + 1).unwrap();
+        let request = Request::Load {
+            path: input.clone(), entry: None, password: None, full_raw: false,
+        };
+        assert_eq!(prepare_image(&request, directory.path()).ok(), Some(input.clone()));
+        let reply = handle(request, directory.path());
+        assert!(reply.error.is_none(), "{:?}", reply.error);
+        assert_eq!((reply.width, reply.height), (2, 1));
+        assert_eq!(fs::read(directory.path().join("pixels.rgba")).unwrap(),
+            [240, 120, 30, 255, 240, 120, 30, 255]);
+        let renamed = directory.path().join("large.png");
+        fs::rename(input, &renamed).unwrap();
+        let request = Request::Load {
+            path: renamed, entry: None, password: None, full_raw: false,
+        };
+        let reply = prepare_image(&request, directory.path()).err().unwrap();
+        assert!(reply.error.unwrap().contains("512 MiB"));
+    }
+
+    #[test]
+    fn missing_source_has_a_file_error_instead_of_a_memory_limit_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let request = Request::Load {
+            path: directory.path().join("missing.psd"), entry: None, password: None, full_raw: false,
+        };
+        let reply = prepare_image(&request, directory.path()).err().unwrap();
+        assert!(reply.error.unwrap().starts_with("无法访问图像文件"));
+    }
+
+    #[test]
+    fn thumbnail_limits_do_not_reduce_foreground_or_metadata_limits() {
+        let image = Request::Load {
+            path: "sample.png".into(),
+            entry: None,
+            password: None,
+            full_raw: false,
+        };
+        assert_eq!(resource_limits(&image), (2 * 1024 * 1024 * 1024, Duration::from_secs(120)));
+        assert_eq!(
+            resource_limits(&Request::Thumbnail { source: Box::new(image.clone()) }),
+            (512 * 1024 * 1024, Duration::from_secs(30)),
+        );
+        assert_eq!(
+            resource_limits(&Request::MetadataRead { source: Box::new(image) }),
+            (256 * 1024 * 1024, Duration::from_secs(120)),
+        );
+    }
+
+    #[test]
+    fn thumbnail_pixel_budget_rejects_oversize_before_reading_a_file() {
+        let missing = PathBuf::from("not-created-thumbnail.rgba");
+        let limit = THUMBNAIL_SIDE as usize * THUMBNAIL_SIDE as usize * 4;
+        let error = read_pixels(missing, THUMBNAIL_SIDE + 1, THUMBNAIL_SIDE, limit).unwrap_err();
+        assert_eq!(error, "图片输出超过预算或数据长度错误");
+    }
+
     #[test]
     fn edit_chain_saves_copy_with_actual_size_and_keeps_source() {
         let d = tempfile::tempdir().unwrap();

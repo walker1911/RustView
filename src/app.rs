@@ -17,13 +17,17 @@ use std::{
 mod browser_ui;
 mod commands;
 mod compare;
+mod coverflow;
 mod edit_ui;
 mod metadata_ui;
+mod navigation_probe;
 mod playback;
+mod presentation;
 mod print_ui;
 mod settings_ui;
 mod workspace;
 use commands::Extras;
+pub use navigation_probe::probe_main as navigation_probe_main;
 
 const CPU_BUDGET: usize = 768 * 1024 * 1024;
 const GPU_BUDGET: usize = 256 * 1024 * 1024;
@@ -195,53 +199,15 @@ pub struct Viewer {
     help: bool,
     properties: bool,
     error: Option<String>,
+    closing: bool,
 }
 
 impl Viewer {
-    pub fn new(cc: &eframe::CreationContext<'_>, initial: Option<PathBuf>) -> Self {
-        let mut fonts = egui::FontDefinitions::default();
-        for path in [
-            "C:/Windows/Fonts/msyh.ttc",
-            "C:/Windows/Fonts/msyh.ttf",
-            "C:/Windows/Fonts/simhei.ttf",
-        ] {
-            if let Ok(data) = std::fs::read(path) {
-                fonts
-                    .font_data
-                    .insert("chinese".into(), Arc::new(egui::FontData::from_owned(data)));
-                fonts
-                    .families
-                    .entry(egui::FontFamily::Proportional)
-                    .or_default()
-                    .push("chinese".into());
-                fonts
-                    .families
-                    .entry(egui::FontFamily::Monospace)
-                    .or_default()
-                    .push("chinese".into());
-                break;
-            }
-        }
-        cc.egui_ctx.set_fonts(fonts);
-        let mut style = (*cc.egui_ctx.style()).clone();
-        style.visuals = egui::Visuals::dark();
-        style.spacing.item_spacing = egui::vec2(8.0, 6.0);
-        style
-            .text_styles
-            .insert(egui::TextStyle::Body, egui::FontId::proportional(15.0));
-        cc.egui_ctx.set_style(style);
-        let mut app = Self {
+    fn empty() -> Self {
+        Self {
             extra: Extras::new(),
             #[cfg(windows)]
-            native_keys: {
-                use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-                cc.window_handle().ok().and_then(|h| match h.as_raw() {
-                    RawWindowHandle::Win32(h) => {
-                        crate::native_keys::NativeKeys::attach(h.hwnd.get() as _).ok()
-                    }
-                    _ => None,
-                })
-            },
+            native_keys: None,
             source: None,
             entries: Vec::new(),
             selected: None,
@@ -277,7 +243,53 @@ impl Viewer {
             help: false,
             properties: false,
             error: None,
-        };
+            closing: false,
+        }
+    }
+
+    pub fn new(cc: &eframe::CreationContext<'_>, initial: Option<PathBuf>) -> Self {
+        let mut fonts = egui::FontDefinitions::default();
+        for path in [
+            "C:/Windows/Fonts/msyh.ttc",
+            "C:/Windows/Fonts/msyh.ttf",
+            "C:/Windows/Fonts/simhei.ttf",
+        ] {
+            if let Ok(data) = std::fs::read(path) {
+                fonts
+                    .font_data
+                    .insert("chinese".into(), Arc::new(egui::FontData::from_owned(data)));
+                fonts
+                    .families
+                    .entry(egui::FontFamily::Proportional)
+                    .or_default()
+                    .push("chinese".into());
+                fonts
+                    .families
+                    .entry(egui::FontFamily::Monospace)
+                    .or_default()
+                    .push("chinese".into());
+                break;
+            }
+        }
+        cc.egui_ctx.set_fonts(fonts);
+        let mut style = (*cc.egui_ctx.style()).clone();
+        style.visuals = egui::Visuals::dark();
+        style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+        style
+            .text_styles
+            .insert(egui::TextStyle::Body, egui::FontId::proportional(15.0));
+        cc.egui_ctx.set_style(style);
+        let mut app = Self::empty();
+        #[cfg(windows)]
+        {
+            use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            app.native_keys = cc.window_handle().ok().and_then(|h| match h.as_raw() {
+                RawWindowHandle::Win32(h) => {
+                    crate::native_keys::NativeKeys::attach(h.hwnd.get() as _).ok()
+                }
+                _ => None,
+            });
+        }
         app.extra.max_texture = cc
             .wgpu_render_state
             .as_ref()
@@ -306,6 +318,7 @@ impl Viewer {
     }
 
     fn queue(&mut self, request: Request, operation: Operation) {
+        if self.closing { return; }
         if !matches!(request, Request::MetadataRead { .. }) {
             self.stop_animation();
         }
@@ -321,6 +334,46 @@ impl Viewer {
         self.error = None;
     }
 
+    fn request_close(&mut self, ctx: &egui::Context) {
+        if self.closing { return; }
+        if self.extra.writing.is_some() || self.extra.pending_write.is_some() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.status = "请等待当前文件操作完成后关闭".into();
+            return;
+        }
+        if self.extra.edited && !confirm_discard() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            return;
+        }
+        self.extra.edited = false;
+        self.closing = true;
+        self.serial += 1;
+        self.pending = None;
+        self.retry = None;
+        self.password_dialog = false;
+        self.password_input.clear();
+        if let Some(running) = &self.running { running.cancel.store(true, Ordering::Relaxed); }
+        self.stop_animation();
+        self.cancel_coverflow_thumbnail();
+        self.status = "正在停止读取并清理临时文件…".into();
+        ctx.request_repaint_after(std::time::Duration::from_millis(15));
+    }
+
+    fn handle_close_request(&mut self, ctx: &egui::Context) -> bool {
+        if ctx.input(|i| i.viewport().close_requested()) { self.request_close(ctx); }
+        if !self.closing { return false; }
+        self.poll(ctx);
+        let covers_finished = self.poll_cancelled_coverflow(ctx);
+        if self.running.is_none() && self.pending.is_none() && self.extra.retiring.is_none()
+            && covers_finished && self.extra.writing.is_none() && self.extra.pending_write.is_none() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        } else {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            ctx.request_repaint_after(std::time::Duration::from_millis(15));
+        }
+        true
+    }
+
     fn open_path(&mut self, path: PathBuf) {
         if self.extra.edited
             && !rfd::MessageDialog::new()
@@ -334,6 +387,7 @@ impl Viewer {
         }
         self.reset_comparison();
         self.stop_animation();
+        self.reset_coverflow();
         self.password_dialog = false;
         self.password_focus = false;
         self.retry = None;
@@ -422,6 +476,12 @@ impl Viewer {
         })
     }
 
+    fn large_archived_photoshop(&self, index: usize) -> bool {
+        self.entries.get(index).is_some_and(|entry| {
+            entry.size > worker::MAX_INPUT_BYTES && crate::imaging::is_photoshop(&entry.name)
+        }) && self.source.as_ref().is_some_and(|source| worker::is_archive(source))
+    }
+
     fn load_index(&mut self, index: usize, full_raw: bool) {
         if self.current_key.is_some_and(|k| k.0 == index) && self.extra.edited {
             self.full_raw = full_raw;
@@ -442,6 +502,7 @@ impl Viewer {
             if let Some(i) = self.selected {
                 self.extra.selection.insert(i);
             }
+            self.extra.coverflow.invalidate_sequence();
             return;
         }
         self.stop_animation();
@@ -472,6 +533,8 @@ impl Viewer {
         self.selected = Some(index);
         self.full_raw = full_raw;
         self.browser = false;
+        self.extra.presentation.begin_target(index, self.entries[index].name.clone());
+        self.prioritize_coverflow_preview(index);
         if let Some(image) = (!Self::is_animation_candidate(&request))
             .then(|| self.cache.get((index, full_raw)))
             .flatten()
@@ -506,6 +569,7 @@ impl Viewer {
         self.selected = Some(index);
         self.current_key = Some((index, full_raw));
         self.current = Some(image);
+        self.extra.presentation.ready(index);
         self.overview = None;
         self.tiles.clear();
         self.tile_bytes = 0;
@@ -649,6 +713,7 @@ impl Viewer {
                                     region,
                                 } => self.accept_comparison(slot, generation, region, output, ctx),
                                 Operation::Clipboard { path } => {
+                                    self.reset_coverflow();
                                     self.source = Some(path);
                                     self.entries = vec![Entry {
                                         name: "clipboard.png".into(),
@@ -705,6 +770,7 @@ impl Viewer {
                                     management,
                                 } => {
                                     self.reset_comparison();
+                                    self.reset_coverflow();
                                     self.source = Some(path);
                                     self.password = password;
                                     self.entries = output.reply.entries.unwrap_or_default();
@@ -805,6 +871,7 @@ impl Viewer {
                 }
             }
         }
+        if self.closing { return; }
         self.schedule_edit_preview();
         if let Some(due) = self.extra.workspace.preview_due {
             ctx.request_repaint_after(
@@ -891,7 +958,9 @@ impl Viewer {
         } else {
             position.saturating_sub(1)
         };
-        self.load_index(indices[target], false);
+        if self.selected != Some(indices[target]) {
+            self.load_index(indices[target], false);
+        }
     }
 
     fn reset_fit(&mut self) {
@@ -906,6 +975,7 @@ impl Viewer {
     }
 
     fn perform(&mut self, action: Action, ctx: &egui::Context) {
+        if self.closing { return; }
         if self.comparison_action(action, ctx) {
             return;
         }
@@ -1005,6 +1075,7 @@ impl Viewer {
                     r.cancel.store(true, Ordering::Relaxed);
                 }
                 self.browser = true;
+                self.extra.presentation.clear();
                 self.current = None;
                 self.current_key = None;
                 self.selected = None;
@@ -1013,12 +1084,8 @@ impl Viewer {
                 self.tile_bytes = 0;
             }
             Action::Exit => {
-                if self.extra.writing.is_some() || self.extra.pending_write.is_some() {
-                    self.status = "请等待当前文件操作完成后关闭".into();
-                } else if !self.extra.edited || confirm_discard() {
-                    self.extra.edited = false;
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close)
-                }
+                self.request_close(ctx);
+                self.handle_close_request(ctx);
             }
             Action::Properties => {
                 if self.properties {
@@ -1216,6 +1283,21 @@ impl Viewer {
         });
     }
 
+    fn ensure_overview(&mut self, ctx: &egui::Context) {
+        if self.overview.is_none() {
+            if let Some(image) = &self.current {
+                self.overview = Some(ctx.load_texture(
+                    "overview",
+                    egui::ColorImage::from_rgba_unmultiplied(
+                        [image.preview_width as usize, image.preview_height as usize],
+                        &image.preview,
+                    ),
+                    egui::TextureOptions::LINEAR,
+                ));
+            }
+        }
+    }
+
     fn draw_image(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let (viewport, response) =
             ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
@@ -1235,6 +1317,9 @@ impl Viewer {
             );
         }
         let Some(image) = self.current.clone() else {
+            if self.extra.presentation.draw(&painter, viewport, ctx) {
+                return;
+            }
             painter.text(
                 viewport.center() - egui::vec2(0.0, 28.0),
                 egui::Align2::CENTER_CENTER,
@@ -1316,16 +1401,7 @@ impl Viewer {
             self.scale = self.target_scale;
         }
         let center = viewport.center() + self.pan;
-        if self.overview.is_none() {
-            self.overview = Some(ctx.load_texture(
-                "overview",
-                egui::ColorImage::from_rgba_unmultiplied(
-                    [image.preview_width as usize, image.preview_height as usize],
-                    &image.preview,
-                ),
-                egui::TextureOptions::LINEAR,
-            ));
-        }
+        self.ensure_overview(ctx);
         let detail = (image.width as f32 * self.scale * ctx.pixels_per_point()
             > image.preview_width as f32 * 1.05
             || image.height as f32 * self.scale * ctx.pixels_per_point()
@@ -1575,6 +1651,18 @@ impl Viewer {
                 }
             }
         }
+        if let Some((index, _)) = self.current_key {
+            let placement = presentation::Placement {
+                scale: self.scale, pan: self.pan, rotation: self.rotation,
+                flip_x: self.flip_x, flip_y: self.flip_y, fit: self.fit,
+            };
+            let name = self.entries.get(index).map(|entry| entry.name.as_str()).unwrap_or("");
+            if let Some((preview, texture)) = self.extra.presentation.capture_displayed(
+                ctx, index, &image, Arc::as_ptr(&image) as usize, placement, name,
+            ) {
+                self.remember_coverflow_preview(index, preview, texture);
+            }
+        }
     }
 
     fn dialogs(&mut self, ctx: &egui::Context) {
@@ -1623,6 +1711,7 @@ impl Viewer {
                         Operation::List { password: p, .. } => *p = password.clone(),
                         _ => self.password = password,
                     }
+                    self.reset_coverflow();
                     self.password_dialog = false;
                     self.status = "正在验证密码…".into();
                     self.queue(request, operation);
@@ -1631,9 +1720,9 @@ impl Viewer {
         }
         if self.help {
             egui::Window::new("快捷键与版本说明").open(&mut self.help).default_width(560.0).show(ctx,|ui|{
-            ui.label("RustView 0.3 · Windows x64 · Rust / egui / wgpu");ui.separator();
-            ui.label("查看模式：Space / PageDown 下一张；Backspace / PageUp 上一张；Home / End 首末张；F 全屏；Ctrl+Alt+←/→ 旋转。");
-            ui.label("数字键盘 + / − 缩放；* 适应窗口；/ 原始尺寸。滚轮平滑缩放，鼠标拖动平移，双击恢复适应。");
+            ui.label("RustView 0.4 · Windows x64 · Rust / egui / wgpu");ui.separator();
+            ui.label("查看模式：←/→ 上一张/下一张；↑/↓ 平滑放大/缩小。Space / PageDown 下一张；Backspace / PageUp 上一张；Home / End 首末张；F 全屏；Ctrl+Alt+←/→ 旋转。");
+            ui.label("数字键盘 + / − 缩放；* 适应窗口；/ 原始尺寸。滚轮平滑缩放，鼠标拖动平移，双击恢复适应。底部封面栏可点击翻图，并显示当前批次序号。");
             ui.label("查看模式 Enter / Esc / Ctrl+W 返回列表；列表 Enter进入查看、Ctrl+W退出；Ctrl/Shift+单击多选。GIF/WebP按原帧时长播放，G暂停／恢复／重播。");
             ui.separator();ui.label("ZIP／7z包内修改先备份原包；RAR只读，不支持分卷。编辑支持高位副本、完整动画、无损参数记录；源图EXIF／IPTC／XMP在属性窗口中显式保存，RAW写XMP伴随文件。");
             ui.label("幻灯片、日历、刻录、在线和音视频均已移除。默认键位见docs/KEYBOARD.md，功能状态见docs/retained-command-audit.csv；未确认的原版隐藏命令不激活。");
@@ -1697,17 +1786,7 @@ impl Viewer {
 
 impl eframe::App for Viewer {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if ctx.input(|i| i.viewport().close_requested())
-            && self.extra.edited
-            && self.extra.writing.is_none()
-            && self.extra.pending_write.is_none()
-        {
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            if confirm_discard() {
-                self.extra.edited = false;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            }
-        }
+        if self.handle_close_request(ctx) { return; }
         self.poll(ctx);
         let dropped = ctx.input(|i| i.raw.dropped_files.first().and_then(|f| f.path.clone()));
         if let Some(path) = dropped {
@@ -1741,6 +1820,9 @@ impl eframe::App for Viewer {
                         && i.key_pressed(egui::Key::S)
                 }))
         {
+            let single_view = !self.browser
+                && self.extra.compare == 0
+                && self.extra.edit_dialog.is_none();
             #[cfg(windows)]
             let action = if self.native_keys.is_some() && !native_events.is_empty() {
                 let table = if self.extra.edit_dialog.is_some() {
@@ -1755,11 +1837,15 @@ impl eframe::App for Viewer {
                 match self.custom_native_action(&native_events, table) {
                     Some(action) => action,
                     None => {
-                        shortcuts::native_action_for_table(&native_events, table).or_else(|| {
-                            if table == 553 || table == 22118 {
+                        shortcuts::native_action_for_table_with_view_arrows(&native_events, table, single_view).or_else(|| {
+                            let bare_view_arrow = native_events.iter().any(|event| matches!(event,
+                                crate::native_keys::NativeKeyEvent::Key {
+                                    virtual_key: 0x25..=0x28, pressed: true, modifiers, ..
+                                } if modifiers.is_none()));
+                            if (table == 553 || table == 22118) && !bare_view_arrow {
                                 self.custom_native_action(&native_events, 552)
                                     .unwrap_or_else(|| {
-                                        shortcuts::native_action_for_table(&native_events, 552)
+                                        shortcuts::native_action_for_table_with_view_arrows(&native_events, 552, false)
                                     })
                             } else {
                                 None
@@ -1768,10 +1854,10 @@ impl eframe::App for Viewer {
                     }
                 }
             } else {
-                ctx.input(|i| shortcuts::action(i, self.browser))
+                ctx.input(|i| shortcuts::action_with_view_arrows(i, self.browser, single_view))
             };
             #[cfg(not(windows))]
-            let action = ctx.input(|i| shortcuts::action(i, self.browser));
+            let action = ctx.input(|i| shortcuts::action_with_view_arrows(i, self.browser, single_view));
             let management_navigation = self.browser && ctx.input(|i| i.events.iter().any(|e| matches!(e,
                 egui::Event::Key { key: egui::Key::ArrowUp | egui::Key::ArrowDown | egui::Key::ArrowLeft | egui::Key::ArrowRight | egui::Key::Home | egui::Key::End | egui::Key::PageUp | egui::Key::PageDown, pressed: true, modifiers, .. } if !modifiers.ctrl && !modifiers.alt)));
             let processing_button_key = self.extra.edit_dialog.is_some()
@@ -1788,6 +1874,9 @@ impl eframe::App for Viewer {
                             Action::Next | Action::Previous | Action::First | Action::Last
                         ))
             }) {
+                if single_view {
+                    ctx.input_mut(consume_view_arrows);
+                }
                 self.perform(action, ctx);
             }
         }
@@ -1823,6 +1912,8 @@ impl eframe::App for Viewer {
                 });
             });
         }
+        self.poll_coverflow(ctx);
+        self.draw_coverflow(ctx);
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(ctx, |ui| {
@@ -1858,6 +1949,14 @@ impl Drop for Viewer {
 
 fn shortcuts_enabled(ctx: &egui::Context, password_dialog: bool) -> bool {
     !password_dialog && !ctx.memory(|m| m.any_popup_open())
+}
+
+fn consume_view_arrows(input: &mut egui::InputState) {
+    input.events.retain(|event| !matches!(event,
+        egui::Event::Key {
+            key: egui::Key::ArrowLeft | egui::Key::ArrowRight | egui::Key::ArrowUp | egui::Key::ArrowDown,
+            pressed: true, modifiers, ..
+        } if modifiers.is_none()));
 }
 
 fn confirm_discard() -> bool {
@@ -2009,6 +2108,168 @@ fn tile_level(physical_scale: f32, bounds: Rect, w: u32, h: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn exit_and_native_close_wait_for_the_read_task_to_retire() {
+        for native in [false, true] {
+            let mut viewer = browser_ui::tests::viewer(vec![Entry {
+                name: "a.png".into(), size: 1, directory: false, archive: false, modified: None,
+            }]);
+            viewer.source = Some("test.zip".into());
+            viewer.properties = true; // Closing must not dispatch a fresh metadata request.
+            let request = Request::List { path: "test.zip".into(), password: None };
+            let operation = Operation::List { path: "test.zip".into(), select: None,
+                password: None, management: false };
+            let (sender, receiver) = mpsc::sync_channel(1);
+            let cancel = Arc::new(AtomicBool::new(false));
+            viewer.running = Some(Running { id: 1, cancel: cancel.clone(), receiver });
+            viewer.serial = 2;
+            viewer.pending = Some(Task { id: 2, request: request.clone(), operation: operation.clone() });
+            let ctx = egui::Context::default();
+            let mut input = egui::RawInput::default();
+            if native { input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap().events.push(egui::ViewportEvent::Close); }
+            let output = ctx.run(input, |ctx| {
+                if native { assert!(viewer.handle_close_request(ctx)); }
+                else { viewer.perform(Action::Exit, ctx); }
+            });
+            let commands = &output.viewport_output[&egui::ViewportId::ROOT].commands;
+            assert!(commands.iter().any(|c| matches!(c, egui::ViewportCommand::CancelClose)));
+            assert!(!commands.iter().any(|c| matches!(c, egui::ViewportCommand::Close)));
+            assert!(viewer.closing && cancel.load(Ordering::Relaxed));
+            assert!(viewer.pending.is_none());
+            assert!(sender.send(Event { id: 1, request, operation, result: Err("已取消".into()) }).is_ok());
+            let output = ctx.run(egui::RawInput::default(), |ctx| assert!(viewer.handle_close_request(ctx)));
+            assert!(viewer.running.is_none() && viewer.pending.is_none());
+            assert!(output.viewport_output[&egui::ViewportId::ROOT].commands.iter()
+                .any(|c| matches!(c, egui::ViewportCommand::Close)));
+            assert!(!output.viewport_output[&egui::ViewportId::ROOT].commands.iter()
+                .any(|c| matches!(c, egui::ViewportCommand::CancelClose)));
+        }
+    }
+
+    #[test]
+    fn idle_native_close_never_cancels_its_own_close_token() {
+        for already_closing in [false, true] {
+            let mut viewer = browser_ui::tests::viewer(Vec::new());
+            viewer.closing = already_closing;
+            let ctx = egui::Context::default();
+            let mut input = egui::RawInput::default();
+            input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap().events.push(egui::ViewportEvent::Close);
+            let output = ctx.run(input, |ctx| assert!(viewer.handle_close_request(ctx)));
+            let commands = &output.viewport_output[&egui::ViewportId::ROOT].commands;
+            assert!(commands.iter().any(|c| matches!(c, egui::ViewportCommand::Close)));
+            assert!(!commands.iter().any(|c| matches!(c, egui::ViewportCommand::CancelClose)));
+        }
+    }
+
+    #[test]
+    fn a_pending_write_still_blocks_window_exit() {
+        let mut viewer = browser_ui::tests::viewer(Vec::new());
+        viewer.extra.pending_write = Some(Box::new(|| Ok(String::new())));
+        let ctx = egui::Context::default();
+        let output = ctx.run(egui::RawInput::default(), |ctx| viewer.perform(Action::Exit, ctx));
+        assert!(!viewer.closing && viewer.extra.pending_write.is_some());
+        assert!(!output.viewport_output[&egui::ViewportId::ROOT].commands.iter()
+            .any(|c| matches!(c, egui::ViewportCommand::Close)));
+    }
+
+    #[test]
+    fn fast_navigation_and_ready_before_paint_never_return_to_the_welcome_screen() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut viewer = browser_ui::tests::viewer(["a.png", "b.png", "c.png"].into_iter().map(|name| Entry {
+            name: name.into(), size: 8, directory: false, archive: false, modified: None,
+        }).collect());
+        viewer.source = Some(dir.path().to_owned());
+        viewer.browser = false;
+        let image = || Arc::new(Pixels {
+            width: 2, height: 1, rgba: vec![255; 8], preview: vec![255; 8],
+            preview_width: 2, preview_height: 1, note: String::new(), record: None,
+        });
+        let ctx = egui::Context::default();
+        let draw = |viewer: &mut Viewer| {
+            ctx.run(egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0))),
+                ..Default::default()
+            }, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| viewer.draw_image(ui, ctx));
+            })
+        };
+        viewer.set_current(0, false, image());
+        let _ = draw(&mut viewer);
+        assert!(viewer.extra.presentation.has_frame());
+        viewer.set_current(1, false, image()); // Ready, but no frame containing B was painted.
+        for index in [2, 1, 2, 0, 1] {
+            viewer.load_index(index, false);
+            assert!(viewer.current.is_none() && viewer.current_key.is_none());
+            viewer.error = Some("暂时读取失败".into());
+            viewer.password_dialog = true;
+            let output = draw(&mut viewer);
+            assert!(output.shapes.iter().any(|shape| matches!(shape.shape, egui::Shape::Mesh(_))));
+            assert!(!output.shapes.iter().any(|shape| matches!(&shape.shape,
+                egui::Shape::Text(text) if text.galley.job.text == "RustView")));
+            assert!(viewer.extra.presentation.has_frame());
+            viewer.password_dialog = false;
+        }
+        viewer.perform(Action::Close, &ctx);
+        assert!(!viewer.extra.presentation.has_frame());
+    }
+
+    #[test]
+    fn view_arrow_consumption_keeps_modified_and_release_events() {
+        let event = |key, modifiers, pressed| egui::Event::Key {
+            key, physical_key: None, modifiers, pressed, repeat: false,
+        };
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput {
+            events: vec![
+                event(egui::Key::ArrowUp, egui::Modifiers::NONE, true),
+                event(egui::Key::ArrowLeft, egui::Modifiers::SHIFT, true),
+                event(egui::Key::ArrowDown, egui::Modifiers::ALT, true),
+                event(egui::Key::ArrowUp, egui::Modifiers::NONE, false),
+            ],
+            ..Default::default()
+        }, |ctx| {
+            ctx.input_mut(consume_view_arrows);
+            ctx.input(|i| {
+                assert_eq!(i.events.len(), 3);
+                assert!(matches!(i.events[0], egui::Event::Key { modifiers, pressed: true, .. } if modifiers.shift));
+                assert!(matches!(i.events[1], egui::Event::Key { modifiers, pressed: true, .. } if modifiers.alt));
+                assert!(matches!(i.events[2], egui::Event::Key { pressed: false, .. }));
+            });
+        });
+    }
+
+    #[test]
+    fn boundary_navigation_keeps_zoom_and_pending_work() {
+        let mut viewer = browser_ui::tests::viewer(vec![Entry {
+            name: "only.png".into(), size: 4, directory: false, archive: false, modified: None,
+        }]);
+        viewer.browser = false;
+        viewer.scale = 2.0;
+        viewer.target_scale = 2.5;
+        viewer.fit = false;
+        viewer.navigate(false, false);
+        viewer.navigate(true, false);
+        assert_eq!((viewer.scale, viewer.target_scale), (2.0, 2.5));
+        assert!(!viewer.fit);
+        assert!(viewer.pending.is_none());
+        assert_eq!(viewer.serial, 0);
+    }
+
+    #[test]
+    fn keyboard_zoom_changes_target_without_jumping_display_scale() {
+        let mut viewer = browser_ui::tests::viewer(Vec::new());
+        viewer.browser = false;
+        viewer.scale = 0.5;
+        viewer.target_scale = 0.5;
+        let ctx = egui::Context::default();
+        viewer.perform(Action::ZoomIn, &ctx);
+        assert_eq!(viewer.scale, 0.5);
+        assert_eq!(viewer.target_scale, 0.625);
+        assert!(!viewer.fit);
+        viewer.perform(Action::ZoomOut, &ctx);
+        assert_eq!(viewer.target_scale, 0.5);
+    }
+
     #[test]
     fn copied_image_uses_same_flip_then_rotate_as_display() {
         let mut image = pixels(8);

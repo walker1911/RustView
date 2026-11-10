@@ -113,7 +113,8 @@ impl Viewer {
             ) else {
                 continue;
             };
-            if self.selected == Some(index) {
+            if self.current.is_some() && self.current_key.is_some_and(|key| key.0 == index)
+                && self.selected == Some(index) {
                 let mut settings = self.extra.workspace.export.clone();
                 settings.format = crate::precision::OutputFormat::Png;
                 settings.depth = 8;

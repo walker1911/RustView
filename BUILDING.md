@@ -1,5 +1,9 @@
 # Building RustView / 构建 RustView
 
+The current release line is **v0.4.0 prerelease**. The complete offline package is the ready-to-run distribution; its matching native source attachments are listed in [NATIVE-SOURCES.md](docs/NATIVE-SOURCES.md).
+
+当前发行线为 **v0.4.0 预发布版**；完整离线包可直接运行，对应原生源码附件见[源码说明](docs/NATIVE-SOURCES.md)。
+
 ## Windows x64 prerequisites
 
 - Rust stable with the `x86_64-pc-windows-msvc` target and Visual Studio C++ Build Tools / Windows SDK. The development release was tested with Rust 1.99.1.
@@ -28,7 +32,7 @@ For a diagnostic or offline cache check:
 
 This checks all cached archive digests, the core runtime digests and required support files. Normal preparation also compares generated runtime/support files with the extracted archive; differing existing files are refused, not silently replaced. The policy, provenance and license templates come from the source checkout, so ordinary Git line-ending conversion does not cause a false archive mismatch. For isolated validation, `-DestinationRoot .\test-output\native-check` prepares a separate native tree; `-CacheDirectory` can reuse an existing verified cache.
 
-Tests use small generated images and licensed libarchive fixtures. Fixture passwords in `tests/fixtures/README.md` are public test constants. The two public-camera tests are opt-in and need separately downloaded samples; they are not required for an ordinary checkout. See [validation](docs/VALIDATION.md) for the actual v0.3 results and the GUI checks that have not been completed.
+Tests use small generated images and licensed libarchive fixtures. Fixture passwords in `tests/fixtures/README.md` are public test constants. The two public-camera tests are opt-in and need separately downloaded samples; they are not required for an ordinary checkout. See [validation](docs/VALIDATION.md) for version-specific results and the GUI checks that have not been completed.
 
 ## Public bootstrap package
 
@@ -36,7 +40,7 @@ Tests use small generated images and licensed libarchive fixtures. Fixture passw
 .\tools\package-public.ps1
 ```
 
-Output: `dist/RustView-0.3.0-win-x64-bootstrap.zip` and its `.sha256`. `-SkipBuild` packages the most recent existing Windows x64 release executable. `-OutputRoot .\test-output\public-package` keeps a validation package separate from existing releases.
+Output: `dist/RustView-0.4.0-win-x64-bootstrap.zip` and its `.sha256`. `-SkipBuild` packages the most recent existing Windows x64 release executable. `-OutputRoot .\test-output\public-package` keeps a validation package separate from existing releases.
 
 Extract the ZIP, then double-click **Start-RustView.cmd**. On the first launch a visible PowerShell process downloads and verifies the official native engines. After preparation, the viewer starts; later launches work offline. Preparation failure is displayed and can be retried. App-local Microsoft VC++ runtime DLLs are included with Microsoft attribution; no VC installer is run. Keep the complete extracted folder.
 
@@ -50,11 +54,11 @@ After native preparation:
 .\tools\build.ps1 -Offline
 ```
 
-Output: `dist/RustView-0.3.0-win-x64-offline.zip` and its `.sha256`. Extract the complete ZIP and launch `RustView.exe` or `Start-RustView.cmd`; no dependency download or installation is performed. The package includes all four native engines, their support files, app-local Microsoft VC++ libraries, Rust/font license notices, matching 7-Zip source and LibRaw's official source/binary archive. See [OFFLINE.md](OFFLINE.md).
+Output: `dist/RustView-0.4.0-win-x64-offline.zip` and its `.sha256`. Extract the complete ZIP and launch `RustView.exe` or `Start-RustView.cmd`; no dependency download or installation is performed. The package includes all four native engines, their support files, app-local Microsoft VC++ libraries, Rust/font license notices, matching 7-Zip source and LibRaw's official source/binary archive. See [OFFLINE.md](OFFLINE.md).
 
 The remaining corresponding source and Windows rebuild materials are provided as separate attachments on the same Release, identified in [docs/NATIVE-SOURCES.md](docs/NATIVE-SOURCES.md). They are not needed for normal offline viewing. When redistributing the complete offline package, also provide those source materials and preserve the notices, including the static dependencies listed in ImageMagick's `NOTICE.txt`. A source download and the tools required to rebuild an engine are separate from the runtime requirements for viewing photos.
 
-Without `-Offline`, `tools/build.ps1` retains the original local `RustView-0.3.0-win-x64.zip` filename. `-SkipBuild` reuses an existing x64 release executable; `-OutputRoot` can isolate package validation from previous releases.
+Without `-Offline`, `tools/build.ps1` retains the original local `RustView-0.4.0-win-x64.zip` filename. `-SkipBuild` reuses an existing x64 release executable; `-OutputRoot` can isolate package validation from previous releases.
 
 Both packaging scripts locate MSVC x64 redistributables through Visual Studio's `vswhere` or `VCToolsRedistDir`. If that workload is absent, pass `-RuntimeDirectory` pointing to a permitted `Microsoft.VC143.CRT` directory. Available upstream redist license text is copied alongside Microsoft attribution. No personal installation path is written into the package.
 

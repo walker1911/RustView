@@ -531,6 +531,15 @@ pub fn write(
     }
     let values = &normalized;
     let path = checked_path(path)?;
+    let mut signature = Vec::with_capacity(4);
+    File::open(&path)
+        .map_err(|e| e.to_string())?
+        .take(4)
+        .read_to_end(&mut signature)
+        .map_err(|e| e.to_string())?;
+    if crate::imaging::is_photoshop(&path.to_string_lossy()) || signature == b"8BPS" {
+        return Err("PSD/PSB只读，不写入文档属性；评级等整理信息可保存在本地目录库".into());
+    }
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -737,6 +746,35 @@ mod tests {
         values.datetime_original = "2026:02:30 10:20:30".into();
         assert!(write(&path, &values, Destination::Auto).is_err());
         assert_eq!(fs::read(path).unwrap(), original);
+    }
+    #[test]
+    fn photoshop_metadata_write_is_rejected_but_reading_remains_available() {
+        let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/psd");
+        for (fixture, name) in [
+            ("layered.psd", "document.PSD"),
+            ("layered.psb", "document.PSB"),
+            ("layered.psd", "renamed.jpg"),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join(name);
+            fs::copy(fixtures.join(fixture), &path).unwrap();
+            let original = fs::read(&path).unwrap();
+            assert!(!read(&path).unwrap().fields.is_empty(), "{name}");
+            for destination in [
+                Destination::Auto,
+                Destination::Embedded,
+                Destination::Sidecar,
+            ] {
+                let error = write(&path, &sample(), destination).unwrap_err();
+                assert!(error.contains("PSD/PSB只读"), "{name}: {error}");
+                assert_eq!(fs::read(&path).unwrap(), original, "{name}");
+                assert!(!sidecar_path(&path).exists(), "{name}");
+                assert!(
+                    !directory.path().join(".rustview-originals").exists(),
+                    "{name}"
+                );
+            }
+        }
     }
     #[test]
     fn source_fields_can_be_explicitly_cleared() {

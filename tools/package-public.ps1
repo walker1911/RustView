@@ -42,6 +42,7 @@ try {
     [void][IO.Directory]::CreateDirectory((Join-Path $package 'tools'))
     foreach ($file in @('fetch-native.ps1','prepare-and-start.ps1')) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination (Join-Path $package ('tools/' + $file)) -Force }
     Copy-VcRuntime $package $RuntimeDirectory
+    Copy-WindowsIntegration $package
     $launcher = '@echo off' + "`r`n" + 'powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\prepare-and-start.ps1"' + "`r`n"
     [IO.File]::WriteAllText((Join-Path $package 'Start-RustView.cmd'), $launcher, [Text.Encoding]::ASCII)
     Write-PackageArchive $package (Join-Path $OutputRoot ('RustView-' + $version + '-win-x64-bootstrap.zip')) @('native','docs','assets','tools','licenses')

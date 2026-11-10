@@ -15,4 +15,5 @@
   <policy domain="path" rights="none" pattern="|*"/>
   <policy domain="coder" rights="none" pattern="*"/>
   <policy domain="coder" rights="read|write" pattern="{PNG,JPEG,JPG,GIF,WEBP,TIFF,BMP,BMP2,BMP3,QOI,ICO,PNM,PPM,PGM,PBM,PAM,TGA,MIFF,RGB,RGBA,GRAY,GRAYA,NULL,AVIF,HEIC,HEIF,JXL,ICC,ICM}"/>
+  <policy domain="coder" rights="read" pattern="{PSD,PSB}"/>
 </policymap>

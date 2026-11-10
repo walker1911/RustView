@@ -401,6 +401,191 @@ pub fn extract(
     result
 }
 
+const LEGACY_IMAGE_BYTES: u64 = 512 * 1024 * 1024;
+const TEMP_RESERVE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const DISK_CHECK_BYTES: u64 = 16 * 1024 * 1024;
+
+#[cfg(windows)]
+fn available_space(directory: &Path) -> Result<u64, ArchiveError> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let directory: Vec<u16> = directory.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut available = 0;
+    if unsafe {
+        GetDiskFreeSpaceExW(
+            directory.as_ptr(),
+            &mut available,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error().into());
+    }
+    Ok(available)
+}
+
+#[cfg(not(windows))]
+fn available_space(_directory: &Path) -> Result<u64, ArchiveError> {
+    Err(ArchiveError::Unsupported(
+        "大PSD压缩包临时磁盘检查目前仅支持Windows".into(),
+    ))
+}
+
+fn copy_large_image(
+    input: &mut impl Read,
+    output: &mut impl Write,
+    advertised: u64,
+    limit: u64,
+    stdout_exhausted: &mut bool,
+    mut available: impl FnMut() -> Result<u64, ArchiveError>,
+) -> Result<u64, ArchiveError> {
+    *stdout_exhausted = false;
+    if advertised > limit {
+        return Err(ArchiveError::Unsupported(
+            "PSD条目超过允许的源文件限额".into(),
+        ));
+    }
+    let check_space = |free: u64, remaining: u64| {
+        if remaining
+            .checked_add(TEMP_RESERVE_BYTES)
+            .is_none_or(|required| free < required)
+        {
+            Err(ArchiveError::Other(
+                "临时磁盘空间不足，提取后需至少保留2 GiB空闲空间".into(),
+            ))
+        } else {
+            Ok(())
+        }
+    };
+    check_space(available()?, advertised)?;
+    let mut header = [0; 6];
+    let mut header_bytes = 0;
+    while header_bytes < header.len() {
+        let count = input.read(&mut header[header_bytes..])?;
+        if count == 0 {
+            *stdout_exhausted = true;
+            return Err(ArchiveError::Other("条目没有完整PSD/PSB文件头".into()));
+        }
+        header_bytes += count;
+    }
+    if advertised < header.len() as u64
+        || &header[..4] != b"8BPS"
+        || !matches!(u16::from_be_bytes([header[4], header[5]]), 1 | 2)
+    {
+        return Err(ArchiveError::Unsupported(
+            "大条目不是有效PSD/PSB文件，已停止提取".into(),
+        ));
+    }
+    output.write_all(&header)?;
+    let mut total = header.len() as u64;
+    let mut next_disk_check = DISK_CHECK_BYTES;
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        let count = input.read(&mut buffer)?;
+        if count == 0 {
+            *stdout_exhausted = true;
+            if total != advertised {
+                return Err(ArchiveError::Other("解出条目长度与压缩包索引不符".into()));
+            }
+            return Ok(total);
+        }
+        let next = total
+            .checked_add(count as u64)
+            .ok_or_else(|| ArchiveError::Unsupported("条目大小溢出".into()))?;
+        if next > advertised || next > limit {
+            return Err(ArchiveError::Unsupported(
+                "解出条目超过索引大小或源文件限额，已停止提取".into(),
+            ));
+        }
+        if next >= next_disk_check {
+            check_space(available()?, advertised - total)?;
+            next_disk_check = total.saturating_add(DISK_CHECK_BYTES);
+        }
+        output.write_all(&buffer[..count])?;
+        total = next;
+    }
+}
+
+fn streamed_image_error(
+    copy_error: ArchiveError,
+    stdout_exhausted: bool,
+    completion: Result<(ExitStatus, Vec<u8>), ArchiveError>,
+    password: Option<&str>,
+) -> ArchiveError {
+    if let Ok((status, errors)) = completion {
+        if stdout_exhausted && !status.success()
+            || String::from_utf8_lossy(&errors).to_ascii_lowercase().contains("password")
+        {
+            return command_error(status, &errors, password);
+        }
+    }
+    copy_error
+}
+
+/// Viewer-only extraction: large Photoshop sources remain disk-backed and size-checked.
+/// The destination is a caller-owned private temporary file, never an archive entry path.
+pub fn extract_image(
+    path: &Path,
+    entry: &str,
+    password: Option<&str>,
+    destination: &Path,
+    max_bytes: u64,
+) -> Result<(), ArchiveError> {
+    if max_bytes <= LEGACY_IMAGE_BYTES {
+        return extract(path, entry, password, destination, max_bytes);
+    }
+    validate_entry(entry)?;
+    let advertised = list(path, password)?
+        .into_iter()
+        .find(|item| item.name == entry)
+        .ok_or_else(|| ArchiveError::Other("压缩包中没有所选条目".into()))?
+        .size;
+    if advertised > max_bytes {
+        return Err(ArchiveError::Unsupported(
+            "PSD条目超过允许的源文件限额".into(),
+        ));
+    }
+    if advertised <= LEGACY_IMAGE_BYTES {
+        return extract(path, entry, password, destination, advertised);
+    }
+    let path = archive_path(path)?;
+    let directory = destination
+        .parent()
+        .ok_or_else(|| ArchiveError::Other("临时条目没有目标目录".into()))?;
+    let mut process = EngineProcess::spawn("x", &path, Some(entry), password)?;
+    let result = (|| {
+        let mut output = File::create(destination)?;
+        let mut stdout_exhausted = false;
+        let copied = copy_large_image(
+            process.child.stdout.as_mut().unwrap(),
+            &mut output,
+            advertised,
+            max_bytes,
+            &mut stdout_exhausted,
+            || available_space(directory),
+        );
+        if let Err(error) = copied {
+            // EOF can be a password failure: preserve the engine's natural exit status.
+            // Early format/resource failures must stop a producer still writing stdout.
+            if !stdout_exhausted {
+                let _ = process.child.kill();
+            }
+            return Err(streamed_image_error(error, stdout_exhausted, process.finish(), password));
+        }
+        output.flush()?;
+        let (status, errors) = process.finish()?;
+        if !status.success() {
+            return Err(command_error(status, &errors, password));
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(destination);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -484,6 +669,144 @@ mod tests {
         let mut result = Vec::new();
         assert!(copy_bounded(&mut io::Cursor::new(vec![1; 200_000]), &mut result, 70_000).is_err());
         assert!(result.len() <= 70_000);
+    }
+
+    fn photoshop_stream(size: u64) -> impl Read {
+        io::Cursor::new(b"8BPS\0\x01").chain(io::repeat(0).take(size - 6))
+    }
+
+    #[derive(Default)]
+    struct CountOutput(u64);
+    impl Write for CountOutput {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0 += bytes.len() as u64;
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn large_image_copy_checks_magic_and_advertised_size_before_writing() {
+        let mut output = CountOutput::default();
+        assert!(copy_large_image(
+            &mut io::Cursor::new(b"notPSDignored"),
+            &mut output,
+            13,
+            13,
+            &mut false,
+            || Ok(u64::MAX)
+        )
+        .is_err());
+        assert_eq!(output.0, 0);
+        for (size, advertised, limit) in [(20, 19, 30), (19, 20, 30), (20, 20, 19)] {
+            let mut output = CountOutput::default();
+            assert!(copy_large_image(
+                &mut photoshop_stream(size),
+                &mut output,
+                advertised,
+                limit,
+                &mut false,
+                || Ok(u64::MAX)
+            )
+            .is_err());
+            assert!(output.0 <= advertised.min(limit));
+        }
+        let mut output = CountOutput::default();
+        assert_eq!(
+            copy_large_image(
+                &mut photoshop_stream(100_000),
+                &mut output,
+                100_000,
+                100_000,
+                &mut false,
+                || Ok(u64::MAX)
+            )
+            .unwrap(),
+            100_000
+        );
+        assert_eq!(output.0, 100_000);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn large_image_eof_preserves_missing_and_wrong_password_errors() {
+        use std::os::windows::process::ExitStatusExt;
+        let mut exhausted = false;
+        let mut output = CountOutput::default();
+        let error = copy_large_image(&mut io::empty(), &mut output, 6, 6,
+            &mut exhausted, || Ok(u64::MAX)).unwrap_err();
+        assert!(exhausted);
+        assert_eq!(output.0, 0);
+        assert!(matches!(streamed_image_error(error, exhausted,
+            Ok((ExitStatus::from_raw(255), Vec::new())), None), ArchiveError::PasswordRequired));
+        let error = copy_large_image(&mut io::empty(), &mut output, 6, 6,
+            &mut exhausted, || Ok(u64::MAX)).unwrap_err();
+        assert!(matches!(streamed_image_error(error, exhausted,
+            Ok((ExitStatus::from_raw(2), b"Wrong password".to_vec())), Some("wrong")),
+            ArchiveError::WrongPassword));
+        let error = copy_large_image(&mut io::Cursor::new(b"notPSD"), &mut output, 6, 6,
+            &mut exhausted, || Ok(u64::MAX)).unwrap_err();
+        assert!(!exhausted);
+        assert!(matches!(streamed_image_error(error, exhausted,
+            Ok((ExitStatus::from_raw(1), Vec::new())), None), ArchiveError::Unsupported(_)));
+    }
+
+    #[test]
+    fn large_image_copy_stops_before_initial_or_midstream_disk_shortage() {
+        let mut output = CountOutput::default();
+        let error = copy_large_image(&mut photoshop_stream(100), &mut output, 100, 100, &mut false, || {
+            Ok(TEMP_RESERVE_BYTES + 99)
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("磁盘空间不足"));
+        assert_eq!(output.0, 0);
+        let expected = DISK_CHECK_BYTES * 2;
+        let mut checks = 0;
+        let mut output = CountOutput::default();
+        let error = copy_large_image(
+            &mut photoshop_stream(expected),
+            &mut output,
+            expected,
+            expected,
+            &mut false,
+            || {
+                checks += 1;
+                Ok(if checks == 1 {
+                    u64::MAX
+                } else {
+                    TEMP_RESERVE_BYTES
+                })
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("磁盘空间不足"));
+        assert_eq!(checks, 2);
+        assert!(output.0 < DISK_CHECK_BYTES);
+    }
+
+    #[test]
+    fn large_image_stream_uses_only_a_fixed_read_buffer() {
+        struct Observed<R> {
+            source: R,
+            largest_read: usize,
+        }
+        impl<R: Read> Read for Observed<R> {
+            fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+                self.largest_read = self.largest_read.max(bytes.len());
+                self.source.read(bytes)
+            }
+        }
+        let expected = DISK_CHECK_BYTES + 123;
+        let mut input = Observed {
+            source: photoshop_stream(expected),
+            largest_read: 0,
+        };
+        let mut output = CountOutput::default();
+        copy_large_image(&mut input, &mut output, expected, expected, &mut false, || Ok(u64::MAX)).unwrap();
+        assert_eq!(output.0, expected);
+        assert_eq!(input.largest_read, 64 * 1024);
     }
 
     #[test]

@@ -1,6 +1,53 @@
 # Validation / 验证记录
 
-## v0.3 development baseline
+## v0.4.0 prerelease — versioned rebuild checks
+
+The versioned Windows x64 executable passed **208 unit tests (2 public-camera tests ignored by default)** and **217 package-level checks** from an independent offline-ZIP extraction: 209 isolated-process cases plus eight same-Viewer headless navigation cases. These are the final rebuilt artifact's results, not copied counts from a development executable. The release remains a **prerelease**.
+
+| Check | Result | Scope |
+|---|---|---|
+| Windows x64 binary | Passed | Embedded manifest 0.4.0.0; EXE SHA-256 `7889a6571a3db3b91462551cc92ef1d6f065f8a204f641dba0883cf26931b662`. |
+| Static images / archives | 25 passed | Common formats, large pixels, passwords, errors and archive boundaries. |
+| GIF / WebP animation | 24 passed | Frame composition, timing, loops, cancellation and streamed frames. |
+| RAW / high-depth / metadata | 19 passed | Nikon Z6, Sony a7 III, Canon EOS R, iPhone 12 Pro DNG and libheif HEIC samples; real PNG16/ICC and metadata checks. Samples are not distributed. |
+| Thumbnails | 9 passed | Small bounded results, archive/animation/RAW paths and source geometry. |
+| PSD / PSB | 21 passed | Local/archive composites, password, thumbnails, single-page and single-frame export behavior. |
+| Large ZIP / RAR / 7z PSD | 35 passed | Sources above 512 MiB, AES ZIP/7z, partial-extraction cancellation and temporary cleanup. |
+| Large encrypted RAR5 | 76 passed | Data and header encryption, missing/wrong/correct passwords, physical containers above 512 MiB, pixels, exports, 16 actual cancels and observed process termination. |
+| Same-Viewer navigation | 8 passed | 10/250 ms navigation, pixel identity, no welcome frames after a seed image, stale-result isolation, close/drain and cleanup. Headless; not visual-window certification. |
+| Windows registration | Passed | One isolated-registry regression script checks 54 image registrations and three archive verbs, ownership, repeat install/remove and preserved defaults. These are not 54 image-decoding cases. |
+| Offline dependencies | Passed | System-only PATH and unavailable localhost HTTP/HTTPS/ALL proxies; no dependency downloader included or invoked. The source writer is test-only. |
+| Package integrity | Passed | ZIP CRC and all shipping SHA-256 values checked; x64 core runtime and app-local VC++ libraries present. Final ZIP checksum accompanies the download. |
+| GitHub Actions | Reported separately | See the release's linked Windows x64 run and [Actions](https://github.com/walker1911/RustView/actions/workflows/ci.yml). CI uses public fixtures; local real-camera and large encrypted-RAR counts are not CI counts. |
+
+The release check exposed a cancellation race leaving codec scratch outside the supervised task. Worker TEMP/TMP now point into the request directory so the supervisor cleans that scratch even when the worker is forcibly stopped. The process monitor also verifies creation times against the held parent's lifetime: an old background process with a recycled numeric parent PID must not be counted as a new RustView descendant. Memory sampling uses the same verified process handles; thresholds were not relaxed.
+
+The 76 RAR cases require every observed owned process to exit and every request TEMP to become empty. Early cancellation observes real incomplete PSD extraction. Sampling can miss very short-lived descendants. Private committed memory excludes Python and reclaimable OS file cache; the small synthetic composites do not establish a GUI total-memory ceiling or arbitrary-PSD performance guarantee.
+
+Native-window password retry, navigation and Alt+F4 during a physical large encrypted RAR read were verified on the preceding implementation with UI automation. That is separate from this rebuilt artifact's headless checks. Screenshot capture, full visual/multi-DPI/multi-monitor acceptance, paper printing and multi-hour user-library sessions remain outside the completed evidence.
+
+Matching native sources and hashes are in [NATIVE-SOURCES.md](NATIVE-SOURCES.md). Historical v0.3 results below apply only to that release.
+
+### Reproduce the current v0.4.0 build
+
+```powershell
+cargo test --locked -- --test-threads=2
+.\tools\build.ps1 -Offline -OutputRoot .\test-output\v040-package
+python tools/smoke_test.py --exe test-output/v040-package/RustView-0.4.0/RustView.exe --output test-output/v040-smoke.json
+python tools/animation_smoke.py --exe test-output/v040-package/RustView-0.4.0/RustView.exe --output test-output/v040-animation.json
+```
+
+Prepare pinned native engines as described in [BUILDING.md](../BUILDING.md) before building. The extra PSD/RAR/navigation suites and optional real-camera suite must name the same rebuilt executable when results are added. Headless state/worker probes are not real-window, DPI, multi-monitor, paper-printing or multi-hour-library certification.
+
+### v0.4.0 中文说明
+
+版本化 v0.4.0 已通过208项单测（2项公开相机测试默认跳过），独立离线解压目录通过217项检查：209项工作进程回归及8项同Viewer无窗口导航回归。另一个隔离注册表脚本核验54种图片候选注册与3种压缩包右键入口，不能把它写成54项解码测试。修复了探测阶段取消后解码临时目录遗漏，并排除了进程PID复用造成的监测误报；最终RAR测试要求观测到的产品进程退出、每次临时目录为空。离线验证只保留系统PATH并指向不可用代理，未调用下载脚本；没有改系统防火墙。EXE摘要见上表，最终ZIP摘要见下载旁的.sha256。CI结果单独在Release链接；真实相机和大型RAR本地测试不冒充CI结果。预发布、截图、多屏DPI、纸张打印及长时间用户图库的验证边界保持明确。
+
+## v0.3 historical validation / 历史记录
+
+The remainder of this document preserves the completed v0.3 evidence and reproduction commands. Check out the corresponding v0.3 tag before using paths containing `RustView-0.3.0`; they are not the current release paths.
+
+### v0.3 development baseline
 
 The original Windows x64 development build passed **158 unit tests** with **2 public-camera tests ignored by default**, plus **68 isolated-process regression cases**: 25 static-image/archive, 24 animation, and 19 high-depth/metadata/editing cases. These are development results, not a claim that every GUI interaction is certified. Public-source and bootstrap checks are recorded separately below.
 
@@ -15,7 +62,7 @@ The original Windows x64 development build passed **158 unit tests** with **2 pu
 | Printing | Layout, DPI, fit/fill, page/copy math and bounded 400-cell metadata text; no paper was printed. |
 | Recovery | A valid but over-budget saved recipe can be bypassed to display original pixels without deleting the record; animation replay preserves this choice. |
 
-## Public-source release checks
+### Public-source release checks
 
 The public source was checked separately from the development baseline above:
 
@@ -27,7 +74,7 @@ The public source was checked separately from the development baseline above:
 
 The completed [GitHub Actions run 42846831762](https://github.com/walker1911/RustView/actions/runs/42846831762) independently exercised **49 worker cases** from a fresh checkout. The optional 19-case compatibility suite with real-camera samples belongs to the local 68-case baseline, not to this CI run. These checks do not certify every GUI interaction or camera model, and subsystem budgets are not a total application memory ceiling.
 
-## Complete offline package
+### Complete offline package
 
 The offline ZIP was extracted into a separate writable directory and tested using only the Windows system directories in `PATH`, with HTTP/HTTPS proxy variables pointing to an unavailable localhost endpoint. **25 static/archive, 24 GIF/WebP animation and 19 RAW/high-depth/metadata cases passed** from that extraction. No dependency setup script was included or invoked. These are local-file/worker checks, not a claim that a system firewall was changed or that all GUI interaction was validated.
 
@@ -35,15 +82,15 @@ The application binary is byte-identical to the previously verified v0.3.0 execu
 
 离线包从独立解压目录通过 25 项静态／压缩包、24 项动画、19 项 RAW／高位／元数据测试；只保留系统 PATH，未运行依赖准备脚本。应用二进制与先前版本相同，原生核心摘要、归档完整性及逐文件摘要均核验。真实 GUI 交互仍受前述验证范围限制。
 
-## Memory observations
+### Memory observations
 
 A 512×512 animation streamed for 1,200 frames without linear growth after warm-up. CLI process-tree private committed memory was approximately 10 MiB; that excludes GUI/font/driver/texture overhead. Real RAW PNG16 exports peaked around **472 MiB** in the sampled worker process tree. A 30MP Canon exposure plus white-balance export also passed within unchanged resource budgets. These are sample-specific observations, not maximum RSS or performance guarantees for arbitrary files.
 
-## What is not verified
+### What is not verified
 
 The Windows capture/automation interface timed out or denied access in the development environment. Headless UI logic and worker tests do not replace real-window, multi-monitor, DPI and visual testing. Wallpaper changes, real paper output, every camera/firmware and multi-hour use of a user's full library are not certified. No personal photographs, runtime databases, local diagnostic paths, reference binaries or private resource dumps are included in the public source or bootstrap package.
 
-## Reproduce on Windows x64
+### Reproduce on Windows x64
 
 Prepare the engines as described in [BUILDING.md](../BUILDING.md), then run:
 
@@ -56,7 +103,7 @@ python tools/animation_smoke.py --exe test-output/local-package/RustView-0.3.0/R
 
 The real-camera suite is optional and expects separate local sample files; it is not a default checkout requirement. Its script, `tools/compat_smoke.py`, documents the expected filenames and validates output depth/ICC, source digests and process-tree sampling. Sample sources include [the public RAW fixture release](https://github.com/tellodaniel/revelraw-sample-raw-files/releases/tag/v1), [libheif's test sample](https://github.com/strukturag/libheif), and [raw.pixls.us](https://raw.pixls.us/). Do not upload private images or credentials with an issue; use a minimal redistributable reproduction when possible.
 
-## 中文摘要
+### 中文摘要
 
 开发版曾通过 158 项单测（2 项真实相机样本默认跳过）及 68 项独立进程回归；真实样本覆盖上述尼康、索尼、佳能、苹果 ProRAW 与 HEIC。图库缓存、解码进程、动画预读及打印文字有单独预算，示例内存观测不代表整个 GUI 的峰值。真实窗口交互、全部机型、长时间用户图库和实际纸张打印尚未全面验收。公开仓库保留合成及带许可的小夹具，真实照片和本地运行数据均不发布。
 

@@ -21,6 +21,10 @@ mod shortcuts;
 mod worker;
 
 fn main() -> eframe::Result {
+    if std::env::args().nth(1).as_deref() == Some("--navigation-probe") {
+        app::navigation_probe_main();
+        return Ok(());
+    }
     if std::env::args().nth(1).as_deref() == Some("--request-probe") {
         worker::request_probe_main();
         return Ok(());
