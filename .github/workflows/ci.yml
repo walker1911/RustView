@@ -31,7 +31,7 @@ jobs:
         run: .\tools\package-public.ps1
       - name: Test a fully prepared local runtime
         run: |
-          .\tools\build.ps1 -SkipBuild -OutputRoot .\test-output\ci-local
+          .\tools\build.ps1 -SkipBuild -Offline -OutputRoot .\test-output\ci-local
           $version = ([regex]::Match((Get-Content Cargo.toml -Raw),'(?m)^version\s*=\s*"([^"]+)"')).Groups[1].Value
           $exe = Join-Path (Get-Location) ('test-output\ci-local\RustView-' + $version + '\RustView.exe')
           python tools/smoke_test.py --exe $exe --output test-output/smoke-ci.json

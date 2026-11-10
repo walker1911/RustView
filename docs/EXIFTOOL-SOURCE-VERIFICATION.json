@@ -1,0 +1,65 @@
+{
+  "runtime": {
+    "ExifTool": "13.62",
+    "Perl": "5.32.1",
+    "Strawberry_Perl": "5.32.1.1",
+    "GCC": "8.3.0",
+    "GMP": "6.1.2",
+    "Math_BigInt_GMP": "1.6007"
+  },
+  "files": [
+    {
+      "file": "Image-ExifTool-13.62.tar.gz",
+      "bytes": 7964169,
+      "sha256": "da111d05982f24674abf4d1d149da3c4e054236f583e4a9d06873aa9ce8f22c4",
+      "url": "https://sourceforge.net/projects/exiftool/files/Image-ExifTool-13.62.tar.gz/download",
+      "note": "Official release-source distribution, ExifTool 13.62"
+    },
+    {
+      "file": "gmp-6.1.2.tar.xz",
+      "bytes": 1946336,
+      "sha256": "87b565e89a9a684fe4ebeeddb8399dce2599f9c9049854ca8c0dfbdea0e21912",
+      "url": "https://ftp.gnu.org/gnu/gmp/gmp-6.1.2.tar.xz",
+      "note": "GMP version identified by the bundled Strawberry Perl libgmp/_INFO_ and its 5.32.1.1 release notes"
+    },
+    {
+      "file": "Math-BigInt-GMP-1.6007.tar.gz",
+      "bytes": 2459995,
+      "sha256": "5d725e6d20ccb37e072673628f0b0dd10e5dd011619f70f50ad58aded454c01f",
+      "url": "https://backpan.perl.org/authors/id/P/PJ/PJACKLAM/Math-BigInt-GMP-1.6007.tar.gz",
+      "note": "Matching module source and Makefile.PL; bundled runtime reports module version 1.6007"
+    },
+    {
+      "file": "exiftool-launcher-ppl.zip",
+      "bytes": 12843,
+      "sha256": "72a112caac70de4cab56971d0bf1ea8050f8228ed036ec88e7657d40cc08ce0e",
+      "url": "https://oliverbetz.de/cms/files/Artikel/Portable-Perl-Applications/ppl.zip",
+      "note": "Launcher author CC0 demonstration/source archive; do not claim bit-for-bit current launcher build"
+    },
+    {
+      "file": "strawberry-gcc8.3.0-licenses.zip",
+      "bytes": 154189,
+      "sha256": "a40cf35e62827b4a7175bee82f7b446b300143433c8ad91b73262aa54772e4f6",
+      "url": "https://strawberryperl.com/package/kmx/64_gcctoolchain/mingw64-w64-gcc8.3.0_20190316-lic.zip",
+      "note": "Official corresponding toolchain notices; bundled Licenses_Strawberry_Perl.zip already contains its runtime/license texts"
+    }
+  ],
+  "import_check": "All non-Windows dependencies for 7zip, LibRaw, ExifTool/perl and XS modules were found in the prepared native tree or six app-local VC143 CRT files. Windows API-set/UCRT are OS components. See non-im-imports.json.",
+  "license_selection": {
+    "Perl_ExifTool": "Unmodified standard distributions under the Artistic option. Retain original notices and explicit standard-version acquisition instructions.",
+    "GCC_runtime": "Supplied as runtime support for the linked Perl/XS application combination using GCC Runtime Library Exception 3.1. This is not a standalone compiler/library distribution. GNU FAQ says the exception covers dynamic and static combinations; it separately requires GPL compliance for independent libstdc++ distribution.",
+    "GMP": "GMP library LGPL-3.0-or-later option; provide its complete source and corresponding Math::BigInt::GMP XS application source/build rules for user recombination.",
+    "liblzma": "Bundled xz5.2.4 COPYING identifies liblzma itself as public domain; this does not relicense unrelated xz tools.",
+    "winpthreads": "Bundled MIT/BSD notices retained.",
+    "Microsoft_CRT": "Unmodified permitted release VC143 x64 app-local files; retain attribution and upstream redist terms. No debug runtime."
+  },
+  "primary_references": [
+    "https://www.gnu.org/licenses/gcc-exception-3.1-faq.html",
+    "https://oliverbetz.de/pages/Artikel/ExifTool-for-Windows",
+    "https://strawberryperl.com/release-notes/5.32.1.1-64bit.html",
+    "https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution",
+    "https://www.libraw.org/download"
+  ],
+  "source_bundle": "RustView-0.3.0-exiftool-sources.zip",
+  "native_rebuild_performed": false
+}

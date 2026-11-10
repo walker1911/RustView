@@ -27,6 +27,14 @@ The public source was checked separately from the development baseline above:
 
 The completed [GitHub Actions run 42846831762](https://github.com/walker1911/RustView/actions/runs/42846831762) independently exercised **49 worker cases** from a fresh checkout. The optional 19-case compatibility suite with real-camera samples belongs to the local 68-case baseline, not to this CI run. These checks do not certify every GUI interaction or camera model, and subsystem budgets are not a total application memory ceiling.
 
+## Complete offline package
+
+The offline ZIP was extracted into a separate writable directory and tested using only the Windows system directories in `PATH`, with HTTP/HTTPS proxy variables pointing to an unavailable localhost endpoint. **25 static/archive, 24 GIF/WebP animation and 19 RAW/high-depth/metadata cases passed** from that extraction. No dependency setup script was included or invoked. These are local-file/worker checks, not a claim that a system firewall was changed or that all GUI interaction was validated.
+
+The application binary is byte-identical to the previously verified v0.3.0 executable (SHA-256 `9c407f6131780c64e81f9e9e50f9c9d93da020c17bc108750982de23ee2ec684`). Native core hashes match the pinned manifest; a ZIP CRC check and all packaged per-file SHA-256 values passed. Import checks found all non-system DLL dependencies in the package. The launcher directly starts the executable and contains no downloader.
+
+离线包从独立解压目录通过 25 项静态／压缩包、24 项动画、19 项 RAW／高位／元数据测试；只保留系统 PATH，未运行依赖准备脚本。应用二进制与先前版本相同，原生核心摘要、归档完整性及逐文件摘要均核验。真实 GUI 交互仍受前述验证范围限制。
+
 ## Memory observations
 
 A 512×512 animation streamed for 1,200 frames without linear growth after warm-up. CLI process-tree private committed memory was approximately 10 MiB; that excludes GUI/font/driver/texture overhead. Real RAW PNG16 exports peaked around **472 MiB** in the sampled worker process tree. A 30MP Canon exposure plus white-balance export also passed within unchanged resource budgets. These are sample-specific observations, not maximum RSS or performance guarantees for arbitrary files.

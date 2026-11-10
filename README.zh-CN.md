@@ -49,11 +49,18 @@
 
 这些是各层预算，**不是整个软件的总内存上限**。字体、驱动、概览纹理等还有额外开销；超限输入可能被拒绝。具体限额和实测范围见[验证记录](docs/VALIDATION.md)。
 
-## 下载与首次准备
+## 下载与运行
 
-1. 下载 [Windows x64 引导包](https://github.com/walker1911/RustView/releases/download/v0.3.0/RustView-0.3.0-win-x64-bootstrap.zip)。
-2. 完整解压，运行 `Start-RustView.cmd`。首次准备需要联网：脚本从官方来源获取固定版本的原生引擎，并校验摘要。
-3. 依赖准备好后，运行 `RustView.exe` 即可离线看图。打开文件夹、图片、支持的压缩包，也可以直接拖入窗口。
+1. 下载 [Windows x64 完整离线包](https://github.com/walker1911/RustView/releases/download/v0.3.0/RustView-0.3.0-win-x64-offline.zip)。
+2. 完整解压，双击 `RustView.exe` 或 `Start-RustView.cmd`。图片引擎和运行库已经包含，首次启动也无需联网或安装依赖。
+3. 打开或拖入文件夹、图片、ZIP／RAR／7z。请保留完整目录。
+
+| 版本 | 首次运行 |
+|---|---|
+| **完整离线包** | 内置全部看图依赖，解压即用，断网也能首次运行。 |
+| [较小的引导包](https://github.com/walker1911/RustView/releases/download/v0.3.0/RustView-0.3.0-win-x64-bootstrap.zip) | 运行 `Start-RustView.cmd`，首次联网下载并校验官方依赖；之后离线使用。 |
+
+两个版本均提供 `.sha256` 校验文件。第三方源码单独放在同一 Release 中，普通看图无需下载源码附件。详见[离线版说明](https://github.com/walker1911/RustView/blob/main/OFFLINE.md)。
 
 设置、目录库和处理记录保存在程序旁的 `RustView-data` 中。准备脚本不修改全局 PATH、注册表或文件关联。
 

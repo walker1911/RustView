@@ -7,3 +7,6 @@ Source: https://github.com/ip7z/7zip/releases/download/26.06/7z2606-src.7z
 Source SHA256: e0364d39e8208557d939472c9a12d02ed1c12f45ca402e3b408bcaa63b36dd93
 License: See License.txt. 7-Zip copyright Igor Pavlov.
 
+The complete offline RustView ZIP includes this exact source archive at
+sources/7z2606-src.7z beside the engine binaries and license notices.
+

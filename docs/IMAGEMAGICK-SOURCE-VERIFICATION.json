@@ -1,0 +1,367 @@
+{
+  "release": "7.1.2-35",
+  "official_windows_source_archive": {
+    "name": "ImageMagick-7.1.2-35-Windows.7z",
+    "bytes": 769375980,
+    "sha256": "778bc4d5de0a8ae055284e85fd7dfff75dd44ec14c010cdf8dad5ab05f6a89d4",
+    "upstream_url": "https://github.com/ImageMagick/ImageMagick/releases/download/7.1.2-35/ImageMagick-7.1.2-35-Windows.7z"
+  },
+  "additional_primary_source_archive": {
+    "name": "ImageMagick-7.1.2-35.7z",
+    "bytes": 10270341,
+    "sha256": "1d95f7d0ed11e91a3ee9e3042a8e248cb88c666dd9256ab14cc871b1f73138fd",
+    "upstream_url": "https://github.com/ImageMagick/ImageMagick/releases/download/7.1.2-35/ImageMagick-7.1.2-35.7z"
+  },
+  "archive_entries": 42651,
+  "required_components": 38,
+  "all_notice_commits_match": true,
+  "configure_commit": "cd4f71087861df15d781fb90b33556393825cf40",
+  "dependencies_build_commit": "8889f5cd9f0e0c1937a89350d95078d28a647a41",
+  "configure_solution_present": true,
+  "official_release_workflow_url": "https://github.com/ImageMagick/ImageMagick/blob/7.1.2-35/.github/workflows/release.yml",
+  "components": [
+    {
+      "component": "ImageMagick 7.1.2-35",
+      "source_url": "https://github.com/ImageMagick/ImageMagick/tree/5d1bcc55f2c83bc2ff802118b7369756610f3ad4",
+      "archive_directory": "ImageMagick",
+      "expected_commit": "5d1bcc55f2c83bc2ff802118b7369756610f3ad4",
+      "observed_commit": "5d1bcc55f2c83bc2ff802118b7369756610f3ad4",
+      "matching": true,
+      "source_and_build_file_count": 713
+    },
+    {
+      "component": "aom 3.15.2",
+      "source_url": "https://github.com/ImageMagick/aom/tree/949b2083094619a8cf6491938d47e6c4804ed108",
+      "archive_directory": "Dependencies/Dependencies/aom",
+      "expected_commit": "949b2083094619a8cf6491938d47e6c4804ed108",
+      "observed_commit": "949b2083094619a8cf6491938d47e6c4804ed108",
+      "matching": true,
+      "source_and_build_file_count": 1357
+    },
+    {
+      "component": "brotli 1.2.1",
+      "source_url": "https://github.com/ImageMagick/brotli/tree/62877063ab55b3494bdee9d1239156754aed6413",
+      "archive_directory": "Dependencies/Dependencies/brotli",
+      "expected_commit": "62877063ab55b3494bdee9d1239156754aed6413",
+      "observed_commit": "62877063ab55b3494bdee9d1239156754aed6413",
+      "matching": true,
+      "source_and_build_file_count": 113
+    },
+    {
+      "component": "libbzip2 1.0.8",
+      "source_url": "https://github.com/ImageMagick/bzip2/tree/abffe764f875f71d051efb19d4c83139375f82d7",
+      "archive_directory": "Dependencies/Dependencies/bzip2",
+      "expected_commit": "abffe764f875f71d051efb19d4c83139375f82d7",
+      "observed_commit": "abffe764f875f71d051efb19d4c83139375f82d7",
+      "matching": true,
+      "source_and_build_file_count": 17
+    },
+    {
+      "component": "cairo 1.18.6",
+      "source_url": "https://github.com/ImageMagick/cairo/tree/4334da83d8f44abe5aab1a11956e3f8e6e58eac7",
+      "archive_directory": "Dependencies/Dependencies/cairo",
+      "expected_commit": "4334da83d8f44abe5aab1a11956e3f8e6e58eac7",
+      "observed_commit": "4334da83d8f44abe5aab1a11956e3f8e6e58eac7",
+      "matching": true,
+      "source_and_build_file_count": 959
+    },
+    {
+      "component": "libcroco 0.6.13",
+      "source_url": "https://github.com/ImageMagick/croco/tree/178785cdc6faecad555a4e6fe4fda2b625046e8e",
+      "archive_directory": "Dependencies/Dependencies/croco",
+      "expected_commit": "178785cdc6faecad555a4e6fe4fda2b625046e8e",
+      "observed_commit": "178785cdc6faecad555a4e6fe4fda2b625046e8e",
+      "matching": true,
+      "source_and_build_file_count": 79
+    },
+    {
+      "component": "libde265 1.1.3",
+      "source_url": "https://github.com/ImageMagick/de265/tree/5a0bf9f624d810de6af20e41ac3cfd92bf7de508",
+      "archive_directory": "Dependencies/Dependencies/de265",
+      "expected_commit": "5a0bf9f624d810de6af20e41ac3cfd92bf7de508",
+      "observed_commit": "5a0bf9f624d810de6af20e41ac3cfd92bf7de508",
+      "matching": true,
+      "source_and_build_file_count": 118
+    },
+    {
+      "component": "openexr 3.5.2",
+      "source_url": "https://github.com/ImageMagick/exr/tree/85a96b21d3cdcae99fbea6f32f62eba9ca4a9fdd",
+      "archive_directory": "Dependencies/Dependencies/exr",
+      "expected_commit": "85a96b21d3cdcae99fbea6f32f62eba9ca4a9fdd",
+      "observed_commit": "85a96b21d3cdcae99fbea6f32f62eba9ca4a9fdd",
+      "matching": true,
+      "source_and_build_file_count": 822
+    },
+    {
+      "component": "libffi 3.8.0",
+      "source_url": "https://github.com/ImageMagick/ffi/tree/91982d4ac97b179dd1fb878caef2ed2847bc38b6",
+      "archive_directory": "Dependencies/Dependencies/ffi",
+      "expected_commit": "91982d4ac97b179dd1fb878caef2ed2847bc38b6",
+      "observed_commit": "91982d4ac97b179dd1fb878caef2ed2847bc38b6",
+      "matching": true,
+      "source_and_build_file_count": 340
+    },
+    {
+      "component": "fontconfig 2.18.3",
+      "source_url": "https://github.com/ImageMagick/fontconfig/tree/943048d94dfa3d7d4a213f36f9ef7af988397cd4",
+      "archive_directory": "Dependencies/NonWindowsDependencies/fontconfig",
+      "expected_commit": "943048d94dfa3d7d4a213f36f9ef7af988397cd4",
+      "observed_commit": "943048d94dfa3d7d4a213f36f9ef7af988397cd4",
+      "matching": true,
+      "source_and_build_file_count": 106
+    },
+    {
+      "component": "freetype 2.15.0",
+      "source_url": "https://github.com/ImageMagick/freetype/tree/c872866d7b45c6926d82a636c3f9055472e6c334",
+      "archive_directory": "Dependencies/Dependencies/freetype",
+      "expected_commit": "c872866d7b45c6926d82a636c3f9055472e6c334",
+      "observed_commit": "c872866d7b45c6926d82a636c3f9055472e6c334",
+      "matching": true,
+      "source_and_build_file_count": 542
+    },
+    {
+      "component": "fribidi 1.0.18",
+      "source_url": "https://github.com/ImageMagick/fribidi/tree/a51f6765d9bfafab1f7bd3f5f507ccf1eac6be6b",
+      "archive_directory": "Dependencies/Dependencies/fribidi",
+      "expected_commit": "a51f6765d9bfafab1f7bd3f5f507ccf1eac6be6b",
+      "observed_commit": "a51f6765d9bfafab1f7bd3f5f507ccf1eac6be6b",
+      "matching": true,
+      "source_and_build_file_count": 85
+    },
+    {
+      "component": "gdk-pixbuf 2.44.8",
+      "source_url": "https://github.com/ImageMagick/gdk-pixbuf/tree/92a234886a0337480770ef93dc74ea920bf39ab3",
+      "archive_directory": "Dependencies/Dependencies/gdk-pixbuf",
+      "expected_commit": "92a234886a0337480770ef93dc74ea920bf39ab3",
+      "observed_commit": "92a234886a0337480770ef93dc74ea920bf39ab3",
+      "matching": true,
+      "source_and_build_file_count": 139
+    },
+    {
+      "component": "glib 2.64.3",
+      "source_url": "https://github.com/ImageMagick/glib/tree/ea0118ca0d408473d320b21262a1cdc6ce3e5f40",
+      "archive_directory": "Dependencies/Dependencies/glib",
+      "expected_commit": "ea0118ca0d408473d320b21262a1cdc6ce3e5f40",
+      "observed_commit": "ea0118ca0d408473d320b21262a1cdc6ce3e5f40",
+      "matching": true,
+      "source_and_build_file_count": 1239
+    },
+    {
+      "component": "harfbuzz 15.0.0",
+      "source_url": "https://github.com/ImageMagick/harfbuzz/tree/c77409b255cbce3e39210681dfad9ba93eadbcbe",
+      "archive_directory": "Dependencies/Dependencies/harfbuzz",
+      "expected_commit": "c77409b255cbce3e39210681dfad9ba93eadbcbe",
+      "observed_commit": "c77409b255cbce3e39210681dfad9ba93eadbcbe",
+      "matching": true,
+      "source_and_build_file_count": 419
+    },
+    {
+      "component": "libheif 1.23.7",
+      "source_url": "https://github.com/ImageMagick/heif/tree/498042a72e805c50e5e84b57e15327f3cfdf6a63",
+      "archive_directory": "Dependencies/Dependencies/heif",
+      "expected_commit": "498042a72e805c50e5e84b57e15327f3cfdf6a63",
+      "observed_commit": "498042a72e805c50e5e84b57e15327f3cfdf6a63",
+      "matching": true,
+      "source_and_build_file_count": 508
+    },
+    {
+      "component": "libhwy 1.4.0",
+      "source_url": "https://github.com/ImageMagick/highway/tree/e1a586af5be6358bb983ff608f9678a622209ca3",
+      "archive_directory": "Dependencies/Dependencies/highway",
+      "expected_commit": "e1a586af5be6358bb983ff608f9678a622209ca3",
+      "observed_commit": "e1a586af5be6358bb983ff608f9678a622209ca3",
+      "matching": true,
+      "source_and_build_file_count": 217
+    },
+    {
+      "component": "imath 3.2.3",
+      "source_url": "https://github.com/ImageMagick/imath/tree/1ec391453dd33f3432018d3a266e3d177a705235",
+      "archive_directory": "Dependencies/Dependencies/imath",
+      "expected_commit": "1ec391453dd33f3432018d3a266e3d177a705235",
+      "observed_commit": "1ec391453dd33f3432018d3a266e3d177a705235",
+      "matching": true,
+      "source_and_build_file_count": 289
+    },
+    {
+      "component": "libjpeg-turbo 3.2.1",
+      "source_url": "https://github.com/ImageMagick/jpeg-turbo/tree/ea2dd9d26a47da90c87a3ab57f6ac7f85977be83",
+      "archive_directory": "Dependencies/Dependencies/jpeg-turbo",
+      "expected_commit": "ea2dd9d26a47da90c87a3ab57f6ac7f85977be83",
+      "observed_commit": "ea2dd9d26a47da90c87a3ab57f6ac7f85977be83",
+      "matching": true,
+      "source_and_build_file_count": 361
+    },
+    {
+      "component": "libjxl 0.12.0",
+      "source_url": "https://github.com/ImageMagick/jpeg-xl/tree/8503118ff13ab8b11680296900da3361d6703dc1",
+      "archive_directory": "Dependencies/Dependencies/jpeg-xl",
+      "expected_commit": "8503118ff13ab8b11680296900da3361d6703dc1",
+      "observed_commit": "8503118ff13ab8b11680296900da3361d6703dc1",
+      "matching": true,
+      "source_and_build_file_count": 667
+    },
+    {
+      "component": "lcms 2.19.1",
+      "source_url": "https://github.com/ImageMagick/lcms/tree/d261ab6fda30fd7578a2ce7ace5c0b2c7d3fc0b8",
+      "archive_directory": "Dependencies/Dependencies/lcms",
+      "expected_commit": "d261ab6fda30fd7578a2ce7ace5c0b2c7d3fc0b8",
+      "observed_commit": "d261ab6fda30fd7578a2ce7ace5c0b2c7d3fc0b8",
+      "matching": true,
+      "source_and_build_file_count": 139
+    },
+    {
+      "component": "liblqr 0.4.2",
+      "source_url": "https://github.com/ImageMagick/lqr/tree/a2e9e8b5b41bf0569f51482707a12d354a086f3a",
+      "archive_directory": "Dependencies/Dependencies/lqr",
+      "expected_commit": "a2e9e8b5b41bf0569f51482707a12d354a086f3a",
+      "observed_commit": "a2e9e8b5b41bf0569f51482707a12d354a086f3a",
+      "matching": true,
+      "source_and_build_file_count": 53
+    },
+    {
+      "component": "liblzma 5.8.4",
+      "source_url": "https://github.com/ImageMagick/lzma/tree/131e9a49425f51b8dd8710c57fbaa527baed3989",
+      "archive_directory": "Dependencies/Dependencies/lzma",
+      "expected_commit": "131e9a49425f51b8dd8710c57fbaa527baed3989",
+      "observed_commit": "131e9a49425f51b8dd8710c57fbaa527baed3989",
+      "matching": true,
+      "source_and_build_file_count": 282
+    },
+    {
+      "component": "openh264 2.7.0",
+      "source_url": "https://github.com/ImageMagick/openh264/tree/8f7d29ca929a6b66682c0a5889a62a68c0cfa486",
+      "archive_directory": "Dependencies/Dependencies/openh264",
+      "expected_commit": "8f7d29ca929a6b66682c0a5889a62a68c0cfa486",
+      "observed_commit": "8f7d29ca929a6b66682c0a5889a62a68c0cfa486",
+      "matching": true,
+      "source_and_build_file_count": 356
+    },
+    {
+      "component": "openjpeg 2.5.4",
+      "source_url": "https://github.com/ImageMagick/openjpeg/tree/97ce1d10749b1a02d657eae491e80c572ca183b2",
+      "archive_directory": "Dependencies/Dependencies/openjpeg",
+      "expected_commit": "97ce1d10749b1a02d657eae491e80c572ca183b2",
+      "observed_commit": "97ce1d10749b1a02d657eae491e80c572ca183b2",
+      "matching": true,
+      "source_and_build_file_count": 379
+    },
+    {
+      "component": "openjph 0.32.0",
+      "source_url": "https://github.com/ImageMagick/openjph/tree/c1a1ffc1e3f90eb9397407f1f545a47e01390aef",
+      "archive_directory": "Dependencies/Dependencies/openjph",
+      "expected_commit": "c1a1ffc1e3f90eb9397407f1f545a47e01390aef",
+      "observed_commit": "c1a1ffc1e3f90eb9397407f1f545a47e01390aef",
+      "matching": true,
+      "source_and_build_file_count": 119
+    },
+    {
+      "component": "pango 1.45.3",
+      "source_url": "https://github.com/ImageMagick/pango/tree/0b1e4536e0005f3c36b523c17ea12322490efd45",
+      "archive_directory": "Dependencies/Dependencies/pango",
+      "expected_commit": "0b1e4536e0005f3c36b523c17ea12322490efd45",
+      "observed_commit": "0b1e4536e0005f3c36b523c17ea12322490efd45",
+      "matching": true,
+      "source_and_build_file_count": 202
+    },
+    {
+      "component": "pixman 0.46.4",
+      "source_url": "https://github.com/ImageMagick/pixman/tree/f7b55a8d3c39380724da9fbdef72ad70be800efc",
+      "archive_directory": "Dependencies/Dependencies/pixman",
+      "expected_commit": "f7b55a8d3c39380724da9fbdef72ad70be800efc",
+      "observed_commit": "f7b55a8d3c39380724da9fbdef72ad70be800efc",
+      "matching": true,
+      "source_and_build_file_count": 127
+    },
+    {
+      "component": "libpng 1.6.59",
+      "source_url": "https://github.com/ImageMagick/png/tree/1ccb8b78643c7ad5360f00719a1e952ce0be7a53",
+      "archive_directory": "Dependencies/Dependencies/png",
+      "expected_commit": "1ccb8b78643c7ad5360f00719a1e952ce0be7a53",
+      "observed_commit": "1ccb8b78643c7ad5360f00719a1e952ce0be7a53",
+      "matching": true,
+      "source_and_build_file_count": 133
+    },
+    {
+      "component": "libraqm 0.11.0",
+      "source_url": "https://github.com/ImageMagick/raqm/tree/a699b8b7838acb4ac8d5891f42ecf3d84a00a9ad",
+      "archive_directory": "Dependencies/Dependencies/raqm",
+      "expected_commit": "a699b8b7838acb4ac8d5891f42ecf3d84a00a9ad",
+      "observed_commit": "a699b8b7838acb4ac8d5891f42ecf3d84a00a9ad",
+      "matching": true,
+      "source_and_build_file_count": 11
+    },
+    {
+      "component": "libraw 0.22.3",
+      "source_url": "https://github.com/ImageMagick/raw/tree/71399d76efc3fa915bf3fb01ddede994b549a80a",
+      "archive_directory": "Dependencies/Dependencies/raw",
+      "expected_commit": "71399d76efc3fa915bf3fb01ddede994b549a80a",
+      "observed_commit": "71399d76efc3fa915bf3fb01ddede994b549a80a",
+      "matching": true,
+      "source_and_build_file_count": 136
+    },
+    {
+      "component": "librsvg 2.40.20",
+      "source_url": "https://github.com/ImageMagick/rsvg/tree/7415a6765db7554ba6f0f1b3dcb0877f36ff581b",
+      "archive_directory": "Dependencies/Dependencies/rsvg",
+      "expected_commit": "7415a6765db7554ba6f0f1b3dcb0877f36ff581b",
+      "observed_commit": "7415a6765db7554ba6f0f1b3dcb0877f36ff581b",
+      "matching": true,
+      "source_and_build_file_count": 115
+    },
+    {
+      "component": "libtiff 4.7.2",
+      "source_url": "https://github.com/ImageMagick/tiff/tree/3021cd03440ba6954f8bdf2b7ad4557a36092cd8",
+      "archive_directory": "Dependencies/Dependencies/tiff",
+      "expected_commit": "3021cd03440ba6954f8bdf2b7ad4557a36092cd8",
+      "observed_commit": "3021cd03440ba6954f8bdf2b7ad4557a36092cd8",
+      "matching": true,
+      "source_and_build_file_count": 203
+    },
+    {
+      "component": "libwebp 1.6.0",
+      "source_url": "https://github.com/ImageMagick/webp/tree/b981ef267195cb12f2cb97e4dd23e12a1323a4ce",
+      "archive_directory": "Dependencies/Dependencies/webp",
+      "expected_commit": "b981ef267195cb12f2cb97e4dd23e12a1323a4ce",
+      "observed_commit": "b981ef267195cb12f2cb97e4dd23e12a1323a4ce",
+      "matching": true,
+      "source_and_build_file_count": 252
+    },
+    {
+      "component": "libxml2 2.15.4",
+      "source_url": "https://github.com/ImageMagick/xml/tree/3ba73c8312b7ac88adc1a2e62df13d0827e93a0f",
+      "archive_directory": "Dependencies/Dependencies/xml",
+      "expected_commit": "3ba73c8312b7ac88adc1a2e62df13d0827e93a0f",
+      "observed_commit": "3ba73c8312b7ac88adc1a2e62df13d0827e93a0f",
+      "matching": true,
+      "source_and_build_file_count": 171
+    },
+    {
+      "component": "libzip 1.12.1",
+      "source_url": "https://github.com/ImageMagick/zip/tree/4fb2753af4c718080b62fbadda0e99fd9178ab6a",
+      "archive_directory": "Dependencies/Dependencies/zip",
+      "expected_commit": "4fb2753af4c718080b62fbadda0e99fd9178ab6a",
+      "observed_commit": "4fb2753af4c718080b62fbadda0e99fd9178ab6a",
+      "matching": true,
+      "source_and_build_file_count": 212
+    },
+    {
+      "component": "zlib 1.3.2",
+      "source_url": "https://github.com/ImageMagick/zlib/tree/e42706934e4e7564d960031ae62ff29d918ee06d",
+      "archive_directory": "Dependencies/Dependencies/zlib",
+      "expected_commit": "e42706934e4e7564d960031ae62ff29d918ee06d",
+      "observed_commit": "e42706934e4e7564d960031ae62ff29d918ee06d",
+      "matching": true,
+      "source_and_build_file_count": 139
+    },
+    {
+      "component": "zstd 1.5.7",
+      "source_url": "https://github.com/ImageMagick/zstd/tree/4d5752ffeca8defb48ad744274f4f76b2866d71d",
+      "archive_directory": "Dependencies/Dependencies/zstd",
+      "expected_commit": "4d5752ffeca8defb48ad744274f4f76b2866d71d",
+      "observed_commit": "4d5752ffeca8defb48ad744274f4f76b2866d71d",
+      "matching": true,
+      "source_and_build_file_count": 300
+    }
+  ],
+  "verification": "SHA-256 against immutable GitHub release asset digest; 7-Zip full CRC test; git HEAD refs of all NOTICE components match; source/build files present."
+}

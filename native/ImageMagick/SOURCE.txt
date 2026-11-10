@@ -6,3 +6,11 @@ Upstream archive retained at .tools/archives/ImageMagick-7.1.2-35-portable-Q16-H
 Only magick.exe is used; duplicate executable entry points were removed.
 See LICENSE.txt and NOTICE.txt for upstream and bundled-code notices.
 RustView supplies its own image-only resource/delegate policy in policy.xml.
+
+Complete matching Windows source, codec dependencies and build projects:
+https://github.com/walker1911/RustView/releases/download/v0.3.0/ImageMagick-7.1.2-35-Windows.7z
+Original upstream asset:
+https://github.com/ImageMagick/ImageMagick/releases/download/7.1.2-35/ImageMagick-7.1.2-35-Windows.7z
+Source archive SHA256: 778bc4d5de0a8ae055284e85fd7dfff75dd44ec14c010cdf8dad5ab05f6a89d4
+All 38 NOTICE component revisions were checked against the source archive.
+See docs/IMAGEMAGICK-REBUILD.md for rebuilding and compatible replacement.

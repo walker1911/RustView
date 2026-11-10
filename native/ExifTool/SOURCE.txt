@@ -25,3 +25,13 @@ Licensing and included components:
 
 RustView invokes this unmodified portable program as a separate process using
 JSON and UTF-8 stdin argument files. It does not link ExifTool into RustView.
+
+Offline release supplement: matching ExifTool 13.62, GMP 6.1.2 and
+Math::BigInt::GMP 1.6007 source/build archives are provided on the same Release:
+https://github.com/walker1911/RustView/releases/download/v0.3.0/RustView-0.3.0-exiftool-sources.zip
+Standard Perl acquisition: https://strawberryperl.com/release-notes/5.32.1.1-64bit.html
+Unchanged standard Perl/ExifTool is provided under the Artistic option.
+GCC support DLLs accompany the linked Perl/XS combination with GCC Runtime
+Library Exception 3.1 notices, not as an independent compiler-library product.
+GMP uses the LGPLv3 option, with GMP and corresponding XS application sources
+provided for rebuilding and replacement. See docs/NATIVE-SOURCES.md.

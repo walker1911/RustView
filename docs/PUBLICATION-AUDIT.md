@@ -38,7 +38,7 @@ Keep source/provenance notices, licenses, and RustView's own image-only `policy.
 - ImageMagick: `LICENSE.txt`, complete `NOTICE.txt`, `SOURCE.txt`, and the project policy. The portable executable's NOTICE identifies multiple separately licensed dependencies, including libde265 1.1.3 / libheif 1.23.7 under LGPLv3, and contains exact upstream source commits. Preserve the complete NOTICE, not only the ImageMagick license.
 - ExifTool: `SOURCE.txt`; the official runtime download must retain `exiftool_files`, its licenses, Perl modules, and runtime notices.
 
-This public-source release uses official-download dependency setup rather than republishing the prior full native binary bundle. A future redistributor of a full native bundle should provide the matching source/build/relink materials required by the actual bundled library licenses, and must not describe the entire bundle as MIT-licensed. Running an external native engine does not change RustView's own source license.
+The source repository and bootstrap ZIP use official-download dependency setup. The additional complete offline ZIP includes the native binaries and original notices; matching source and Windows rebuild materials are provided as attachments on the same Release, recorded in [NATIVE-SOURCES.md](NATIVE-SOURCES.md). Redistributors must preserve the applicable source/build/relink materials and must not describe the whole bundle as MIT-licensed. Running an external native engine does not change RustView's own source license.
 
 ## Files outside the source allowlist
 

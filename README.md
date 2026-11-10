@@ -45,9 +45,16 @@ Decoding uses a separate, memory-limited Windows process tree. Failed records ca
 
 ## Download and use
 
-1. Download the [Windows x64 bootstrap ZIP](https://github.com/walker1911/RustView/releases/download/v0.3.0/RustView-0.3.0-win-x64-bootstrap.zip).
-2. Extract it and run `Start-RustView.cmd`. First setup downloads pinned native engines from official sources and checks their hashes; it needs internet access.
-3. After setup, run `RustView.exe` for offline viewing. Open or drag in a folder, picture, or archive.
+1. Download the [complete Windows x64 offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.3.0/RustView-0.3.0-win-x64-offline.zip).
+2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. All image engines and runtime libraries are included; first launch needs no internet access or installation.
+3. Open or drag in a folder, picture, or archive. Keep the complete extracted folder.
+
+| Package | First launch |
+|---|---|
+| **Offline ZIP** | Dependencies included; extract and run, even without internet. |
+| [Smaller bootstrap ZIP](https://github.com/walker1911/RustView/releases/download/v0.3.0/RustView-0.3.0-win-x64-bootstrap.zip) | Run `Start-RustView.cmd` to download and verify pinned official engines once; later launches work offline. |
+
+Both packages have accompanying `.sha256` files. Third-party source attachments on the same Release are available separately and are not needed for normal offline viewing. [Offline guide](https://github.com/walker1911/RustView/blob/main/OFFLINE.md).
 
 The interface is currently primarily Chinese; a complete English UI is not yet available. See the [full keyboard reference](docs/KEYBOARD.md).
 

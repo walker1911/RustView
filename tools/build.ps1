@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 [CmdletBinding()]
-param([switch]$SkipBuild, [string]$OutputRoot, [string]$RuntimeDirectory, [string]$SourceArchive)
+param([switch]$SkipBuild, [string]$OutputRoot, [string]$RuntimeDirectory, [string]$SourceArchive, [switch]$Offline)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'windows-tools.ps1')
@@ -36,18 +36,23 @@ try {
             Copy-Item -LiteralPath $_.FullName -Destination $target -Force
         }
     }
-    foreach ($file in @('README.md','README.zh-CN.md','THIRD-PARTY-NOTICES.md','LICENSE','BUILDING.md')) {
+    foreach ($file in @('README.md','README.zh-CN.md','THIRD-PARTY-NOTICES.md','LICENSE','BUILDING.md','OFFLINE.md')) {
         $source = Join-Path $projectRoot $file
         if (Test-Path -LiteralPath $source -PathType Leaf) { Copy-Item -LiteralPath $source -Destination (Join-Path $package $file) -Force }
     }
-    foreach ($folder in @('docs','assets')) {
+    foreach ($folder in @('docs','assets','licenses')) {
         if (Test-Path -LiteralPath (Join-Path $projectRoot $folder)) { Copy-Item -LiteralPath (Join-Path $projectRoot $folder) -Destination $package -Recurse -Force }
     }
     [void][IO.Directory]::CreateDirectory((Join-Path $package 'sources'))
     Copy-Item -LiteralPath $SourceArchive -Destination (Join-Path $package 'sources/7z2606-src.7z') -Force
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'native/manifest.json') -Destination (Join-Path $package 'native/manifest.json') -Force
+    if ($Offline) {
+        Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/NATIVE-SOURCES.md') -Destination (Join-Path $package 'sources/README.md') -Force
+    }
     Copy-VcRuntime $package $RuntimeDirectory
     $launcher = '@echo off' + "`r`n" + 'start "" "%~dp0RustView.exe" %*' + "`r`n"
     [IO.File]::WriteAllText((Join-Path $package 'Start-RustView.cmd'), $launcher, [Text.Encoding]::ASCII)
-    Write-PackageArchive $package (Join-Path $OutputRoot ('RustView-' + $version + '-win-x64.zip')) @('native','docs','sources','assets','licenses')
+    $suffix = if ($Offline) { '-win-x64-offline.zip' } else { '-win-x64.zip' }
+    Write-PackageArchive $package (Join-Path $OutputRoot ('RustView-' + $version + $suffix)) @('native','docs','sources','assets','licenses')
     Write-Output $package
 } finally { Pop-Location }
