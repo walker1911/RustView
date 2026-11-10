@@ -31,7 +31,7 @@ try {
         $source = Join-Path $projectRoot $file
         if (Test-Path -LiteralPath $source -PathType Leaf) { Copy-Item -LiteralPath $source -Destination (Join-Path $package $file) -Force }
     }
-    foreach ($folder in @('docs','assets')) {
+    foreach ($folder in @('docs','assets','licenses')) {
         if (Test-Path -LiteralPath (Join-Path $projectRoot $folder)) { Copy-Item -LiteralPath (Join-Path $projectRoot $folder) -Destination $package -Recurse -Force }
     }
     foreach ($file in @('manifest.json') + @($manifest.templates)) {
