@@ -1,5 +1,7 @@
 # RustView
 
+[![Windows x64 构建与测试](https://github.com/walker1911/RustView/actions/workflows/ci.yml/badge.svg)](https://github.com/walker1911/RustView/actions/workflows/ci.yml)
+
 **打开压缩包，接着看。**
 
 面向 **Windows x64** 的 Rust 看图项目。把相机 RAW、GIF/WebP 动画和 ZIP／RAR／7z 里的照片，放进熟悉的键盘翻图与平滑缩放流程。
@@ -88,7 +90,7 @@ pwsh -File .\tools\build.ps1
 
 ## 验证到哪一步
 
-v0.3 本地记录为 **158 项单元测试通过**，另有 2 项公开样本测试默认跳过；**68 项发布流程回归通过**。真实样本覆盖 Nikon Z6、Sony a7 III、Canon EOS R、iPhone 12 Pro ProRAW 和 HEIC，不能推广到所有机型、固件与编码。
+v0.3 公开源码现有 **159 项单元测试通过**，另有 2 项公开样本测试默认跳过；本地发行基线为 **68 项工作进程回归通过**。[Windows-2022 干净检出的 CI 运行](https://github.com/walker1911/RustView/actions/runs/42846831762)也已通过单测、构建，以及 **49 项工作进程回归**：25 项静态图／压缩包、24 项动画。真实相机样本在本地验证，覆盖 Nikon Z6、Sony a7 III、Canon EOS R、iPhone 12 Pro ProRAW 和 HEIC，不能推广到所有机型、固件与编码。
 
 Windows 拒绝了 GUI 自动化访问，因此真实窗口交互、全部视觉布局和实际纸张打印尚未完整验收。项目仍处于早期公开阶段，完整证据与局限见[验证记录](docs/VALIDATION.md)。欢迎在 [Issues](https://github.com/walker1911/RustView/issues) 提供版本、格式／相机型号、预期行为和最小复现样本。
 

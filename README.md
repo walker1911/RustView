@@ -1,5 +1,7 @@
 # RustView
 
+[![Windows x64 CI](https://github.com/walker1911/RustView/actions/workflows/ci.yml/badge.svg)](https://github.com/walker1911/RustView/actions/workflows/ci.yml)
+
 **Open the archive. Keep the flow.**
 
 An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, smooth zoom, camera RAW, and pictures inside compressed archives.
@@ -80,7 +82,7 @@ pwsh -File .\tools\build.ps1
 
 See [BUILDING.md](BUILDING.md) for checksums and validation steps.
 
-Local v0.3 validation: **158 unit tests passed** (2 public-sample tests skipped by default), plus **68 release pipeline cases**. Samples include Nikon Z6, Sony a7 III, Canon EOS R, iPhone 12 Pro ProRAW, and HEIC—not every model or encoding. Windows denied GUI automation; full native interaction and paper printing remain unverified. [Validation details](docs/VALIDATION.md).
+Public-source v0.3 validation records **159 unit tests passed** (2 public-sample tests skipped by default), with a **68-case local release baseline**. A [clean Windows-2022 CI run](https://github.com/walker1911/RustView/actions/runs/42846831762) also passed the unit suite, build, and **49 worker cases**: 25 static/archive and 24 animation. The local real-camera samples include Nikon Z6, Sony a7 III, Canon EOS R, iPhone 12 Pro ProRAW, and HEIC—not every model or encoding. Windows denied GUI automation; full native interaction and paper printing remain unverified. [Validation details](docs/VALIDATION.md).
 
 [Report an issue](https://github.com/walker1911/RustView/issues) with the version, format/camera, expected behavior, and a minimal reproduction.
 

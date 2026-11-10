@@ -15,6 +15,18 @@ The original Windows x64 development build passed **158 unit tests** with **2 pu
 | Printing | Layout, DPI, fit/fill, page/copy math and bounded 400-cell metadata text; no paper was printed. |
 | Recovery | A valid but over-budget saved recipe can be bypassed to display original pixels without deleting the record; animation replay preserves this choice. |
 
+## Public-source release checks
+
+The public source was checked separately from the development baseline above:
+
+| Check | Result | Scope |
+|---|---|---|
+| Public-source unit suite after the CI path fix | **159 passed, 2 ignored by default** | Includes the added Windows short-path regression. The four earlier CI test failures were fixed before the successful run below. |
+| Rebuilt local public-source runtime after that path fix | **68 worker cases passed** | 25 static-image/archive, 24 animation, and 19 real-camera/high-depth/metadata cases. The real photographs remain outside the repository. |
+| Fresh GitHub Actions checkout after the fix | **Success** | `windows-2022`: engine preparation, 159 unit tests passed with 2 ignored, bootstrap build, 25 static-image/archive cases, and 24 animation cases. |
+
+The completed [GitHub Actions run 42846831762](https://github.com/walker1911/RustView/actions/runs/42846831762) independently exercised **49 worker cases** from a fresh checkout. The optional 19-case compatibility suite with real-camera samples belongs to the local 68-case baseline, not to this CI run. These checks do not certify every GUI interaction or camera model, and subsystem budgets are not a total application memory ceiling.
+
 ## Memory observations
 
 A 512×512 animation streamed for 1,200 frames without linear growth after warm-up. CLI process-tree private committed memory was approximately 10 MiB; that excludes GUI/font/driver/texture overhead. Real RAW PNG16 exports peaked around **472 MiB** in the sampled worker process tree. A 30MP Canon exposure plus white-balance export also passed within unchanged resource budgets. These are sample-specific observations, not maximum RSS or performance guarantees for arbitrary files.
@@ -39,3 +51,5 @@ The real-camera suite is optional and expects separate local sample files; it is
 ## 中文摘要
 
 开发版曾通过 158 项单测（2 项真实相机样本默认跳过）及 68 项独立进程回归；真实样本覆盖上述尼康、索尼、佳能、苹果 ProRAW 与 HEIC。图库缓存、解码进程、动画预读及打印文字有单独预算，示例内存观测不代表整个 GUI 的峰值。真实窗口交互、全部机型、长时间用户图库和实际纸张打印尚未全面验收。公开仓库保留合成及带许可的小夹具，真实照片和本地运行数据均不发布。
+
+公开源码在修复 CI 路径处理问题并新增 Windows 短路径回归后，单测为 **159 通过、2 默认忽略**，重新编译的本地公开源码版本也已通过 **68 项工作进程回归**；修复后的 [GitHub Actions 干净检出](https://github.com/walker1911/RustView/actions/runs/42846831762)在 `windows-2022` 上通过单测、构建和 **49 项静态／动画回归**。真实相机／高位／元数据等 19 项兼容回归仅在本地运行，不计入 CI 的 49 项。
