@@ -22,9 +22,9 @@ struct CoverFrame {
 
 pub(super) struct State {
     sequence: Vec<usize>,
+    positions: Vec<usize>,
+    sequence_revision: u64,
     dirty: bool,
-    selected: Option<usize>,
-    position: Option<usize>,
     center: Option<f64>,
     velocity: f64,
     scene_target: Option<f64>,
@@ -32,6 +32,7 @@ pub(super) struct State {
     ghosts: Vec<CoverFrame>,
     ghost_age: f32,
     epoch: u64,
+    suspended: bool,
     textures: HashMap<usize, TextureHandle>,
     previews: HashMap<usize, super::presentation::PreviewPixels>,
     recent: VecDeque<usize>,
@@ -45,9 +46,9 @@ pub(super) struct State {
 impl Default for State {
     fn default() -> Self {
         Self {
-            sequence: Vec::new(), dirty: true, selected: None, position: None,
+            sequence: Vec::new(), positions: Vec::new(), sequence_revision: 0, dirty: true,
             center: None, velocity: 0.0, scene_target: None, last_covers: Vec::new(),
-            ghosts: Vec::new(), ghost_age: 0.0, epoch: 0, textures: HashMap::new(), previews: HashMap::new(), recent: VecDeque::new(),
+            ghosts: Vec::new(), ghost_age: 0.0, epoch: 0, suspended: false, textures: HashMap::new(), previews: HashMap::new(), recent: VecDeque::new(),
             failed: VecDeque::new(), running: None, wanted: Vec::new(),
             #[cfg(test)]
             sequence_builds: 0,
@@ -68,8 +69,11 @@ impl State {
             entries.get(*index).is_some_and(|e| !e.directory && !e.archive)
                 && (selection.len() <= 1 || selection.contains(index))
         }));
-        self.selected = None;
-        self.position = None;
+        self.positions.clear();
+        self.positions.resize(entries.len(), usize::MAX);
+        for (position, &index) in self.sequence.iter().enumerate() {
+            self.positions[index] = position;
+        }
         self.center = None;
         self.velocity = 0.0;
         self.scene_target = None;
@@ -77,16 +81,13 @@ impl State {
         self.ghosts.clear();
         self.ghost_age = 0.0;
         self.dirty = false;
+        self.sequence_revision = self.sequence_revision.wrapping_add(1);
         #[cfg(test)]
         { self.sequence_builds += 1; }
     }
 
-    fn position(&mut self, selected: Option<usize>) -> Option<usize> {
-        if self.selected != selected {
-            self.selected = selected;
-            self.position = selected.and_then(|index| self.sequence.iter().position(|i| *i == index));
-        }
-        self.position
+    fn position(&self, selected: Option<usize>) -> Option<usize> {
+        self.positions.get(selected?).copied().filter(|&position| position != usize::MAX)
     }
 
     fn animate(&mut self, target: f64, dt: f32) -> (f64, f32, bool) {
@@ -125,11 +126,11 @@ impl State {
 
     fn reset_source(&mut self) {
         self.cancel();
+        self.suspended = false;
         self.epoch = self.epoch.wrapping_add(1);
         self.sequence.clear();
+        self.positions.clear();
         self.invalidate_sequence();
-        self.selected = None;
-        self.position = None;
         self.center = None;
         self.velocity = 0.0;
         self.scene_target = None;
@@ -262,11 +263,50 @@ fn paint_cover(ui: &mut egui::Ui, rect: Rect, opacity: f32,
 }
 
 impl Viewer {
+    fn ensure_browse_sequence(&mut self) {
+        self.extra.coverflow.ensure_sequence(&self.entries, &self.extra.visible, &self.extra.selection);
+    }
+
+    pub(super) fn browse_entries(&mut self) -> (u64, &[usize], &[Entry]) {
+        self.ensure_browse_sequence();
+        let order = &self.extra.coverflow;
+        (order.sequence_revision, &order.sequence, &self.entries)
+    }
+
+    pub(super) fn navigation_target(&mut self, forward: bool, end: bool) -> Option<usize> {
+        self.ensure_browse_sequence();
+        let order = &self.extra.coverflow;
+        let last = order.sequence.len().checked_sub(1)?;
+        let position = order.position(self.selected).unwrap_or(0);
+        let target = match (forward, end) {
+            (false, true) => 0,
+            (true, true) => last,
+            (false, false) => position.saturating_sub(1),
+            (true, false) => (position + 1).min(last),
+        };
+        let index = order.sequence[target];
+        (self.selected != Some(index)).then_some(index)
+    }
+
+    pub(super) fn preload_neighbors(&mut self, forward: bool) -> [Option<usize>; 2] {
+        self.ensure_browse_sequence();
+        let order = &self.extra.coverflow;
+        let Some(position) = order.position(self.selected) else { return [None, None] };
+        let next = order.sequence.get(position + 1).copied();
+        let previous = position.checked_sub(1).map(|p| order.sequence[p]);
+        if forward { [next, previous] } else { [previous, next] }
+    }
+
     pub(super) fn reset_coverflow(&mut self) {
         self.extra.coverflow.reset_source();
         self.extra.presentation.begin_source();
     }
     pub(super) fn cancel_coverflow_thumbnail(&mut self) { self.extra.coverflow.cancel(); }
+
+    pub(super) fn suspend_coverflow_thumbnails(&mut self) {
+        self.extra.coverflow.suspended = true;
+        self.extra.coverflow.cancel();
+    }
 
     pub(super) fn poll_cancelled_coverflow(&mut self, ctx: &egui::Context) -> bool {
         self.extra.coverflow.cancel();
@@ -289,8 +329,11 @@ impl Viewer {
     }
 
     pub(super) fn prioritize_coverflow_preview(&mut self, index: usize) {
+        self.extra.coverflow.suspended = false;
         if let Some(task) = &self.extra.coverflow.running {
-            if task.index != index { task.cancel.store(true, Ordering::Relaxed); }
+            if task.index != index || self.source.as_ref().is_some_and(|path| worker::is_archive(path)) {
+                task.cancel.store(true, Ordering::Relaxed);
+            }
         }
         self.extra.coverflow.wanted.clear();
         self.extra.coverflow.wanted.push(index);
@@ -300,11 +343,14 @@ impl Viewer {
     }
 
     fn coverflow_thumbnail_blocked(&self, ctx: &egui::Context) -> bool {
+        let local = !self.source.as_ref().is_some_and(|path| worker::is_archive(path));
         let target_due = self.extra.presentation.is_waiting()
             && self.extra.presentation.target_index() == self.selected
-            && (self.extra.presentation.waiting_elapsed() >= std::time::Duration::from_millis(150)
-                || self.extra.coverflow.running.as_ref().is_some_and(|task| Some(task.index) == self.selected));
-        self.closing || self.source.is_none() || self.browser || self.extra.compare > 0 || self.extra.edit_dialog.is_some()
+            && local
+            && (self.extra.coverflow.running.as_ref().is_some_and(|task| Some(task.index) == self.selected)
+                || self.extra.animation.is_some()
+                    && self.extra.presentation.waiting_elapsed() >= std::time::Duration::from_millis(150));
+        self.closing || self.archive_jump.open || self.extra.coverflow.suspended || self.source.is_none() || self.browser || self.extra.compare > 0 || self.extra.edit_dialog.is_some()
             || self.password_dialog || self.extra.dialog.is_some() || self.properties
             || self.extra.settings_ui.open || self.extra.print_ui.open || self.help
             || ctx.memory(|memory| memory.any_popup_open())
@@ -316,6 +362,11 @@ impl Viewer {
 
     fn next_coverflow_thumbnail(&self) -> Option<usize> {
         if self.extra.presentation.is_waiting() {
+            // Static loads publish their own small frame. Starting a second
+            // decoder here would repeat work, including archive extraction.
+            if self.running.is_some() || self.pending.is_some() || self.error.is_some() {
+                return None;
+            }
             return self.extra.presentation.target_index().filter(|index| {
                 !self.large_archived_photoshop(*index)
                     && !self.extra.coverflow.textures.contains_key(index)
@@ -379,7 +430,7 @@ impl Viewer {
             self.extra.coverflow.cancel();
             return;
         }
-        self.extra.coverflow.ensure_sequence(&self.entries, &self.extra.visible, &self.extra.selection);
+        self.ensure_browse_sequence();
         let Some(position) = self.extra.coverflow.position(self.selected) else {
             self.extra.coverflow.cancel(); return;
         };
@@ -416,7 +467,7 @@ impl Viewer {
                 let mut positions: Vec<_> = (start..end).collect();
                 positions.sort_by(|a, b| ((*b as f64 - center).abs()).total_cmp(&(*a as f64 - center).abs()));
                 let mut wanted = positions.clone();
-                wanted.sort_by(|a, b| a.abs_diff(position).cmp(&b.abs_diff(position)));
+                wanted.sort_by_key(|p| (p.abs_diff(position), (*p >= position) != self.nav_forward));
                 self.extra.coverflow.wanted = wanted.into_iter().map(|p| self.extra.coverflow.sequence[p]).collect();
                 self.extra.coverflow.last_covers.clear();
                 for p in positions {
@@ -466,6 +517,29 @@ impl Viewer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manual_cancel_prevents_thumbnail_reads_until_another_target_is_selected() {
+        let mut viewer = super::super::browser_ui::tests::viewer(vec![entry("a.png"), entry("b.png")]);
+        viewer.source = Some("photos.zip".into());
+        viewer.browser = false;
+        viewer.selected = Some(0);
+        viewer.extra.presentation.begin_target(0, "a.png".into());
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let cancel = Arc::new(AtomicBool::new(false));
+        viewer.extra.coverflow.running = Some(ThumbnailTask {
+            epoch: 0, index: 1, cancel: cancel.clone(), receiver,
+        });
+        viewer.cancel_current_read();
+        assert!(cancel.load(Ordering::Relaxed));
+        assert!(!viewer.extra.presentation.is_waiting());
+        assert!(sender.send(Err("已取消".into())).is_ok());
+        let ctx = egui::Context::default();
+        viewer.extra.coverflow.poll(&ctx);
+        assert!(viewer.coverflow_thumbnail_blocked(&ctx));
+        viewer.prioritize_coverflow_preview(1);
+        assert!(!viewer.coverflow_thumbnail_blocked(&ctx));
+    }
 
     #[test]
     fn window_close_also_waits_for_a_cancelled_thumbnail_task() {
@@ -629,6 +703,33 @@ mod tests {
         state.ensure_sequence(&entries, &[1, 3, 4], &BTreeSet::from([1]));
         assert_eq!(state.sequence, [1, 3, 4]);
         assert_eq!(state.position(Some(3)), Some(1));
+    }
+
+    #[test]
+    fn navigation_and_preload_share_visible_order_and_respect_boundaries() {
+        let mut folder = entry("folder");
+        folder.directory = true;
+        let mut viewer = super::super::browser_ui::tests::viewer(vec![
+            folder, entry("a.jpg"), entry("b.jpg"), entry("c.jpg"), entry("d.jpg"),
+        ]);
+        viewer.extra.visible = vec![4, 2, 0, 1, 3];
+        viewer.extra.selection = BTreeSet::from([0, 1, 2, 4]);
+        viewer.selected = Some(2);
+        assert_eq!(viewer.navigation_target(true, false), Some(1));
+        assert_eq!(viewer.navigation_target(false, false), Some(4));
+        assert_eq!(viewer.preload_neighbors(true), [Some(1), Some(4)]);
+        assert_eq!(viewer.preload_neighbors(false), [Some(4), Some(1)]);
+        assert_eq!(viewer.navigation_target(true, true), Some(1));
+        assert_eq!(viewer.navigation_target(false, true), Some(4));
+
+        viewer.selected = Some(1);
+        assert_eq!(viewer.navigation_target(true, false), None);
+        assert_eq!(viewer.preload_neighbors(true), [None, Some(2)]);
+        viewer.extra.visible = vec![4, 3];
+        viewer.extra.coverflow.invalidate_sequence();
+        assert_eq!(viewer.navigation_target(false, false), Some(4));
+        assert_eq!(viewer.preload_neighbors(true), [None, None]);
+        assert_eq!(viewer.extra.coverflow.sequence_builds, 2);
     }
 
     #[test]

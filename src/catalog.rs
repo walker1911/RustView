@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use std::{
     path::Path,
@@ -8,6 +8,7 @@ use std::{
 const MAX_QUERY: usize = 500;
 const MAX_KEY_BYTES: usize = 32 * 1024;
 const MAX_CATEGORY_BYTES: usize = 4096;
+const MAX_ARCHIVE_RESUME: i64 = 512;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -57,6 +58,17 @@ fn valid_key(key: &str) -> Result<(), String> {
     } else {
         Ok(())
     }
+}
+
+fn archive_resume_key(archive: &Path) -> Result<String, String> {
+    let key = archive
+        .canonicalize()
+        .map_err(|error| error.to_string())?
+        .into_os_string()
+        .into_string()
+        .map_err(|_| "压缩包路径无法保存")?;
+    valid_key(&key)?;
+    Ok(key)
 }
 
 fn read_record(connection: &Connection, key: &str) -> Result<Record, String> {
@@ -161,7 +173,12 @@ impl Catalog {
              CREATE INDEX IF NOT EXISTS items_marked ON items(marked,updated);
              CREATE INDEX IF NOT EXISTS items_category ON items(category,updated);
              CREATE INDEX IF NOT EXISTS items_basket ON items(basket,basket_added);
-             CREATE TABLE IF NOT EXISTS settings(name TEXT PRIMARY KEY NOT NULL,value TEXT NOT NULL);",
+             CREATE TABLE IF NOT EXISTS settings(name TEXT PRIMARY KEY NOT NULL,value TEXT NOT NULL);
+             CREATE TABLE IF NOT EXISTS archive_resume (
+               archive_key TEXT PRIMARY KEY NOT NULL,
+               entry_name TEXT NOT NULL,
+               viewed_at INTEGER NOT NULL
+             );",
             )
             .map_err(|error| format!("无法初始化图片元数据：{error}"))?;
         let transaction = connection
@@ -213,6 +230,55 @@ impl Catalog {
     pub fn get(&self, key: &str) -> Result<Record, String> {
         valid_key(key)?;
         read_record(&self.connection, key)
+    }
+
+    pub fn archive_resume(&self, archive: &Path) -> Result<Option<String>, String> {
+        self.connection
+            .query_row(
+                "SELECT entry_name FROM archive_resume WHERE archive_key=?1",
+                [archive_resume_key(archive)?],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn remember_archive_resume(
+        &mut self,
+        archive: &Path,
+        entry: &str,
+        viewed_at: SystemTime,
+    ) -> Result<(), String> {
+        let key = archive_resume_key(archive)?;
+        valid_key(entry)?;
+        let micros = viewed_at
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| error.to_string())?
+            .as_micros();
+        let viewed_at = i64::try_from(micros).map_err(|error| error.to_string())?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        transaction
+            .execute(
+                "INSERT INTO archive_resume(archive_key,entry_name,viewed_at)
+                 VALUES(?1,?2,?3)
+                 ON CONFLICT(archive_key) DO UPDATE SET
+                   entry_name=excluded.entry_name,viewed_at=excluded.viewed_at
+                 WHERE excluded.viewed_at>=archive_resume.viewed_at",
+                params![key, entry, viewed_at],
+            )
+            .map_err(|error| error.to_string())?;
+        transaction
+            .execute(
+                "DELETE FROM archive_resume WHERE rowid IN (
+                   SELECT rowid FROM archive_resume ORDER BY viewed_at DESC, rowid DESC LIMIT -1 OFFSET ?1
+                 )",
+                [MAX_ARCHIVE_RESUME],
+            )
+            .map_err(|error| error.to_string())?;
+        transaction.commit().map_err(|error| error.to_string())
     }
 
     pub fn set_rating(&mut self, key: &str, value: u8) -> Result<Record, String> {
@@ -745,6 +811,51 @@ mod tests {
             }
         );
         assert_eq!(catalog.categories(50).unwrap(), vec!["旅行"]);
+    }
+
+    #[test]
+    fn archive_resume_keeps_exact_member_paths_across_catalogs_and_reopen() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("catalog.sqlite3");
+        let first = directory.path().join("旅行.zip");
+        let second = directory.path().join("旅行.rar");
+        std::fs::write(&first, []).unwrap();
+        std::fs::write(&second, []).unwrap();
+        {
+            let earlier = UNIX_EPOCH + Duration::from_secs(1);
+            let later = UNIX_EPOCH + Duration::from_secs(2);
+            let mut writer = Catalog::open(&database).unwrap();
+            let mut reader = Catalog::open(&database).unwrap();
+            assert_eq!(reader.archive_resume(&first).unwrap(), None);
+            writer
+                .remember_archive_resume(&first, "第一章/cover.png", earlier)
+                .unwrap();
+            writer
+                .remember_archive_resume(&second, "独立/cover.png", earlier)
+                .unwrap();
+            writer
+                .remember_archive_resume(&first, "第二章/cover.png", later)
+                .unwrap();
+            reader
+                .remember_archive_resume(&first, "第一章/cover.png", earlier)
+                .unwrap();
+            assert_eq!(
+                reader.archive_resume(&first).unwrap().as_deref(),
+                Some("第二章/cover.png")
+            );
+        }
+        let catalog = Catalog::open(&database).unwrap();
+        assert_eq!(
+            catalog
+                .archive_resume(&directory.path().join(".").join("旅行.zip"))
+                .unwrap()
+                .as_deref(),
+            Some("第二章/cover.png")
+        );
+        assert_eq!(
+            catalog.archive_resume(&second).unwrap().as_deref(),
+            Some("独立/cover.png")
+        );
     }
 
     #[test]

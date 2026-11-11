@@ -18,6 +18,7 @@ pub const METADATA_MEMORY: usize = 256 * 1024 * 1024;
 pub const THUMBNAIL_MEMORY: usize = 512 * 1024 * 1024;
 pub const THUMBNAIL_SIDE: u32 = 128;
 pub const MAX_ENTRIES: usize = 100_000;
+pub(crate) const CONTINUITY_SIDE: u32 = 64;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "operation")]
@@ -133,6 +134,69 @@ pub struct Output {
     pub reply: Reply,
     pub rgba: Vec<u8>,
     pub preview: Vec<u8>,
+}
+
+pub(crate) struct ContinuityPreview {
+    pub width: u32,
+    pub height: u32,
+    pub source_width: u32,
+    pub source_height: u32,
+    pub rgba: Vec<u8>,
+}
+
+impl ContinuityPreview {
+    pub(crate) fn sample(width: u32, height: u32, rgba: &[u8], source_width: u32, source_height: u32) -> Option<Self> {
+        let length = (width as usize).checked_mul(height as usize)?.checked_mul(4)?;
+        if width == 0 || height == 0 || rgba.len() != length { return None; }
+        let largest = width.max(height) as u64;
+        let side = largest.min(CONTINUITY_SIDE as u64);
+        let small_width = (width as u64 * side / largest).max(1) as u32;
+        let small_height = (height as u64 * side / largest).max(1) as u32;
+        let mut pixels = Vec::with_capacity(small_width as usize * small_height as usize * 4);
+        for y in 0..small_height {
+            let source_y = ((2 * y as u64 + 1) * height as u64 / (2 * small_height as u64)) as usize;
+            for x in 0..small_width {
+                let source_x = ((2 * x as u64 + 1) * width as u64 / (2 * small_width as u64)) as usize;
+                let offset = (source_y * width as usize + source_x) * 4;
+                pixels.extend_from_slice(&rgba[offset..offset + 4]);
+            }
+        }
+        Some(Self {
+            width: small_width,
+            height: small_height,
+            source_width: if source_width > 0 { source_width } else { width },
+            source_height: if source_height > 0 { source_height } else { height },
+            rgba: pixels,
+        })
+    }
+
+    fn publish(&self, output: &Path) -> std::io::Result<()> {
+        let staging = output.join("continuity.tmp");
+        let mut file = fs::File::create(&staging)?;
+        for size in [self.width, self.height, self.source_width, self.source_height] {
+            file.write_all(&size.to_le_bytes())?;
+        }
+        file.write_all(&self.rgba)?;
+        drop(file);
+        fs::rename(staging, output.join("continuity.rgba"))
+    }
+
+    fn read(path: &Path) -> Option<Self> {
+        let file = fs::File::open(path).ok()?;
+        let mut bytes = Vec::new();
+        let limit = 16 + CONTINUITY_SIDE as usize * CONTINUITY_SIDE as usize * 4;
+        file.take((limit + 1) as u64).read_to_end(&mut bytes).ok()?;
+        let sizes: [u32; 4] = std::array::from_fn(|i| {
+            bytes.get(i * 4..i * 4 + 4).and_then(|n| n.try_into().ok())
+                .map(u32::from_le_bytes).unwrap_or(0)
+        });
+        let [width, height, source_width, source_height] = sizes;
+        if sizes.contains(&0) || width > CONTINUITY_SIDE || height > CONTINUITY_SIDE
+            || bytes.len() != 16 + width as usize * height as usize * 4 {
+            return None;
+        }
+        Some(Self { width, height, source_width, source_height, rgba: bytes.split_off(16) })
+    }
 }
 
 pub fn is_archive(path: &Path) -> bool {
@@ -296,8 +360,16 @@ fn decode_source(
 fn write_source(
     output: &Path,
     decoded: (crate::imaging::DecodedImage, u32, u32),
+    publish_preview: bool,
 ) -> Result<Reply, String> {
     let (image, index, total) = decoded;
+    if publish_preview {
+        if let Some(preview) = ContinuityPreview::sample(image.width, image.height, &image.rgba, image.width, image.height) {
+            // The small frame is visible while the same worker writes the full
+            // pixels and overview. No second decode or archive extraction.
+            let _ = preview.publish(output);
+        }
+    }
     let mut reply = write_image(output, image.width, image.height, image.rgba, image.note)?;
     reply.page_index = index;
     reply.page_total = total;
@@ -431,6 +503,10 @@ fn decode_recorded_source(
 }
 
 fn handle(request: Request, output: &Path) -> Reply {
+    handle_request(request, output, false)
+}
+
+fn handle_request(request: Request, output: &Path, publish_preview: bool) -> Reply {
     match request {
         Request::MetadataRead { source } => {
             let input = match prepare_image(&source, output) {
@@ -817,7 +893,7 @@ fn handle(request: Request, output: &Path) -> Reply {
                 Ok(d) => d,
                 Err(r) => return r,
             };
-            write_source(output, decoded)
+            write_source(output, decoded, publish_preview)
                 .map(|mut reply| {
                     reply.editing_record = record;
                     reply
@@ -860,13 +936,14 @@ pub fn worker_main() {
     let Some(output) = std::env::args_os().nth(2).map(PathBuf::from) else {
         return;
     };
+    let publish_preview = std::env::args_os().nth(3).is_some_and(|arg| arg == "--preview");
     let mut input = String::new();
     let reply = match std::io::stdin()
         .take(1024 * 1024)
         .read_to_string(&mut input)
     {
         Ok(_) => match serde_json::from_str::<Request>(&input) {
-            Ok(request) => handle(request, &output),
+            Ok(request) => handle_request(request, &output, publish_preview),
             Err(e) => Reply {
                 error: Some(format!("无效的读取请求：{e}")),
                 ..Default::default()
@@ -949,11 +1026,30 @@ fn resource_limits(request: &Request) -> (usize, Duration) {
 }
 
 pub fn execute(request: Request, cancel: Arc<AtomicBool>) -> Result<Output, String> {
+    execute_task(request, cancel, None)
+}
+
+pub(crate) fn execute_with_preview(
+    request: Request,
+    cancel: Arc<AtomicBool>,
+    mut on_preview: impl FnMut(ContinuityPreview),
+) -> Result<Output, String> {
+    execute_task(request, cancel, Some(&mut on_preview))
+}
+
+fn execute_task(
+    request: Request,
+    cancel: Arc<AtomicBool>,
+    on_preview: Option<&mut dyn FnMut(ContinuityPreview)>,
+) -> Result<Output, String> {
+    if cancel.load(Ordering::Relaxed) {
+        return Err("已取消".into());
+    }
     let directory = tempfile::Builder::new()
         .prefix("rustview-")
         .tempdir()
         .map_err(|e| e.to_string())?;
-    let result = execute_in_directory(request, cancel, directory.path());
+    let result = execute_in_directory(request, cancel, directory.path(), on_preview);
     // All process/job handles are dropped before deleting the private spool.
     // Windows can briefly retain native I/O handles after job termination.
     let directory_path = directory.path().to_owned();
@@ -974,7 +1070,12 @@ pub fn execute(request: Request, cancel: Arc<AtomicBool>) -> Result<Output, Stri
     result
 }
 
-fn execute_in_directory(request: Request, cancel: Arc<AtomicBool>, directory: &Path) -> Result<Output, String> {
+fn execute_in_directory(
+    request: Request,
+    cancel: Arc<AtomicBool>,
+    directory: &Path,
+    mut on_preview: Option<&mut dyn FnMut(ContinuityPreview)>,
+) -> Result<Output, String> {
     let error_file =
         fs::File::create(directory.join("stderr.txt")).map_err(|e| e.to_string())?;
     let mut command = Command::new(std::env::current_exe().map_err(|e| e.to_string())?);
@@ -988,6 +1089,9 @@ fn execute_in_directory(request: Request, cancel: Arc<AtomicBool>, directory: &P
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::from(error_file));
+    if on_preview.is_some() {
+        command.arg("--preview");
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -1018,6 +1122,7 @@ fn execute_in_directory(request: Request, cancel: Arc<AtomicBool>, directory: &P
         }
     }
     let started = Instant::now();
+    let preview_path = directory.join("continuity.rgba");
     let exit = loop {
         if cancel.load(Ordering::Relaxed) || started.elapsed() > timeout {
             #[cfg(windows)]
@@ -1029,6 +1134,12 @@ fn execute_in_directory(request: Request, cancel: Arc<AtomicBool>, directory: &P
             } else {
                 "读取超时，已停止后台任务".into()
             });
+        }
+        if let Some(callback) = &mut on_preview {
+            if let Some(preview) = ContinuityPreview::read(&preview_path) {
+                callback(preview);
+                on_preview = None;
+            }
         }
         match child.try_wait() {
             Ok(Some(exit)) => break exit,
@@ -1047,6 +1158,9 @@ fn execute_in_directory(request: Request, cancel: Arc<AtomicBool>, directory: &P
             "读取进程已停止，可能超过 {} MiB 工作内存限额或解码器发生错误；主窗口可继续使用",
             memory_limit / 1048576
         ));
+    }
+    if cancel.load(Ordering::Relaxed) {
+        return Err("已取消".into());
     }
     let reply_file = directory.join("reply.json");
     if fs::metadata(&reply_file)
@@ -1068,12 +1182,14 @@ fn execute_in_directory(request: Request, cancel: Arc<AtomicBool>, directory: &P
         reply.width,
         reply.height,
         if thumbnail { thumbnail_bytes } else { MAX_IMAGE_BYTES },
+        &cancel,
     )?;
     let preview = read_pixels(
         directory.join("preview.rgba"),
         reply.preview_width,
         reply.preview_height,
         if thumbnail { thumbnail_bytes } else { 2048 * 2048 * 4 },
+        &cancel,
     )?;
     Ok(Output {
         reply,
@@ -1087,7 +1203,11 @@ fn read_pixels(
     width: u32,
     height: u32,
     max_bytes: usize,
+    cancel: &AtomicBool,
 ) -> Result<Vec<u8>, String> {
+    if cancel.load(Ordering::Relaxed) {
+        return Err("已取消".into());
+    }
     if width == 0 || height == 0 {
         return Ok(Vec::new());
     }
@@ -1100,7 +1220,15 @@ fn read_pixels(
     {
         return Err("图片输出超过预算或数据长度错误".into());
     }
-    fs::read(path).map_err(|e| e.to_string())
+    let mut file = fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut pixels = vec![0; expected];
+    for chunk in pixels.chunks_mut(4 * 1024 * 1024) {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("已取消".into());
+        }
+        file.read_exact(chunk).map_err(|e| e.to_string())?;
+    }
+    Ok(pixels)
 }
 
 pub fn probe_main() {
@@ -1188,6 +1316,22 @@ pub fn request_probe_main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn continuity_packet_is_bounded_and_keeps_source_geometry() {
+        let directory = tempfile::tempdir().unwrap();
+        let rgba = [30, 100, 170, 128].repeat(4096);
+        let preview = ContinuityPreview::sample(128, 32, &rgba, 128, 32).unwrap();
+        preview.publish(directory.path()).unwrap();
+        assert!(!directory.path().join("continuity.tmp").exists());
+        let path = directory.path().join("continuity.rgba");
+        let result = ContinuityPreview::read(&path).unwrap();
+        assert_eq!((result.width, result.height), (64, 16));
+        assert_eq!((result.source_width, result.source_height), (128, 32));
+        assert_eq!(result.rgba, [30, 100, 170, 128].repeat(64 * 16));
+        fs::write(&path, vec![0; 16 + 64 * 64 * 4 + 1]).unwrap();
+        assert!(ContinuityPreview::read(&path).is_none());
+    }
     #[test]
     fn large_local_photoshop_source_is_not_rejected_as_rgba_memory() {
         let directory = tempfile::tempdir().unwrap();
@@ -1249,7 +1393,7 @@ mod tests {
     fn thumbnail_pixel_budget_rejects_oversize_before_reading_a_file() {
         let missing = PathBuf::from("not-created-thumbnail.rgba");
         let limit = THUMBNAIL_SIDE as usize * THUMBNAIL_SIDE as usize * 4;
-        let error = read_pixels(missing, THUMBNAIL_SIDE + 1, THUMBNAIL_SIDE, limit).unwrap_err();
+        let error = read_pixels(missing, THUMBNAIL_SIDE + 1, THUMBNAIL_SIDE, limit, &AtomicBool::new(false)).unwrap_err();
         assert_eq!(error, "图片输出超过预算或数据长度错误");
     }
 
@@ -1550,7 +1694,8 @@ mod tests {
         let t = tempfile::tempdir().unwrap();
         let p = t.path().join("p");
         fs::write(&p, [1, 2, 3]).unwrap();
-        assert!(read_pixels(p, 1, 1, 4).is_err());
+        assert!(read_pixels(p.clone(), 1, 1, 4, &AtomicBool::new(false)).is_err());
+        assert_eq!(read_pixels(p, 1, 1, 4, &AtomicBool::new(true)).unwrap_err(), "已取消");
     }
     #[test]
     fn nested_render_preview_is_bounded_and_preserves_original_geometry_and_alpha() {

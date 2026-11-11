@@ -6,13 +6,13 @@
 
 面向 **Windows x64** 的 Rust 看图项目。把相机 RAW、GIF/WebP 动画、Photoshop 合成图和 ZIP／RAR／7z 里的照片，放进熟悉的键盘翻图、Picasa 式胶片带与平滑缩放流程。
 
-[下载 v0.4.1](https://github.com/walker1911/RustView/releases/tag/v0.4.1) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
+[下载 v0.6.0](https://github.com/walker1911/RustView/releases/tag/v0.6.0) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
 
 ![RustView 项目概念图](assets/readme/hero.svg)
 
-*配图为项目概念图。v0.4.1 是公开预发行版。*
+*配图为项目概念图。*
 
-**v0.4.1 新增。** 透明区域透出灰白棋盘格，缩放、平移或旋转时，格子固定在窗口上。看图、管理和对话框的字号更统一，长路径和状态信息可悬停查看全文。[更新说明](docs/RELEASE-v0.4.1.md)
+**v0.6.0 预发行版**汇总两轮更新。直接打开一张图片时，先显示图片，再在后台扫描同目录。ZIP、RAR、7z 支持从上次显示的图片继续浏览，也可以按文件名、路径或序号跳页。[v0.6.0 更新说明](docs/RELEASE-v0.6.0.md) · [v0.4.1 更新说明](docs/RELEASE-v0.4.1.md)
 
 ## 从照片出发
 
@@ -20,7 +20,7 @@
 
 | 能力 | 可以做什么 |
 |---|---|
-| **直接看包内图片** | 打开 ZIP／RAR／7z，需要时输入密码；按需读取图片，不必先把整个压缩包展开。 |
+| **直接看包内图片** | 按需读取 ZIP／RAR／7z 里的图片，需要时输入密码。可续看到上次显示的位置，也可按文件名、路径或序号跳页。 |
 | **连续翻图** | 左右键切换，上下键缩放；平直胶片带平滑跟随，当前图居中、最清晰，并显示文件名和 `1/84` 序号。 |
 | **看 Photoshop 文档** | 直接读取本地及 ZIP／RAR／7z 内 PSD/PSB 保存的合成图，支持超过 512 MiB 的大源文件。 |
 | **接纳现代格式** | 常见图片、LibRaw 支持的相机 RAW、苹果 ProRAW DNG，以及由内置引擎读取的 HEIC/HEIF、AVIF、JPEG XL。 |
@@ -31,7 +31,9 @@
 
 ![压缩包浏览流程](assets/readme/archive-flow.svg)
 
-快速翻图时，目标的低清预览已经缓存就先显示目标；目标尚无预览时保留上一张小马赛克并标明正在读取的目标文件，高清图就绪后接上。已经显示过图片后，加载、密码提示或读取错误不再把画面清成欢迎页。详见[浏览说明](docs/PICASA-BROWSING.md)。
+在单图查看中点击工具栏的 **「跳页…」**，可以输入文件名的一部分、完整包内路径或从 1 开始的当前浏览序号。文件名重复时，可按包内路径选择。续看位置存入本地目录库，重新打开加密包时会再次询问密码。
+
+快速翻图时，可复用已经在读取的目标任务。目标预览可以来自缓存，也可以由同一次解码提前提供。目标预览就绪前保留上一张小马赛克，并标出正在读取的目标文件。[浏览说明](docs/PICASA-BROWSING.md)
 
 处理步骤保存为记录，常用参数保存为预设。导出会重新读取源数据计算，界面中的 RGBA8 显示预览不作为 RAW／高位输出的来源。
 
@@ -60,7 +62,7 @@ v0.4.0 对[本地及ZIP／RAR／7z内的PSD/PSB](docs/PSD.md)提供源文件例�
 
 ## 下载与运行
 
-1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.4.1/RustView-0.4.1-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.4.1/RustView-0.4.1-win-x64-offline.zip.sha256)
+1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.0/RustView-0.6.0-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.6.0/RustView-0.6.0-win-x64-offline.zip.sha256)
 2. 完整解压，双击 `RustView.exe` 或 `Start-RustView.cmd`。图片引擎和运行库已经包含，首次启动也无需联网或安装依赖。
 3. 打开或拖入文件夹、图片、ZIP／RAR／7z。请保留完整目录。
 
@@ -95,16 +97,16 @@ cd RustView
 pwsh -File .\tools\fetch-native.ps1
 cargo build --release --locked
 cargo test --locked -- --test-threads=2
-pwsh -File .\tools\build.ps1
+pwsh -File .\tools\build.ps1 -Offline
 ```
 
 依赖、校验和与复现步骤见 [BUILDING.md](BUILDING.md)。
 
 ## 验证到哪一步
 
-项目记录静态图和压缩包、GIF/WebP 动画、PSD/PSB 合成图、缩略图、大型加密 RAR 取消清理和快速翻图的发行检查。[v0.4.1 更新说明](docs/RELEASE-v0.4.1.md) · [验证结果与范围](docs/VALIDATION.md)
+发行检查覆盖静态图与压缩包、GIF/WebP 动画、PSD/PSB 合成图、缩略图和大型加密 RAR 的取消清理。续看和跳页通过无窗口测试验证，使用同一套 Viewer 界面逻辑和真实 Windows 解码进程。[v0.6.0 更新说明](docs/RELEASE-v0.6.0.md) · [验证结果与范围](docs/VALIDATION.md)
 
-真实相机样本包括 Nikon Z6、Sony a7 III、Canon EOS R、iPhone 12 Pro ProRAW 和 HEIC，不能推广到所有机型、固件与编码。已通过 UI 自动化核对原生窗口的密码重试、翻图与关闭；截图捕获仍不可用，完整视觉、多显示器、DPI 与实际纸张打印尚未全面验收。欢迎在 [Issues](https://github.com/walker1911/RustView/issues) 提供版本、格式／相机型号、预期行为和最小复现样本。
+真实相机样本包括 Nikon Z6、Sony a7 III、Canon EOS R、iPhone 12 Pro ProRAW 和 HEIC。原生窗口、显示和打印测试的范围见验证记录。反馈时请提供版本、格式或相机型号、预期行为和最小复现样本。[报告问题](https://github.com/walker1911/RustView/issues)
 
 ## 保持清楚的边界
 

@@ -6,19 +6,19 @@
 
 An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, Photoshop composites, and pictures inside compressed archives.
 
-[Download v0.4.1](https://github.com/walker1911/RustView/releases/tag/v0.4.1) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+[Download v0.6.0](https://github.com/walker1911/RustView/releases/tag/v0.6.0) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
 
 ![RustView illustrated overview](assets/readme/hero.svg)
 
-*Project illustration. v0.4.1 is a public prerelease.*
+*Project illustration.*
 
-**New in v0.4.1.** Transparent regions reveal a gray and white checkerboard fixed to the window as you zoom, pan, or rotate. Text sizes now follow a consistent hierarchy across the viewer, management panels, and dialogs. Long paths and status messages show their full text on hover. [Release notes](docs/RELEASE-v0.4.1.md)
+The **v0.6.0 prerelease** brings together two rounds of updates. Opening an individual image shows it first and scans the surrounding folder in the background. In ZIP, RAR, and 7z archives you can resume from the last image shown or jump by filename, path, or number. [v0.6.0 release notes](docs/RELEASE-v0.6.0.md) · [v0.4.1 release notes](docs/RELEASE-v0.4.1.md)
 
 ## Start with the pictures
 
 | Capability | What you can do |
 |---|---|
-| **Browse archives** | Read ZIP / RAR / 7z images on demand, with password prompts; leave the rest of the archive packed. |
+| **Browse archives** | Read ZIP / RAR / 7z images on demand with password prompts, resume from the last image shown, and jump by filename, path, or number. |
 | **Keep browsing** | Left/right changes images; up/down zooms. A flat, animated filmstrip keeps the selected photo centered, with a filename and `1/84` counter. |
 | **View modern formats** | Common images, LibRaw-supported RAW and ProRAW DNG, plus HEIC/HEIF, AVIF, and JPEG XL. |
 | **Open Photoshop documents** | View saved PSD/PSB composites locally or inside ZIP/RAR/7z, including sources larger than 512 MiB. |
@@ -29,9 +29,11 @@ An archive-first photo viewer for **Windows x64**, written in Rust. Familiar key
 
 ![Archive browsing flow](assets/readme/archive-flow.svg)
 
-Session-only passwords; backed-up ZIP/7z updates; read-only RAR. Catalog data remains separate; RAW metadata uses XMP sidecars.
+In single-image view, click **跳页…** to find an archive image. Enter part of a filename, the full path inside the archive, or a number starting at 1 in the current browsing order. When filenames repeat, use the path to select the intended entry. Resume positions are stored in the local catalog. Encrypted archives prompt for the password again when reopened.
 
-During rapid navigation, a cached preview of the target appears first when available. Otherwise a tiny mosaic of the previous image stays visible, labeled with the pending target, until the decoded image arrives. After an image has been shown, loading, password prompts and errors keep this continuity preview instead of replacing it with the welcome screen. [Browsing behavior](docs/PICASA-BROWSING.md).
+During rapid navigation, RustView can reuse a matching read in progress. The target preview can come from the cache or the same worker that provides the full image. While the target preview is pending, a small mosaic of the previous image stays visible and names the image being loaded. [Browsing behavior](docs/PICASA-BROWSING.md)
+
+ZIP and 7z updates create a backup. RAR is read-only. RAW metadata uses XMP sidecars.
 
 ## Memory has a budget
 
@@ -54,8 +56,8 @@ v0.4.0 permits [local and ZIP/RAR/7z-contained PSD/PSB](docs/PSD.md) sources up 
 
 ## Download and use
 
-1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.4.1/RustView-0.4.1-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.4.1/RustView-0.4.1-win-x64-offline.zip.sha256)
-2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. All image engines and runtime libraries are included; first launch needs no internet access or installation.
+1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.0/RustView-0.6.0-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.6.0/RustView-0.6.0-win-x64-offline.zip.sha256)
+2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. The package includes the image engines and runtime libraries for offline use from first launch.
 3. Open or drag in a folder, picture, or archive. Keep the complete extracted folder.
 
 The offline ZIP is the only download needed for viewing. The source guide lists the archives for rebuilding the bundled engines. [Offline guide](OFFLINE.md) · [Native sources](docs/NATIVE-SOURCES.md)
@@ -89,14 +91,14 @@ cd RustView
 pwsh -File .\tools\fetch-native.ps1
 cargo build --release --locked
 cargo test --locked -- --test-threads=2
-pwsh -File .\tools\build.ps1
+pwsh -File .\tools\build.ps1 -Offline
 ```
 
 See [BUILDING.md](BUILDING.md) for checksums and validation steps.
 
-The project records release checks for static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnail reads, large encrypted-RAR cancellation, and rapid navigation. [v0.4.1 release notes](docs/RELEASE-v0.4.1.md) · [Validation results and scope](docs/VALIDATION.md)
+Release checks cover static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnails, and large encrypted-RAR cancellation. Archive resume and jump were tested with the viewer's interface logic and real Windows decoding workers in a headless harness. [v0.6.0 release notes](docs/RELEASE-v0.6.0.md) · [Validation results and scope](docs/VALIDATION.md)
 
-Real-camera samples include Nikon Z6, Sony a7 III, Canon EOS R, iPhone 12 Pro ProRAW and HEIC; this does not certify every model or encoding. Native-window password retry, navigation and close were checked through UI automation. Screenshot capture remains unavailable, so full visual, DPI, multi-monitor and paper-printing acceptance remains incomplete.
+Real-camera samples include Nikon Z6, Sony a7 III, Canon EOS R, iPhone 12 Pro ProRAW and HEIC. See the validation record for the scope of native-window, display, and print checks.
 
 [Report an issue](https://github.com/walker1911/RustView/issues) with the version, format/camera, expected behavior, and a minimal reproduction.
 

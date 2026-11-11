@@ -304,11 +304,9 @@ impl Viewer {
         }
         self.extra.pending_catalog_filter = None;
         let search = self.extra.search.to_lowercase();
-        self.extra.visible = self
-            .entries
-            .iter()
-            .enumerate()
-            .filter_map(|(i, e)| {
+        self.extra.visible = self.directory_order()
+            .filter_map(|i| {
+                let e = &self.entries[i];
                 if !search.is_empty() && !e.name.to_lowercase().contains(&search) {
                     return None;
                 }
@@ -372,10 +370,10 @@ impl Viewer {
                 self.extra.coverflow.invalidate_sequence();
                 match result {
                     Ok(mut indices) => {
-                        indices.sort_unstable();
                         if task.selection {
                             self.extra.selection = indices.into_iter().collect();
                         } else {
+                            indices.sort_unstable_by_key(|&index| self.directory_position(index));
                             if self.extra.descending {
                                 indices.reverse();
                             }

@@ -14,10 +14,13 @@ use std::{
     time::Instant,
 };
 
+mod archive_jump;
+mod archive_resume;
 mod browser_ui;
 mod commands;
 mod compare;
 mod coverflow;
+mod directory;
 mod edit_ui;
 mod metadata_ui;
 mod navigation_probe;
@@ -153,6 +156,9 @@ struct Running {
     id: u64,
     cancel: Arc<AtomicBool>,
     receiver: Receiver<Event>,
+    preview: Option<(usize, Receiver<worker::ContinuityPreview>)>,
+    preload: Option<(usize, bool)>,
+    promoted: bool,
 }
 struct Tile {
     texture: TextureHandle,
@@ -162,11 +168,16 @@ struct Tile {
 
 pub struct Viewer {
     extra: Extras,
+    archive_jump: archive_jump::State,
+    archive_resume: archive_resume::State,
     #[cfg(windows)]
     native_keys: Option<crate::native_keys::NativeKeys>,
     source: Option<PathBuf>,
     entries: Vec<Entry>,
+    initial_entry_position: Option<usize>,
+    directory_scan: directory::Scan,
     selected: Option<usize>,
+    nav_forward: bool,
     browser: bool,
     password: Option<String>,
     password_dialog: bool,
@@ -206,11 +217,16 @@ impl Viewer {
     fn empty() -> Self {
         Self {
             extra: Extras::new(),
+            archive_jump: archive_jump::State::default(),
+            archive_resume: archive_resume::State::default(),
             #[cfg(windows)]
             native_keys: None,
             source: None,
             entries: Vec::new(),
+            initial_entry_position: None,
+            directory_scan: directory::Scan::default(),
             selected: None,
+            nav_forward: true,
             browser: true,
             password: None,
             password_dialog: false,
@@ -323,6 +339,10 @@ impl Viewer {
 
     fn queue(&mut self, request: Request, operation: Operation) {
         if self.closing { return; }
+        if matches!(operation, Operation::List { .. } | Operation::Clipboard { .. }) {
+            self.directory_scan.cancel();
+            self.archive_jump.open = false;
+        }
         if !matches!(request, Request::MetadataRead { .. }) {
             self.stop_animation();
         }
@@ -350,7 +370,9 @@ impl Viewer {
             return;
         }
         self.extra.edited = false;
+        self.save_archive_resume(true);
         self.closing = true;
+        self.directory_scan.cancel();
         self.serial += 1;
         self.pending = None;
         self.retry = None;
@@ -363,13 +385,27 @@ impl Viewer {
         ctx.request_repaint_after(std::time::Duration::from_millis(15));
     }
 
+    fn cancel_current_read(&mut self) {
+        self.serial += 1;
+        self.pending = None;
+        if let Some(active) = &self.running {
+            active.cancel.store(true, Ordering::Relaxed);
+        }
+        self.directory_scan.cancel();
+        self.stop_animation();
+        self.suspend_coverflow_thumbnails();
+        self.extra.presentation.cancel_target();
+        self.status = "已取消".into();
+    }
+
     fn handle_close_request(&mut self, ctx: &egui::Context) -> bool {
         if ctx.input(|i| i.viewport().close_requested()) { self.request_close(ctx); }
         if !self.closing { return false; }
         self.poll(ctx);
         let covers_finished = self.poll_cancelled_coverflow(ctx);
         if self.running.is_none() && self.pending.is_none() && self.extra.retiring.is_none()
-            && covers_finished && self.extra.writing.is_none() && self.extra.pending_write.is_none() {
+            && covers_finished && self.directory_scan.is_idle()
+            && self.extra.writing.is_none() && self.extra.pending_write.is_none() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         } else {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -396,8 +432,10 @@ impl Viewer {
         self.password_focus = false;
         self.retry = None;
         self.password_input.clear();
-        if !path.is_dir()
-            && !worker::is_archive(&path)
+        let directory = path.is_dir();
+        let archive = !directory && worker::is_archive(&path);
+        if !directory
+            && !archive
             && !path
                 .file_name()
                 .is_some_and(|name| crate::imaging::is_supported_image(&name.to_string_lossy()))
@@ -406,28 +444,24 @@ impl Viewer {
             self.error = Some(self.status.clone());
             return;
         }
-        let (source, select) = if path.is_dir() || worker::is_archive(&path) {
-            (path, None)
-        } else {
-            (
-                path.parent().unwrap_or(Path::new(".")).to_owned(),
-                path.file_name().map(|s| s.to_string_lossy().into_owned()),
-            )
-        };
+        self.directory_scan.cancel();
+        if !directory && !archive {
+            self.open_local_image(path);
+            return;
+        }
         self.status = "正在读取目录…".into();
         self.extra.workspace.preview_due = None;
         self.extra.workspace.save_pending = false;
-        let management = source.is_dir() && select.is_none();
         self.queue(
             Request::List {
-                path: source.clone(),
+                path: path.clone(),
                 password: None,
             },
             Operation::List {
-                path: source,
-                select,
+                path,
+                select: None,
                 password: None,
-                management,
+                management: directory,
             },
         );
     }
@@ -558,6 +592,20 @@ impl Viewer {
         self.overview = None;
         self.tiles.clear();
         self.tile_bytes = 0;
+        if let Some(task) = &mut self.pending {
+            if let Operation::Load { index: candidate, full_raw: raw, preload } = &mut task.operation {
+                if *preload && (*candidate, *raw) == (index, full_raw) {
+                    *preload = false;
+                    return;
+                }
+            }
+        } else if let Some(active) = &mut self.running {
+            if active.id == self.serial && active.preload == Some((index, full_raw))
+                && !active.cancel.load(Ordering::Relaxed) {
+                active.promoted = true;
+                return;
+            }
+        }
         self.queue(
             request,
             Operation::Load {
@@ -599,6 +647,7 @@ impl Viewer {
 
     fn schedule_preload(&mut self) {
         if self.browser
+            || self.archive_jump.open
             || self.pending.is_some()
             || self.password_dialog
             || self.extra.animation.is_some()
@@ -606,8 +655,7 @@ impl Viewer {
         {
             return;
         }
-        let Some(index) = self.selected else { return };
-        for candidate in [index.checked_add(1), index.checked_sub(1)]
+        for candidate in self.preload_neighbors(self.nav_forward)
             .into_iter()
             .flatten()
         {
@@ -653,8 +701,19 @@ impl Viewer {
     }
 
     fn poll(&mut self, ctx: &egui::Context) {
+        self.poll_archive_resume(ctx);
+        self.poll_directory_scan(ctx);
         self.poll_animation(ctx);
         self.poll_writes(ctx);
+        if let Some((index, receiver)) = self.running.as_ref()
+            .filter(|active| active.id == self.serial)
+            .and_then(|active| active.preview.as_ref())
+            .filter(|(index, _)| self.extra.presentation.target_index() == Some(*index))
+        {
+            if let Ok(preview) = receiver.try_recv() {
+                self.extra.presentation.stage_preview(*index, preview.into());
+            }
+        }
         let event = match self.running.as_ref().map(|r| r.receiver.try_recv()) {
             Some(Ok(event)) => Some(event),
             Some(Err(mpsc::TryRecvError::Disconnected)) => {
@@ -668,9 +727,13 @@ impl Viewer {
             }
             _ => None,
         };
-        if let Some(event) = event {
+        if let Some(mut event) = event {
             if self.running.as_ref().is_some_and(|r| r.id == event.id) {
-                self.running = None;
+                if self.running.take().unwrap().promoted {
+                    if let Operation::Load { preload, .. } = &mut event.operation {
+                        *preload = false;
+                    }
+                }
             }
             if event.id == self.serial {
                 match event.result {
@@ -718,7 +781,9 @@ impl Viewer {
                                 } => self.accept_comparison(slot, generation, region, output, ctx),
                                 Operation::Clipboard { path } => {
                                     self.reset_coverflow();
+                                    self.change_archive_source(None);
                                     self.source = Some(path);
+                                    self.initial_entry_position = None;
                                     self.entries = vec![Entry {
                                         name: "clipboard.png".into(),
                                         size: 0,
@@ -775,39 +840,8 @@ impl Viewer {
                                 } => {
                                     self.reset_comparison();
                                     self.reset_coverflow();
-                                    self.source = Some(path);
-                                    self.password = password;
-                                    self.entries = output.reply.entries.unwrap_or_default();
-                                    self.extra.selection.clear();
-                                    self.extra.thumbnails.clear();
-                                    self.extra.edited = false;
-                                    if self.extra.history.get(self.extra.history_pos)
-                                        != self.source.as_ref()
-                                    {
-                                        self.extra.history.truncate(self.extra.history_pos + 1);
-                                        if let Some(p) = &self.source {
-                                            self.extra.history.push(p.clone());
-                                            self.extra.history_pos = self.extra.history.len() - 1;
-                                        }
-                                    }
-                                    self.rebuild_visible();
-                                    self.extra.browser_ui.invalidate();
-                                    self.cache = ImageCache::default();
-                                    self.current = None;
-                                    self.current_key = None;
-                                    self.overview = None;
-                                    self.tiles.clear();
-                                    self.tile_bytes = 0;
-                                    let selected = select
-                                        .and_then(|name| {
-                                            self.entries.iter().position(|e| e.name == name)
-                                        })
-                                        .or_else(|| {
-                                            self.entries
-                                                .iter()
-                                                .position(|e| !e.directory && !e.archive)
-                                        });
-                                    self.selected = None;
+                                    self.install_source(path, password, output.reply.entries.unwrap_or_default());
+                                    let selected = self.initial_entry_selection(select);
                                     self.browser = management;
                                     if let Some(index) = selected {
                                         self.load_index(index, false);
@@ -904,13 +938,26 @@ impl Viewer {
                     return;
                 }
                 let (sender, receiver) = mpsc::sync_channel(1);
+                let (preview_tx, preview_rx) = mpsc::sync_channel(1);
+                let (preview_index, preload) = match &task.operation {
+                    Operation::Load { index, full_raw, preload } =>
+                        (Some(*index), preload.then_some((*index, *full_raw))),
+                    _ => (None, None),
+                };
                 let cancel = Arc::new(AtomicBool::new(false));
                 let thread_cancel = cancel.clone();
                 let context = ctx.clone();
                 let id = task.id;
                 std::thread::spawn(move || {
                     let request = task.request.clone();
-                    let result = worker::execute(task.request, thread_cancel);
+                    let result = if preview_index.is_some() {
+                        worker::execute_with_preview(task.request, thread_cancel, |preview| {
+                            let _ = preview_tx.try_send(preview);
+                            context.request_repaint();
+                        })
+                    } else {
+                        worker::execute(task.request, thread_cancel)
+                    };
                     let _ = sender.send(Event {
                         id,
                         request,
@@ -923,6 +970,9 @@ impl Viewer {
                     id,
                     cancel,
                     receiver,
+                    preview: preview_index.map(|index| (index, preview_rx)),
+                    preload,
+                    promoted: false,
                 });
             }
         }
@@ -932,38 +982,9 @@ impl Viewer {
     }
 
     fn navigate(&mut self, forward: bool, end: bool) {
-        let indices: Vec<usize> = self
-            .extra
-            .visible
-            .iter()
-            .copied()
-            .filter(|i| {
-                self.entries
-                    .get(*i)
-                    .is_some_and(|e| !e.directory && !e.archive)
-                    && (self.extra.selection.len() <= 1 || self.extra.selection.contains(i))
-            })
-            .collect();
-        if indices.is_empty() {
-            return;
-        }
-        let position = self
-            .selected
-            .and_then(|s| indices.iter().position(|i| *i == s))
-            .unwrap_or(0);
-        let target = if end {
-            if forward {
-                indices.len() - 1
-            } else {
-                0
-            }
-        } else if forward {
-            (position + 1).min(indices.len() - 1)
-        } else {
-            position.saturating_sub(1)
-        };
-        if self.selected != Some(indices[target]) {
-            self.load_index(indices[target], false);
+        if let Some(index) = self.navigation_target(forward, end) {
+            self.nav_forward = forward;
+            self.load_index(index, false);
         }
     }
 
@@ -1073,6 +1094,7 @@ impl Viewer {
                 self.extra.edits.clear();
                 self.extra.redo_edits.clear();
                 self.stop_animation();
+                self.directory_scan.cancel();
                 self.serial += 1;
                 self.pending = None;
                 if let Some(r) = &self.running {
@@ -1233,6 +1255,14 @@ impl Viewer {
                         self.perform(action, ctx);
                     }
                 }
+                if self.is_archive_source() && !self.browser
+                    && self.extra.compare == 0 && self.extra.edit_dialog.is_none()
+                {
+                    let available = !self.password_dialog && !self.browse_entries().1.is_empty();
+                    if ui.add_enabled(available, egui::Button::new("跳页…")).clicked() {
+                        self.open_archive_jump();
+                    }
+                }
                 let is_raw = self
                     .selected
                     .and_then(|i| self.entries.get(i))
@@ -1245,18 +1275,13 @@ impl Viewer {
                         }
                     }
                 }
-                if self.running.is_some()
+                if (self.running.is_some() || !self.directory_scan.is_idle())
                     && self.extra.pending_write.is_none()
                     && self.extra.writing.is_none()
                 {
                     ui.spinner();
                     if ui.small_button("取消").clicked() {
-                        self.serial += 1;
-                        self.pending = None;
-                        if let Some(r) = &self.running {
-                            r.cancel.store(true, Ordering::Relaxed);
-                        }
-                        self.status = "已取消".into();
+                        self.cancel_current_read();
                     }
                 }
                 if self.extra.animated {
@@ -1666,11 +1691,13 @@ impl Viewer {
                 ctx, index, &image, Arc::as_ptr(&image) as usize, placement, name,
             ) {
                 self.remember_coverflow_preview(index, preview, texture);
+                self.archive_image_drawn(index, ctx);
             }
         }
     }
 
     fn dialogs(&mut self, ctx: &egui::Context) {
+        self.draw_archive_jump(ctx);
         if self.password_dialog {
             let mut submit = false;
             let mut cancel = false;
@@ -1729,6 +1756,7 @@ impl Viewer {
             ui.separator();
             ui.label("查看模式：←/→ 上一张/下一张；↑/↓ 平滑放大/缩小。Space / PageDown 下一张；Backspace / PageUp 上一张；Home / End 首末张；F 全屏；Ctrl+Alt+←/→ 旋转。");
             ui.label("数字键盘 + / − 缩放；* 适应窗口；/ 原始尺寸。滚轮平滑缩放，鼠标拖动平移，双击恢复适应。底部封面栏可点击翻图，并显示当前批次序号。");
+            ui.label("ZIP／RAR／7z 会记住上次显示的图片。工具栏「跳页…」可按文件名、包内路径或当前序号查找。");
             ui.label("查看模式 Enter / Esc / Ctrl+W 返回列表；列表 Enter进入查看、Ctrl+W退出；Ctrl/Shift+单击多选。GIF/WebP按原帧时长播放，G暂停／恢复／重播。");
             ui.separator();ui.label("ZIP／7z包内修改先备份原包；RAR只读，不支持分卷。编辑支持高位副本、完整动画、无损参数记录；源图EXIF／IPTC／XMP在属性窗口中显式保存，RAW写XMP伴随文件。");
             ui.label("幻灯片、日历、刻录、在线和音视频均已移除。默认键位见docs/KEYBOARD.md，功能状态见docs/retained-command-audit.csv；未确认的原版隐藏命令不激活。");
@@ -1812,6 +1840,7 @@ impl eframe::App for Viewer {
         if shortcuts_enabled(
             ctx,
             self.password_dialog
+                || self.archive_jump.open
                 || self.extra.dialog.is_some()
                 || self.properties
                 || self.extra.settings_ui.open
@@ -1954,6 +1983,7 @@ impl eframe::App for Viewer {
 }
 impl Drop for Viewer {
     fn drop(&mut self) {
+        self.save_archive_resume(true);
         if let Some(r) = &self.running {
             r.cancel.store(true, Ordering::Relaxed);
         }
@@ -2148,6 +2178,51 @@ fn tile_level(physical_scale: f32, bounds: Rect, w: u32, h: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn matching_preload_is_promoted_and_its_small_frame_can_draw_before_the_full_reply() {
+        let folder = tempfile::tempdir().unwrap();
+        let mut viewer = browser_ui::tests::viewer(["a.png", "b.png"].into_iter().map(|name| Entry {
+            name: name.into(), size: 8, directory: false, archive: false, modified: None,
+        }).collect());
+        viewer.source = Some(folder.path().to_owned());
+        viewer.browser = false;
+        viewer.selected = Some(0);
+        viewer.schedule_preload();
+        let task = viewer.pending.take().unwrap();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let (preview_tx, preview_rx) = mpsc::sync_channel(1);
+        let cancel = Arc::new(AtomicBool::new(false));
+        viewer.running = Some(Running { id: task.id, cancel: cancel.clone(), receiver,
+            preview: Some((1, preview_rx)), preload: Some((1, false)), promoted: false });
+        viewer.load_index(1, false);
+        assert!(viewer.pending.is_none() && viewer.running.as_ref().unwrap().promoted);
+        assert_eq!(viewer.serial, task.id);
+        assert!(!cancel.load(Ordering::Relaxed));
+
+        let rgba = vec![65, 77, 90, 255];
+        preview_tx.send(worker::ContinuityPreview::sample(1, 1, &rgba, 1, 1).unwrap()).ok().unwrap();
+        let ctx = egui::Context::default();
+        let frame = ctx.run(egui::RawInput::default(), |ctx| {
+            viewer.poll(ctx);
+            egui::CentralPanel::default().show(ctx, |ui| viewer.draw_image(ui, ctx));
+        });
+        assert!(viewer.current.is_none());
+        assert!(frame.shapes.iter().any(|shape| matches!(&shape.shape,
+            egui::Shape::Text(text) if text.galley.job.text.contains("b.png · 低清预览"))));
+
+        viewer.extra.compare = 1; // Leave the next speculative task undispatched.
+        sender.send(Event { id: task.id, request: task.request, operation: task.operation,
+            result: Ok(worker::Output {
+                reply: worker::Reply { width: 1, height: 1, preview_width: 1, preview_height: 1, ..Default::default() },
+                rgba: rgba.clone(), preview: rgba.clone(),
+            }),
+        }).ok().unwrap();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| viewer.poll(ctx));
+        assert_eq!(viewer.current_key, Some((1, false)));
+        assert_eq!(viewer.current.as_ref().unwrap().rgba, rgba);
+    }
+
     #[test]
     fn exit_and_native_close_wait_for_the_read_task_to_retire() {
         for native in [false, true] {
@@ -2161,7 +2236,8 @@ mod tests {
                 password: None, management: false };
             let (sender, receiver) = mpsc::sync_channel(1);
             let cancel = Arc::new(AtomicBool::new(false));
-            viewer.running = Some(Running { id: 1, cancel: cancel.clone(), receiver });
+            viewer.running = Some(Running { id: 1, cancel: cancel.clone(), receiver,
+                preview: None, preload: None, promoted: false });
             viewer.serial = 2;
             viewer.pending = Some(Task { id: 2, request: request.clone(), operation: operation.clone() });
             let ctx = egui::Context::default();

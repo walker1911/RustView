@@ -1,5 +1,44 @@
 # Validation / 验证记录
 
+## v0.6.0 Windows x64
+
+The local Windows suite passed **220 unit tests**, with two optional public-camera tests ignored by default. The new tests cover archive jump bounds and ordering, ambiguous filenames, exact entry identity, and reopening from the local catalog.
+
+| Check | Result | Scope |
+|---|---:|---|
+| Resume and jump in encrypted ZIP, RAR and 7z | 3 formats passed | The test drove the Viewer and egui dialogs with input events, used real supervised extraction workers, then reopened a fresh Viewer against the same isolated SQLite catalog. Each format passed both ordinal and filename jumps, prompted for its password again, and restored a 521 MiB PSD. |
+| Encrypted PSD worker reads | 9 images passed | The v0.6.0 executable decoded all test entries in three encrypted archives, including the 521 MiB PSD in each archive and a 1.67 GiB PSD in the RAR. |
+| Same-Viewer navigation | 8 passed | Verified image identity, preview continuity, cancellation, close and cleanup with real workers and headless drawing. |
+| Large encrypted RAR5 | 76 passed | Covered data and header encryption, password handling, decode, thumbnails, export and repeated cancellation. All observed processes exited, test temporary directories were empty, and fixture hashes matched their original values. |
+
+The resume test used encrypted ZIP and 7z archives of about 521 MiB each and a 2.18 GiB encrypted RAR. Closing during extraction of a different RAR member cancelled an observed partial extraction. Reopening restored the last displayed PSD. The catalog passed SQLite integrity checks and contained no test password. The supervised worker probes and the Viewer test both checked for surviving processes and temporary files.
+
+The resume and jump results exercise the same Viewer and dialog logic in a headless test build. Desktop automation timed out while waiting for app access, leaving native v0.6.0 window clicks unverified.
+
+### v0.6.0 中文验证
+
+Windows x64 本地测试通过 **220 项单测**，另有 2 项公开相机测试默认跳过。加密 ZIP、RAR、7z 均通过按序号跳转、按文件名跳转和重开续看，重开时再次询问密码，并恢复到上次显示的 521 MiB PSD。ZIP 和 7z 约为 521 MiB，RAR 为 2.18 GiB。RAR 测试在提取另一张大图时中途关窗，重开仍回到上一张已显示的图片。SQLite 完整性检查通过，目录库中没有测试密码。
+
+v0.6.0 可执行文件另外通过 9 张加密包内图片的读取验证、8 项同 Viewer 无窗口导航回归和 76 项大型加密 RAR 回归。已观测的工作进程均退出，测试临时目录为空。续看和跳页由同一套 Viewer 与 egui 对话框逻辑驱动，解压由真实的 Windows 工作进程完成。原生窗口自动化的应用访问审批超时，v0.6.0 的续看和跳页未完成原生窗口点击验证。
+
+## v0.5.0 browsing validation / 浏览验证
+
+| Native Windows session | Verified behavior | Sampled process-tree private commit peak |
+|---|---|---:|
+| 10,000 JPEG files | 12 rapid forward steps followed by 8 backward steps reached image 5,437. | 696 MiB |
+| Real camera and phone RAW | Opened Nikon Z6, Sony a7 III, Canon EOS R and iPhone 12 Pro samples. The separate worker suite passed full decode for all four. | 798 MiB |
+| Large encrypted RAR | Opened 521 MiB and 1.67 GiB PSDs after password entry. Reversing direction, the Cancel button and Alt+F4 interrupted extraction. | 424 MiB |
+
+The encrypted RAR window stayed responsive after cancellation. An idle checkpoint observed no live workers or temporary files. After the final close, all 83 observed processes had exited and the test temporary directory was empty. Memory figures are observations for these inputs and include the app and its sampled descendants. GPU allocations and the OS file cache are outside these figures.
+
+A preflight on the same startup path measured the time to deliver full target-image pixels from the worker in the 10,000-image directory. The P50 and P95 changed from 766 and 844 ms to 657 and 704 ms respectively. These timings use worker output. The native-window automation verified the final selected image, and frame capture timed out. Separate same-Viewer drawing checks verified that rapid navigation retained an image after the first display.
+
+### v0.5.0 中文验证
+
+原生窗口在 10,000 张 JPEG 的目录中向前连翻 12 次、向后连翻 8 次，到达正确的第 5,437 张。尼康 Z6、索尼 a7 III、佳能 EOS R 和 iPhone 12 Pro 的 RAW 样本均在窗口打开，独立工作进程也通过了四份样本的完整解码。大型加密 RAR 输密码后打开了 521 MiB 和 1.67 GiB 的 PSD，反向翻图、点取消和 Alt+F4 均能中止正在进行的提取。点取消后窗口可继续使用，关窗后已观测的 83 个进程全部退出，临时目录为空。
+
+这三组原生窗口的进程树私有提交内存峰值分别为 696、798 和 424 MiB。相同启动路径的预检中，万张目录目标图完整像素交付的 P50 从 766 ms 降至 657 ms，P95 从 844 ms 降至 704 ms。计时取自工作进程输出。原生窗口逐帧抓取超时，首图后的连续画面通过同一 Viewer 的绘制回归核对。
+
 ## v0.4.1 prerelease
 
 The Windows x64 build passed **209 unit tests with two public-camera tests ignored by default**. The rendering regression verifies the gray and white checkerboard palette, its fixed window coordinates during zoom and rotation, clipping to image bounds, and preservation of full and partial alpha. The transition-preview check verifies that the checkerboard sits beneath a single current preview.

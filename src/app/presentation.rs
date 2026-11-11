@@ -1,8 +1,7 @@
 use super::{rotate, Pixels};
+use crate::worker::{ContinuityPreview, CONTINUITY_SIDE as PREVIEW_SIDE};
 use egui::{Color32, Context, Mesh, Painter, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
 use std::{sync::Arc, time::{Duration, Instant}};
-
-const PREVIEW_SIDE: u32 = 64;
 
 #[derive(Clone)]
 pub(super) struct PreviewPixels {
@@ -15,32 +14,19 @@ pub(super) struct PreviewPixels {
 
 impl PreviewPixels {
     pub fn sample(width: u32, height: u32, rgba: &[u8], source_width: u32, source_height: u32) -> Option<Self> {
-        let length = (width as usize).checked_mul(height as usize)?.checked_mul(4)?;
-        if width == 0 || height == 0 || rgba.len() != length { return None; }
-        let largest = width.max(height);
-        let (small_width, small_height) = if largest > PREVIEW_SIDE {
-            (((width as u64 * PREVIEW_SIDE as u64 / largest as u64) as u32).max(1),
-             ((height as u64 * PREVIEW_SIDE as u64 / largest as u64) as u32).max(1))
-        } else { (width, height) };
-        let mut pixels = Vec::with_capacity(small_width as usize * small_height as usize * 4);
-        for y in 0..small_height {
-            let source_y = ((2 * y as u64 + 1) * height as u64 / (2 * small_height as u64)) as usize;
-            for x in 0..small_width {
-                let source_x = ((2 * x as u64 + 1) * width as u64 / (2 * small_width as u64)) as usize;
-                let offset = (source_y * width as usize + source_x) * 4;
-                pixels.extend_from_slice(&rgba[offset..offset + 4]);
-            }
-        }
-        Some(Self {
-            width: small_width, height: small_height, rgba: pixels.into(),
-            source_width: if source_width > 0 { source_width } else { width },
-            source_height: if source_height > 0 { source_height } else { height },
-        })
+        ContinuityPreview::sample(width, height, rgba, source_width, source_height).map(Self::from)
     }
 
     fn upload(&self, ctx: &Context) -> TextureHandle {
         ctx.load_texture("continuity-preview", egui::ColorImage::from_rgba_unmultiplied(
             [self.width as usize, self.height as usize], &self.rgba), TextureOptions::NEAREST)
+    }
+}
+
+impl From<ContinuityPreview> for PreviewPixels {
+    fn from(preview: ContinuityPreview) -> Self {
+        Self { width: preview.width, height: preview.height, rgba: preview.rgba.into(),
+            source_width: preview.source_width, source_height: preview.source_height }
     }
 }
 
@@ -95,10 +81,14 @@ pub(super) struct State {
 impl State {
     pub fn begin_source(&mut self) {
         self.epoch = self.epoch.wrapping_add(1);
+        self.cancel_target();
+        self.recorded = None;
+    }
+
+    pub fn cancel_target(&mut self) {
         self.target = None;
         self.waiting = false;
         self.waiting_since = None;
-        self.recorded = None;
     }
 
     pub fn begin_target(&mut self, index: usize, name: String) {
