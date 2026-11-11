@@ -1,18 +1,20 @@
 # RustView
 
+<img src="assets/rustview-icon.png" width="112" height="112" alt="RustView's official lotus icon">
+
 [![Windows x64 CI](https://github.com/walker1911/RustView/actions/workflows/ci.yml/badge.svg)](https://github.com/walker1911/RustView/actions/workflows/ci.yml)
 
 **Open the archive. Keep the flow.**
 
 An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, Photoshop composites, and pictures inside compressed archives.
 
-[Download v0.6.0](https://github.com/walker1911/RustView/releases/tag/v0.6.0) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+[Download v0.6.1](https://github.com/walker1911/RustView/releases/tag/v0.6.1) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
 
 ![RustView illustrated overview](assets/readme/hero.svg)
 
 *Project illustration.*
 
-The **v0.6.0 prerelease** brings together two rounds of updates. Opening an individual image shows it first and scans the surrounding folder in the background. In ZIP, RAR, and 7z archives you can resume from the last image shown or jump by filename, path, or number. [v0.6.0 release notes](docs/RELEASE-v0.6.0.md) · [v0.4.1 release notes](docs/RELEASE-v0.4.1.md)
+**v0.6.1** brings the official lotus icon to the Windows executable and app window. Opening an individual image shows it first and scans the surrounding folder in the background. In ZIP, RAR, and 7z archives you can resume from the last image shown or jump by filename, path, or number. [v0.6.1 release notes](docs/RELEASE-v0.6.1.md) · [v0.6.0 release notes](docs/RELEASE-v0.6.0.md) · [v0.4.1 release notes](docs/RELEASE-v0.4.1.md)
 
 ## Start with the pictures
 
@@ -56,7 +58,7 @@ v0.4.0 permits [local and ZIP/RAR/7z-contained PSD/PSB](docs/PSD.md) sources up 
 
 ## Download and use
 
-1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.0/RustView-0.6.0-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.6.0/RustView-0.6.0-win-x64-offline.zip.sha256)
+1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.1/RustView-0.6.1-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.6.1/RustView-0.6.1-win-x64-offline.zip.sha256)
 2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. The package includes the image engines and runtime libraries for offline use from first launch.
 3. Open or drag in a folder, picture, or archive. Keep the complete extracted folder.
 

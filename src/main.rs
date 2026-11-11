@@ -46,11 +46,14 @@ fn main() -> eframe::Result {
         return Ok(());
     }
     let initial = std::env::args_os().nth(1).map(std::path::PathBuf::from);
+    let icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/rustview-icon.png"))
+        .expect("embedded RustView icon must be a valid PNG");
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 840.0])
             .with_min_inner_size([720.0, 480.0])
-            .with_drag_and_drop(true),
+            .with_drag_and_drop(true)
+            .with_icon(icon),
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };

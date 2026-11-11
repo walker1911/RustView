@@ -1,18 +1,20 @@
 # RustView
 
+<img src="assets/rustview-icon.png" width="112" height="112" alt="RustView 正式莲花图标">
+
 [![Windows x64 构建与测试](https://github.com/walker1911/RustView/actions/workflows/ci.yml/badge.svg)](https://github.com/walker1911/RustView/actions/workflows/ci.yml)
 
 **打开压缩包，接着看。**
 
 面向 **Windows x64** 的 Rust 看图项目。把相机 RAW、GIF/WebP 动画、Photoshop 合成图和 ZIP／RAR／7z 里的照片，放进熟悉的键盘翻图、Picasa 式胶片带与平滑缩放流程。
 
-[下载 v0.6.0](https://github.com/walker1911/RustView/releases/tag/v0.6.0) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
+[下载 v0.6.1](https://github.com/walker1911/RustView/releases/tag/v0.6.1) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
 
 ![RustView 项目概念图](assets/readme/hero.svg)
 
 *配图为项目概念图。*
 
-**v0.6.0 预发行版**汇总两轮更新。直接打开一张图片时，先显示图片，再在后台扫描同目录。ZIP、RAR、7z 支持从上次显示的图片继续浏览，也可以按文件名、路径或序号跳页。[v0.6.0 更新说明](docs/RELEASE-v0.6.0.md) · [v0.4.1 更新说明](docs/RELEASE-v0.4.1.md)
+**v0.6.1** 将正式莲花图标嵌入 Windows 程序和主窗口。直接打开一张图片时，先显示图片，再在后台扫描同目录。ZIP、RAR、7z 支持从上次显示的图片继续浏览，也可以按文件名、路径或序号跳页。[v0.6.1 更新说明](docs/RELEASE-v0.6.1.md) · [v0.6.0 更新说明](docs/RELEASE-v0.6.0.md) · [v0.4.1 更新说明](docs/RELEASE-v0.4.1.md)
 
 ## 从照片出发
 
@@ -62,7 +64,7 @@ v0.4.0 对[本地及ZIP／RAR／7z内的PSD/PSB](docs/PSD.md)提供源文件例�
 
 ## 下载与运行
 
-1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.0/RustView-0.6.0-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.6.0/RustView-0.6.0-win-x64-offline.zip.sha256)
+1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.1/RustView-0.6.1-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.6.1/RustView-0.6.1-win-x64-offline.zip.sha256)
 2. 完整解压，双击 `RustView.exe` 或 `Start-RustView.cmd`。图片引擎和运行库已经包含，首次启动也无需联网或安装依赖。
 3. 打开或拖入文件夹、图片、ZIP／RAR／7z。请保留完整目录。
 

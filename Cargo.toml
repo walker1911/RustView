@@ -1,6 +1,6 @@
 [package]
 name = "rust-viewer"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 description = "A bounded-memory Windows image and archive viewer"
 license = "MIT"
@@ -8,6 +8,9 @@ license = "MIT"
 [[bin]]
 name = "RustView"
 path = "src/main.rs"
+
+[build-dependencies]
+find-msvc-tools = "0.1.15"
 
 [dependencies]
 eframe = { version = "=0.31.1", default-features = false, features = ["accesskit", "default_fonts", "wgpu"] }
