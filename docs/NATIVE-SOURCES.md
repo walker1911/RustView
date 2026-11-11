@@ -2,7 +2,7 @@
 
 The complete offline ZIP includes all native runtime dependencies. Source archives are provided for inspection, modification and rebuilding; **you do not need to download them to view photos offline**. RustView's original code is MIT licensed. Each native engine and its bundled libraries keep their own licenses and notices.
 
-All source attachments are available with the binaries on the same [RustView v0.4.0 prerelease](https://github.com/walker1911/RustView/releases/tag/v0.4.0). Preserve this guide, the original notices and the matching source materials when redistributing the complete offline package. Compatible replacement of the native libraries is permitted; the offline launcher directly starts the viewer without enforcing pinned engine hashes.
+The matching ImageMagick and ExifTool source archives for v0.4.1 are available with their checksums on the [RustView v0.4.0 release](https://github.com/walker1911/RustView/releases/tag/v0.4.0). Preserve this guide, the original notices and the matching source materials when redistributing the complete offline package. Compatible replacement of the native libraries is permitted; the offline launcher directly starts the viewer without enforcing pinned engine hashes.
 
 ## Included in the runtime ZIP
 
@@ -17,7 +17,7 @@ All source attachments are available with the binaries on the same [RustView v0.
 
 ## ImageMagick and static codec libraries
 
-Download [ImageMagick-7.1.2-35-Windows.7z](https://github.com/walker1911/RustView/releases/download/v0.4.0/ImageMagick-7.1.2-35-Windows.7z) and its `.sha256` from the Release. This is the unmodified official full Windows source distribution, including `Configure`, `Dependencies` and `ImageMagick`, rather than just the smaller main-source archive.
+Download [ImageMagick-7.1.2-35-Windows.7z](https://github.com/walker1911/RustView/releases/download/v0.4.0/ImageMagick-7.1.2-35-Windows.7z) and its `.sha256` from the v0.4.0 release. This is the unmodified official full Windows source distribution, including `Configure`, `Dependencies` and `ImageMagick`, rather than just the smaller main-source archive.
 
 - Size: 769,375,980 bytes.
 - SHA-256: `778bc4d5de0a8ae055284e85fd7dfff75dd44ec14c010cdf8dad5ab05f6a89d4`.
@@ -28,9 +28,9 @@ Rebuilding this official native engine requires the Windows toolchain selected b
 
 ## ExifTool, Perl and GMP
 
-Download [RustView-0.3.0-exiftool-sources.zip](https://github.com/walker1911/RustView/releases/download/v0.4.0/RustView-0.3.0-exiftool-sources.zip) and its `.sha256` from the same Release. It contains the unmodified official ExifTool 13.62 source, GMP 6.1.2 source, Math::BigInt::GMP 1.6007 source/build rules, launcher-author CC0 example source, and original GCC toolchain notices. Individual source hashes and primary URLs are recorded in the bundle's `source-inventory.json` and the [verification inventory](https://github.com/walker1911/RustView/blob/v0.4.0/docs/EXIFTOOL-SOURCE-VERIFICATION.json).
+Download [RustView-0.3.0-exiftool-sources.zip](https://github.com/walker1911/RustView/releases/download/v0.4.0/RustView-0.3.0-exiftool-sources.zip) and its `.sha256` from the v0.4.0 release. It contains the unmodified official ExifTool 13.62 source, GMP 6.1.2 source, Math::BigInt::GMP 1.6007 source/build rules, launcher-author CC0 example source, and original GCC toolchain notices. Individual source hashes and primary URLs are recorded in the bundle's `source-inventory.json` and the [verification inventory](https://github.com/walker1911/RustView/blob/v0.4.0/docs/EXIFTOOL-SOURCE-VERIFICATION.json).
 
-The source ZIP retains its original `0.3.0` filename because the ExifTool/Perl/GMP versions and the archive contents are unchanged in v0.4.0. It is attached again to the v0.4.0 Release, rather than requiring the older runtime package.
+The matching ExifTool/Perl/GMP source ZIP uses its original `0.3.0` filename. The direct link above downloads the source archive independently of the runtime ZIP.
 
 - Size: 12,463,935 bytes.
 - SHA-256: `194dbd0fb97b97a1ace2fa8ce0ac9fbdccf4f14906cbb738c5a67bfcecca87ed`.
@@ -49,6 +49,6 @@ After reviewing the build, close RustView and back up/replace `native/ExifTool/e
 
 ## 中文说明
 
-完整离线包已经包含全部运行依赖，**普通看图无需另外下载源码**。7-Zip 对应源码和 LibRaw 官方源码／二进制归档已放在运行包内；ImageMagick 及其静态库的完整 Windows 源码、ExifTool／GMP／XS 补充源码分别放在同一 Release。ImageMagick 的 38 个组件版本与随包声明逐一核验一致。两个补充源码归档的内容与原生引擎版本保持不变，随 v0.4.0 同一 Release 再次提供；ExifTool 源码 ZIP 因此沿用原 `0.3.0` 文件名。各引擎和库保留原许可，不能把整个离线包统一称为 MIT。
+完整离线包已经包含全部运行依赖，**普通看图无需另外下载源码**。7-Zip 对应源码和 LibRaw 官方源码／二进制归档已放在运行包内；v0.4.1 所用 ImageMagick 及其静态库的完整 Windows 源码、ExifTool／GMP／XS 补充源码与校验文件，可从上方的 v0.4.0 Release 附件直接下载。ImageMagick 的 38 个组件版本与随包声明逐一核验一致。ExifTool 源码 ZIP 沿用原 `0.3.0` 文件名。各引擎和库保留原许可，不能把整个离线包统一称为 MIT。
 
 可以修改这些源码、重新编译并替换兼容的原生引擎；离线启动器直接执行主程序，不阻止兼容替换。重编所需的 C++ 工具链与看图所需运行库是两回事；完整离线包在首次启动时也无需下载运行依赖。

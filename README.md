@@ -6,11 +6,13 @@
 
 An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, Photoshop composites, and pictures inside compressed archives.
 
-[Download v0.4.0](https://github.com/walker1911/RustView/releases/tag/v0.4.0) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+[Download v0.4.1](https://github.com/walker1911/RustView/releases/tag/v0.4.1) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
 
 ![RustView illustrated overview](assets/readme/hero.svg)
 
-*Project illustration, not an application screenshot. v0.4.0 is an early public prerelease.*
+*Project illustration. v0.4.1 is a public prerelease.*
+
+**New in v0.4.1.** Transparent regions reveal a gray and white checkerboard fixed to the window as you zoom, pan, or rotate. Text sizes now follow a consistent hierarchy across the viewer, management panels, and dialogs. Long paths and status messages show their full text on hover. [Release notes](docs/RELEASE-v0.4.1.md)
 
 ## Start with the pictures
 
@@ -52,11 +54,11 @@ v0.4.0 permits [local and ZIP/RAR/7z-contained PSD/PSB](docs/PSD.md) sources up 
 
 ## Download and use
 
-1. Download the [complete Windows x64 offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.4.0/RustView-0.4.0-win-x64-offline.zip).
+1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.4.1/RustView-0.4.1-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.4.1/RustView-0.4.1-win-x64-offline.zip.sha256)
 2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. All image engines and runtime libraries are included; first launch needs no internet access or installation.
 3. Open or drag in a folder, picture, or archive. Keep the complete extracted folder.
 
-The ZIP has an accompanying `.sha256` file. Matching third-party source attachments are provided on the same Release and are not needed for normal offline viewing. [Offline guide](OFFLINE.md) · [What changed in v0.4.0](docs/RELEASE-v0.4.0.md).
+The offline ZIP is the only download needed for viewing. The source guide lists the archives for rebuilding the bundled engines. [Offline guide](OFFLINE.md) · [Native sources](docs/NATIVE-SOURCES.md)
 
 The interface is currently primarily Chinese; a complete English UI is not yet available. See the [full keyboard reference](docs/KEYBOARD.md).
 
@@ -92,7 +94,7 @@ pwsh -File .\tools\build.ps1
 
 See [BUILDING.md](BUILDING.md) for checksums and validation steps.
 
-The v0.4.0 unit suite passes **208 tests**, with **2 public-camera tests ignored by default**. The release checks cover static images/archives, GIF/WebP animation, PSD/PSB composites, thumbnail reads, encrypted large-RAR cancellation and same-Viewer rapid navigation. See the [release notes](docs/RELEASE-v0.4.0.md) and [validation record](docs/VALIDATION.md) for exact results and limits.
+The project records release checks for static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnail reads, large encrypted-RAR cancellation, and rapid navigation. [v0.4.1 release notes](docs/RELEASE-v0.4.1.md) · [Validation results and scope](docs/VALIDATION.md)
 
 Real-camera samples include Nikon Z6, Sony a7 III, Canon EOS R, iPhone 12 Pro ProRAW and HEIC; this does not certify every model or encoding. Native-window password retry, navigation and close were checked through UI automation. Screenshot capture remains unavailable, so full visual, DPI, multi-monitor and paper-printing acceptance remains incomplete.
 
@@ -100,6 +102,6 @@ Real-camera samples include Nikon Z6, Sony a7 III, Canon EOS R, iPhone 12 Pro Pr
 
 ## Scope and license
 
-v0.4.0 has [documented compatibility limits](docs/COMPATIBILITY.md): no split or self-extracting archives, RAR writing, or import of ACDSee's private database/development records. Unconfirmed legacy commands stay inactive. Slideshows, calendars, disc burning, online services, and audio/video playback are outside the project scope.
+RustView's scope excludes split and self-extracting archives, RAR writing, and imports of ACDSee's private database and development records. Unconfirmed legacy commands stay inactive. Slideshows, calendars, disc burning, online services, and audio/video playback are outside the project scope. [Compatibility limits](docs/COMPATIBILITY.md)
 
 RustView is independent of ACD Systems. Application code is [MIT licensed](LICENSE); reused egui/wgpu, image, LibRaw, 7-Zip, ImageMagick, and ExifTool components retain their licenses. [Third-party notices](THIRD-PARTY-NOTICES.md).

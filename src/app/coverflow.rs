@@ -251,7 +251,7 @@ fn paint_cover(ui: &mut egui::Ui, rect: Rect, opacity: f32,
             Rect::from_min_max(Pos2::ZERO, egui::pos2(1.0, 1.0)), Color32::from_white_alpha(alpha));
     } else {
         ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, "· · ·",
-            egui::FontId::proportional(15.0), Color32::from_white_alpha(alpha / 2));
+            egui::TextStyle::Small.resolve(ui.style()), Color32::from_white_alpha(alpha / 2));
     }
     ui.painter().add(egui::Shape::closed_line(
         vec![rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom()], egui::Stroke::new(

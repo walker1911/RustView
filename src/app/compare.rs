@@ -620,6 +620,12 @@ impl Viewer {
                 let full =
                     Rect::from_min_max(Pos2::ZERO, egui::pos2(s.width as f32, s.height as f32));
                 let uv = Rect::from_min_max(Pos2::ZERO, egui::pos2(1.0, 1.0));
+                if s.texture.is_some() || s.detail.is_some() {
+                    super::paint_transparency(
+                        &painter,
+                        Rect::from_center_size(center, dimensions * s.scale),
+                    );
+                }
                 if let Some(t) = &s.texture {
                     let hole = s.detail.as_ref().map(|(_, [x, y, w, h])| {
                         Rect::from_min_size(
@@ -676,7 +682,9 @@ impl Viewer {
                                 .rgba
                                 .chunks_exact(4)
                                 .flat_map(|p| {
-                                    if p[..3].iter().any(|c| *c >= 250) {
+                                    if p[3] == 0 {
+                                        [0, 0, 0, 0]
+                                    } else if p[..3].iter().any(|c| *c >= 250) {
                                         [255, 0, 0, 160]
                                     } else if p[..3].iter().all(|c| *c <= 5) {
                                         [0, 80, 255, 160]
@@ -745,7 +753,7 @@ impl Viewer {
                         rect.center(),
                         egui::Align2::CENTER_CENTER,
                         s.error.as_deref().unwrap_or("正在读取…"),
-                        egui::FontId::proportional(16.0),
+                        egui::TextStyle::Body.resolve(ui.style()),
                         Color32::GRAY,
                     );
                 }
@@ -766,7 +774,7 @@ impl Viewer {
                     rect.left_bottom() - egui::vec2(0.0, 6.0),
                     egui::Align2::LEFT_BOTTOM,
                     format!("{label} · {}×{}", s.width, s.height),
-                    egui::FontId::proportional(13.0),
+                    egui::TextStyle::Small.resolve(ui.style()),
                     Color32::WHITE,
                 );
             }

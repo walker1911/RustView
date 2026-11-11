@@ -2,7 +2,7 @@ use crate::{
     shortcuts::{self, Action},
     worker::{self, Entry, Request},
 };
-use egui::{Color32, Pos2, Rect, Sense, TextureHandle, Vec2};
+use egui::{Color32, FontId, Pos2, Rect, Sense, TextStyle, TextureHandle, Vec2};
 use std::{
     collections::{HashMap, VecDeque},
     path::{Path, PathBuf},
@@ -275,9 +275,13 @@ impl Viewer {
         let mut style = (*cc.egui_ctx.style()).clone();
         style.visuals = egui::Visuals::dark();
         style.spacing.item_spacing = egui::vec2(8.0, 6.0);
-        style
-            .text_styles
-            .insert(egui::TextStyle::Body, egui::FontId::proportional(15.0));
+        style.text_styles.extend([
+            (TextStyle::Small, FontId::proportional(13.0)),
+            (TextStyle::Body, FontId::proportional(14.0)),
+            (TextStyle::Button, FontId::proportional(14.0)),
+            (TextStyle::Heading, FontId::proportional(17.0)),
+            (TextStyle::Monospace, FontId::monospace(13.0)),
+        ]);
         cc.egui_ctx.set_style(style);
         let mut app = Self::empty();
         #[cfg(windows)]
@@ -1274,11 +1278,10 @@ impl Viewer {
                 }
             });
             if let Some(path) = &self.source {
-                ui.label(
-                    egui::RichText::new(path.display().to_string())
-                        .small()
-                        .color(Color32::GRAY),
-                );
+                let path = path.to_string_lossy();
+                let label = egui::RichText::new(path.as_ref()).small().weak();
+                ui.add(egui::Label::new(label).truncate())
+                    .on_hover_text(path.as_ref());
             }
         });
     }
@@ -1321,17 +1324,17 @@ impl Viewer {
                 return;
             }
             painter.text(
-                viewport.center() - egui::vec2(0.0, 28.0),
+                viewport.center() - egui::vec2(0.0, 18.0),
                 egui::Align2::CENTER_CENTER,
                 "RustView",
-                egui::FontId::proportional(32.0),
+                FontId::proportional(24.0),
                 Color32::LIGHT_GRAY,
             );
             painter.text(
-                viewport.center() + egui::vec2(0.0, 20.0),
+                viewport.center() + egui::vec2(0.0, 15.0),
                 egui::Align2::CENTER_CENTER,
-                "打开图片、文件夹或 ZIP／RAR／7z，也可以直接拖入文件",
-                egui::FontId::proportional(16.0),
+                "打开或拖入图片、文件夹或 ZIP／RAR／7z",
+                TextStyle::Body.resolve(ui.style()),
                 Color32::GRAY,
             );
             return;
@@ -1408,6 +1411,7 @@ impl Viewer {
                 > image.preview_height as f32 * 1.05)
             && !(self.extra.animated && !self.extra.animation_paused);
         let full_uv = Rect::from_min_max(Pos2::ZERO, egui::pos2(1.0, 1.0));
+        paint_transparency(&painter, Rect::from_center_size(center, dimensions * self.scale));
         if let Some(texture) = &self.extra.animation_texture {
             paint_quad(
                 &painter,
@@ -1636,6 +1640,7 @@ impl Viewer {
                         mouse + egui::vec2(24.0, 24.0),
                         egui::vec2(200.0, 200.0),
                     );
+                    paint_transparency(&painter, r);
                     painter.image(
                         t.id(),
                         r,
@@ -1720,7 +1725,8 @@ impl Viewer {
         }
         if self.help {
             egui::Window::new("快捷键与版本说明").open(&mut self.help).default_width(560.0).show(ctx,|ui|{
-            ui.label("RustView 0.4 · Windows x64 · Rust / egui / wgpu");ui.separator();
+            ui.label(concat!("RustView ", env!("CARGO_PKG_VERSION"), " · Windows x64 · Rust / egui / wgpu"));
+            ui.separator();
             ui.label("查看模式：←/→ 上一张/下一张；↑/↓ 平滑放大/缩小。Space / PageDown 下一张；Backspace / PageUp 上一张；Home / End 首末张；F 全屏；Ctrl+Alt+←/→ 旋转。");
             ui.label("数字键盘 + / − 缩放；* 适应窗口；/ 原始尺寸。滚轮平滑缩放，鼠标拖动平移，双击恢复适应。底部封面栏可点击翻图，并显示当前批次序号。");
             ui.label("查看模式 Enter / Esc / Ctrl+W 返回列表；列表 Enter进入查看、Ctrl+W退出；Ctrl/Shift+单击多选。GIF/WebP按原帧时长播放，G暂停／恢复／重播。");
@@ -1886,29 +1892,36 @@ impl eframe::App for Viewer {
         self.edit_dialogs(ctx);
         if self.extra.statusbar {
             egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(&self.status);
-                    ui.separator();
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.small(format!(
+                        "CPU {:.0}/768 MiB · GPU细节 {:.0}/256 MiB",
+                        self.cache.bytes as f64 / 1048576.0,
+                        self.tile_bytes as f64 / 1048576.0
+                    ));
                     if let Some(image) = &self.current {
+                        ui.separator();
                         let (width, height) = self
                             .extra
                             .comparison
                             .active_dimensions()
                             .unwrap_or((image.width, image.height));
-                        ui.label(format!(
+                        ui.small(format!(
                             "{} × {}  · {:.0}%",
                             width,
                             height,
                             self.scale * ctx.pixels_per_point() * 100.0
                         ));
                     }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.small(format!(
-                            "CPU {:.0}/768 MiB · GPU细节 {:.0}/256 MiB",
-                            self.cache.bytes as f64 / 1048576.0,
-                            self.tile_bytes as f64 / 1048576.0
-                        ));
-                    });
+                    ui.separator();
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width(), ui.text_style_height(&TextStyle::Small)),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            let label = egui::RichText::new(&self.status).small();
+                            ui.add(egui::Label::new(label).truncate())
+                                .on_hover_text(&self.status);
+                        },
+                    );
                 });
             });
         }
@@ -2016,6 +2029,33 @@ fn transformed_rgba(
     }
     Ok((out_w, out_h, output))
 }
+fn paint_transparency(painter: &egui::Painter, rect: Rect) {
+    let visible = rect.intersect(painter.clip_rect());
+    if !visible.is_positive() {
+        return;
+    }
+    let ctx = painter.ctx();
+    let id = egui::Id::new("transparency-checkerboard");
+    let cached = ctx.data(|data| data.get_temp::<TextureHandle>(id));
+    let texture = cached.unwrap_or_else(|| {
+        let light = Color32::from_gray(224);
+        let dark = Color32::from_gray(176);
+        let texture = ctx.load_texture(
+            "transparency-checkerboard",
+            egui::ColorImage { size: [2, 2], pixels: vec![light, dark, dark, light] },
+            egui::TextureOptions::NEAREST_REPEAT,
+        );
+        ctx.data_mut(|data| data.insert_temp(id, texture.clone()));
+        texture
+    });
+    // Window coordinates keep the eight-point cells stationary as the image moves or zooms.
+    let uv = Rect::from_min_max(
+        (visible.min.to_vec2() / 16.0).to_pos2(),
+        (visible.max.to_vec2() / 16.0).to_pos2(),
+    );
+    painter.image(texture.id(), visible, uv, Color32::WHITE);
+}
+
 fn paint_quad(
     painter: &egui::Painter,
     texture: egui::TextureId,
@@ -2211,6 +2251,75 @@ mod tests {
         }
         viewer.perform(Action::Close, &ctx);
         assert!(!viewer.extra.presentation.has_frame());
+    }
+
+    #[test]
+    fn transparency_backdrop_stays_fixed_when_zoomed_and_rotated() {
+        let ctx = egui::Context::default();
+        let mut viewer = Viewer::empty();
+        let row = [255, 64, 32, 0, 255, 64, 32, 128, 255, 64, 32, 255];
+        viewer.current = Some(Arc::new(Pixels {
+            width: 3, height: 2, rgba: row.repeat(2), preview: row.repeat(2),
+            preview_width: 3, preview_height: 2, note: String::new(), record: None,
+        }));
+        let draw = |viewer: &mut Viewer| {
+            ctx.run(egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0))),
+                ..Default::default()
+            }, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| viewer.draw_image(ui, ctx));
+            })
+        };
+        let first = draw(&mut viewer);
+        let meshes = |output: &egui::FullOutput| {
+            output.shapes.iter().filter_map(|shape| match &shape.shape {
+                egui::Shape::Mesh(mesh) => Some((mesh.texture_id, mesh.calc_bounds(), shape.clip_rect)),
+                _ => None,
+            }).collect::<Vec<_>>()
+        };
+        let first_meshes = meshes(&first);
+        let [(checker, backdrop, _), (overview, photo, _)] = first_meshes.as_slice() else {
+            panic!("expected one checkerboard followed by one image");
+        };
+        assert_eq!(backdrop, photo);
+        let upload = |id| &first.textures_delta.set.iter().find(|(t, _)| *t == id).unwrap().1;
+        assert_eq!(upload(*checker).image.size(), [2, 2]);
+        assert_eq!(upload(*checker).options, egui::TextureOptions::NEAREST_REPEAT);
+        let egui::ImageData::Color(pattern) = &upload(*checker).image else {
+            panic!("expected checkerboard colors");
+        };
+        assert_eq!(pattern.pixels, [
+            Color32::from_gray(224), Color32::from_gray(176),
+            Color32::from_gray(176), Color32::from_gray(224),
+        ]);
+        let egui::ImageData::Color(pixels) = &upload(*overview).image else {
+            panic!("expected RGBA image");
+        };
+        assert_eq!(pixels.pixels[..3].iter().map(|c| c.a()).collect::<Vec<_>>(), [0, 128, 255]);
+
+        viewer.fit = false;
+        viewer.rotation = 1;
+        viewer.scale = 64.0;
+        viewer.target_scale = 64.0;
+        viewer.pan.x = viewer.extra.viewport.width() / 2.0;
+        let zoomed = draw(&mut viewer);
+        let zoomed_meshes = meshes(&zoomed);
+        let [(zoom_checker, zoom_backdrop, _), (detail, zoom_photo, clip)] = zoomed_meshes.as_slice() else {
+            panic!("expected one checkerboard followed by one detail tile");
+        };
+        assert_eq!(zoom_checker, checker);
+        assert_ne!(detail, overview);
+        assert_eq!(zoom_photo.size(), egui::vec2(128.0, 192.0));
+        assert_eq!(*zoom_backdrop, zoom_photo.intersect(*clip));
+        for output in [&first, &zoomed] {
+            let mesh = output.shapes.iter().find_map(|shape| match &shape.shape {
+                egui::Shape::Mesh(mesh) if mesh.texture_id == *checker => Some(mesh),
+                _ => None,
+            }).expect("checkerboard mesh");
+            for vertex in &mesh.vertices {
+                assert_eq!(vertex.uv.to_vec2() * 16.0, vertex.pos.to_vec2());
+            }
+        }
     }
 
     #[test]

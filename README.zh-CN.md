@@ -6,11 +6,13 @@
 
 面向 **Windows x64** 的 Rust 看图项目。把相机 RAW、GIF/WebP 动画、Photoshop 合成图和 ZIP／RAR／7z 里的照片，放进熟悉的键盘翻图、Picasa 式胶片带与平滑缩放流程。
 
-[下载 v0.4.0](https://github.com/walker1911/RustView/releases/tag/v0.4.0) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
+[下载 v0.4.1](https://github.com/walker1911/RustView/releases/tag/v0.4.1) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
 
 ![RustView 项目概念图](assets/readme/hero.svg)
 
-*配图为项目概念图，非真实窗口截图。v0.4.0 是早期公开预发行版。*
+*配图为项目概念图。v0.4.1 是公开预发行版。*
+
+**v0.4.1 新增。** 透明区域透出灰白棋盘格，缩放、平移或旋转时，格子固定在窗口上。看图、管理和对话框的字号更统一，长路径和状态信息可悬停查看全文。[更新说明](docs/RELEASE-v0.4.1.md)
 
 ## 从照片出发
 
@@ -58,11 +60,11 @@ v0.4.0 对[本地及ZIP／RAR／7z内的PSD/PSB](docs/PSD.md)提供源文件例�
 
 ## 下载与运行
 
-1. 下载 [Windows x64 完整离线包](https://github.com/walker1911/RustView/releases/download/v0.4.0/RustView-0.4.0-win-x64-offline.zip)。
+1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.4.1/RustView-0.4.1-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.4.1/RustView-0.4.1-win-x64-offline.zip.sha256)
 2. 完整解压，双击 `RustView.exe` 或 `Start-RustView.cmd`。图片引擎和运行库已经包含，首次启动也无需联网或安装依赖。
 3. 打开或拖入文件夹、图片、ZIP／RAR／7z。请保留完整目录。
 
-离线 ZIP 提供配套 `.sha256` 校验文件。匹配的第三方源码单独放在同一 Release 中，普通看图无需下载源码附件。详见[离线版说明](OFFLINE.md)和 [v0.4.0 更新说明](docs/RELEASE-v0.4.0.md)。
+日常看图只需下载离线 ZIP。重编随包引擎所需的源码归档见源码说明。[离线版说明](OFFLINE.md) · [原生引擎源码](docs/NATIVE-SOURCES.md)
 
 设置、目录库和处理记录保存在程序旁的 `RustView-data` 中。普通运行不修改全局 PATH 或文件关联。可选运行 `Setup-File-Associations.cmd` 注册图片候选关联，以及 ZIP／RAR／7z 的 **Open with RustView** 右键入口；图片默认程序由 Windows 设置确认，压缩软件默认关联保持原样。详见[文件关联说明](docs/WINDOWS-INTEGRATION.md)。
 
@@ -100,7 +102,7 @@ pwsh -File .\tools\build.ps1
 
 ## 验证到哪一步
 
-v0.4.0 单元测试 **208 项通过、2 项公开相机样本测试默认跳过**。发行检查覆盖静态图／压缩包、GIF/WebP 动画、PSD/PSB 合成图、缩略图、大型加密 RAR 取消清理，以及同一 Viewer 中的快速翻图。确切结果和限制见[更新说明](docs/RELEASE-v0.4.0.md)与[验证记录](docs/VALIDATION.md)。
+项目记录静态图和压缩包、GIF/WebP 动画、PSD/PSB 合成图、缩略图、大型加密 RAR 取消清理和快速翻图的发行检查。[v0.4.1 更新说明](docs/RELEASE-v0.4.1.md) · [验证结果与范围](docs/VALIDATION.md)
 
 真实相机样本包括 Nikon Z6、Sony a7 III、Canon EOS R、iPhone 12 Pro ProRAW 和 HEIC，不能推广到所有机型、固件与编码。已通过 UI 自动化核对原生窗口的密码重试、翻图与关闭；截图捕获仍不可用，完整视觉、多显示器、DPI 与实际纸张打印尚未全面验收。欢迎在 [Issues](https://github.com/walker1911/RustView/issues) 提供版本、格式／相机型号、预期行为和最小复现样本。
 

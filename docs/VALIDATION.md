@@ -1,5 +1,25 @@
 # Validation / 验证记录
 
+## v0.4.1 prerelease
+
+The Windows x64 build passed **209 unit tests with two public-camera tests ignored by default**. The rendering regression verifies the gray and white checkerboard palette, its fixed window coordinates during zoom and rotation, clipping to image bounds, and preservation of full and partial alpha. The transition-preview check verifies that the checkerboard sits beneath a single current preview.
+
+A fresh offline ZIP extraction passed **87 checks**. The test environment used a system-only PATH and unavailable localhost HTTP, HTTPS and ALL proxies. The launcher directly starts RustView from the extracted folder.
+
+| Check | Passed |
+|---|---:|
+| Static images and archives | 25 |
+| GIF and WebP animation | 24 |
+| Thumbnails | 9 |
+| PSD and PSB | 21 |
+| Same-Viewer headless navigation | 8 |
+
+The package passed ZIP integrity and all per-file SHA-256 checks. Native engines, their support files and app-local runtime DLLs matched the verified v0.4.0 runtime by SHA-256. The embedded manifest identifies the executable as 0.4.1.0. Its SHA-256 is `9a3f86ea5e503a1fc9efa93b6d6b987e3ab3b3f13193a439d54cfa8e61ad7d7b`. GitHub Actions results are linked on the release page.
+
+### v0.4.1 中文验证
+
+Windows x64 版通过 **209 项单测，2 项公开相机测试默认跳过**。棋盘格回归核对了灰白底色、放大与旋转时的窗口坐标、裁剪边界以及全透明和半透明像素。独立解压目录通过 **87 项检查**，包括 25 项静态图与压缩包、24 项动画、9 项缩略图、21 项 PSD／PSB 和 8 项无窗口连续翻图。逐文件校验和 ZIP 完整性检查通过，原生依赖与 v0.4.0 的已验证运行包逐项匹配。远端构建记录见 Release。
+
 ## v0.4.0 prerelease — versioned rebuild checks
 
 The versioned Windows x64 executable passed **208 unit tests (2 public-camera tests ignored by default)** and **217 package-level checks** from an independent offline-ZIP extraction: 209 isolated-process cases plus eight same-Viewer headless navigation cases. These are the final rebuilt artifact's results, not copied counts from a development executable. The release remains a **prerelease**.
@@ -28,7 +48,7 @@ Native-window password retry, navigation and Alt+F4 during a physical large encr
 
 Matching native sources and hashes are in [NATIVE-SOURCES.md](NATIVE-SOURCES.md). Historical v0.3 results below apply only to that release.
 
-### Reproduce the current v0.4.0 build
+### Reproduce the v0.4.0 build
 
 ```powershell
 cargo test --locked -- --test-threads=2

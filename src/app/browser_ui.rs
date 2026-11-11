@@ -241,10 +241,10 @@ impl Viewer {
                 let (start, count) = match self.extra.browser_ui.rows[row] {
                     DisplayRow::Header(group) => {
                         ui.painter().text(
-                            origin + egui::vec2(6.0, 12.0),
-                            egui::Align2::LEFT_TOP,
+                            origin + egui::vec2(6.0, height / 2.0),
+                            egui::Align2::LEFT_CENTER,
                             &self.extra.browser_ui.groups[group].1,
-                            egui::FontId::proportional(16.0),
+                            egui::TextStyle::Body.resolve(ui.style()),
                             Color32::LIGHT_BLUE,
                         );
                         ui.allocate_space(egui::vec2(width, height));
@@ -598,9 +598,10 @@ impl Viewer {
             .get(&index)
             .copied()
             .unwrap_or_default();
-        let font = egui::FontId::proportional(14.0);
+        let body_font = egui::TextStyle::Body.resolve(ui.style());
+        let small_font = egui::TextStyle::Small.resolve(ui.style());
         let text = Color32::from_gray(220);
-        let draw_text = |area: Rect, value: &str, color| {
+        let draw_text = |area: Rect, value: &str, font: &egui::FontId, color| {
             let galley = painter.layout(value.to_owned(), font.clone(), color, area.width());
             painter.with_clip_rect(area).galley(area.min, galley, color);
         };
@@ -618,7 +619,9 @@ impl Viewer {
                 label_title(marks.1).to_owned(),
             ];
             let mut x = rect.left() + 4.0;
-            for (value, fraction) in cells.iter().zip([0.40, 0.10, 0.12, 0.22, 0.08, 0.08]) {
+            for (column, (value, fraction)) in
+                cells.iter().zip([0.40, 0.10, 0.12, 0.22, 0.08, 0.08]).enumerate()
+            {
                 let width = rect.width() * fraction;
                 draw_text(
                     Rect::from_min_size(
@@ -626,6 +629,7 @@ impl Viewer {
                         egui::vec2(width - 5.0, 22.0),
                     ),
                     value,
+                    if column == 0 { &body_font } else { &small_font },
                     text,
                 );
                 x += width;
@@ -641,6 +645,7 @@ impl Viewer {
             draw_text(
                 rect.shrink2(egui::vec2(5.0, 4.0)),
                 &format!("{prefix}{}", entry.name),
+                &body_font,
                 text,
             );
         } else {
@@ -678,7 +683,7 @@ impl Viewer {
                     } else {
                         "图片"
                     },
-                    font.clone(),
+                    small_font.clone(),
                     Color32::GRAY,
                 );
             }
@@ -693,7 +698,7 @@ impl Viewer {
                     rect.max - egui::vec2(4.0, 0.0),
                 )
             };
-            draw_text(name_rect, &entry.name, text);
+            draw_text(name_rect, &entry.name, &body_font, text);
             if !vertical {
                 draw_text(
                     Rect::from_min_max(name_rect.min + egui::vec2(0.0, 34.0), name_rect.max),
@@ -704,6 +709,7 @@ impl Viewer {
                         format_timestamp(entry.modified),
                         label_title(marks.1)
                     ),
+                    &small_font,
                     Color32::GRAY,
                 );
             }
@@ -775,11 +781,16 @@ impl Viewer {
                         ));
                     }
                     if let Some(texture) = &self.overview {
-                        ui.add(
-                            egui::Image::from_texture(texture)
-                                .max_size(egui::vec2(ui.available_width(), 320.0))
-                                .maintain_aspect_ratio(true),
-                        );
+                        let preview = egui::Image::from_texture(texture)
+                            .max_size(egui::vec2(ui.available_width(), 320.0))
+                            .maintain_aspect_ratio(true);
+                        let size = preview.calc_size(ui.available_size(), preview.size());
+                        let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
+                        response.widget_info(|| egui::WidgetInfo::new(egui::WidgetType::Image));
+                        if ui.is_rect_visible(rect) {
+                            super::paint_transparency(ui.painter(), rect);
+                            preview.paint_at(ui, rect);
+                        }
                     }
                     ui.label(format!("{} × {}", image.width, image.height));
                     ui.small(&image.note);

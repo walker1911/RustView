@@ -182,6 +182,7 @@ impl State {
         }
         mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
         let painter = painter.with_clip_rect(viewport);
+        super::paint_transparency(&painter, Rect::from_points(&corners));
         painter.add(mesh);
         if self.waiting {
             if let Some(target) = &self.target {
@@ -190,8 +191,13 @@ impl State {
                 } else {
                     format!("目标：{} · 暂显示 {}", target.name, frame.name)
                 };
-                painter.text(viewport.left_bottom() + Vec2::new(14.0, -14.0),
-                    egui::Align2::LEFT_BOTTOM, text, egui::FontId::proportional(14.0), Color32::WHITE);
+                painter.text(
+                    viewport.left_bottom() + Vec2::new(14.0, -14.0),
+                    egui::Align2::LEFT_BOTTOM,
+                    text,
+                    egui::TextStyle::Small.resolve(&ctx.style()),
+                    Color32::WHITE,
+                );
             }
         }
         true
@@ -330,8 +336,10 @@ mod tests {
         let meshes: Vec<_> = output.shapes.iter().filter_map(|shape| match &shape.shape {
             egui::Shape::Mesh(mesh) => Some(mesh), _ => None,
         }).collect();
-        assert_eq!(meshes.len(), 1);
-        assert_eq!(meshes[0].texture_id, texture);
+        let checker = ctx.data(|data| data.get_temp::<TextureHandle>(egui::Id::new("transparency-checkerboard"))).unwrap();
+        assert_eq!(meshes.iter().map(|mesh| mesh.texture_id).collect::<Vec<_>>(),
+            [checker.id(), texture]);
+        assert_eq!(meshes[0].calc_bounds(), meshes[1].calc_bounds());
         let quad = frame_corners(viewport, &state.frame.as_ref().unwrap().pixels, Placement::default(), 1.0);
         assert!((quad[1].x - quad[0].x - 900.0).abs() < 0.001);
         assert!((quad[3].y - quad[0].y - 600.0).abs() < 0.001);
