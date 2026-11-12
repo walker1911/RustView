@@ -50,7 +50,6 @@ impl Viewer {
         }
     }
     pub(super) fn start_animation(&mut self, task: Task, ctx: &egui::Context) {
-        self.cache = ImageCache::default();
         self.reset_comparison();
         self.extra.animation_operation = Some((task.request.clone(), task.operation));
         self.extra.animation_deadline = Instant::now();
@@ -82,7 +81,7 @@ impl Viewer {
     pub(super) fn display_animation_frame(&mut self, packet: Packet, ctx: &egui::Context) {
         self.extra.exposure_texture = None;
         let Some((
-            _,
+            request,
             Operation::Load {
                 index, full_raw, ..
             },
@@ -117,7 +116,9 @@ impl Viewer {
         }
         self.extra.animated = packet.animated;
         if !packet.animated {
-            self.cache.insert((index, full_raw), image, None);
+            if !matches!(request, Request::Unedited { .. }) {
+                self.cache.insert((index, full_raw), image, false);
+            }
             self.stop_animation();
             return;
         }

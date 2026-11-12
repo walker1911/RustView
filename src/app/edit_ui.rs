@@ -105,7 +105,7 @@ impl Viewer {
         };
         self.extra.edited = self.extra.workspace.is_dirty(&self.extra.edits);
         self.extra.workspace.preview_valid = false;
-        self.cache = ImageCache::default();
+        self.cache.clear();
         self.stop_animation();
         self.queue(
             Request::Render {

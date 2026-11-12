@@ -657,7 +657,7 @@ impl Viewer {
                             2250 => self.extra.page_index.saturating_sub(1),
                             _ => 0,
                         };
-                        self.cache = ImageCache::default();
+                        self.cache.clear();
                         self.queue(
                             Request::Page {
                                 source: Box::new(source),
@@ -910,7 +910,7 @@ impl Viewer {
             2088 => self.extra.histogram = !self.extra.histogram,
             11151 | 2862 => {
                 self.extra.color_managed = !self.extra.color_managed;
-                self.cache = ImageCache::default();
+                self.cache.clear();
                 if let Some(i) = self.selected {
                     self.load_index(i, self.full_raw);
                 }
@@ -1323,7 +1323,7 @@ impl Viewer {
             match id{
                 2302=>{ui.add(egui::Slider::new(&mut self.extra.value,1.0..=6400.0).logarithmic(true).suffix("%"));},
                 2303=>{ui.label("页眉");if ui.text_edit_singleline(&mut self.extra.header).has_focus(){self.set_header_field_target(false);}ui.label("页脚");if ui.text_edit_singleline(&mut self.extra.footer).has_focus(){self.set_header_field_target(true);}ui.horizontal_wrapped(|ui|{for(title,id)in[("页码",13023),("总页数",13024),("文件名",13026),("宽",13029),("高",13030),("日期",13036),("时间",13037)]{if ui.small_button(title).clicked(){self.insert_header_field(id);}}});ui.small("支持 {name}、{width}、{height}、{title}、{date} 与完整元数据字段");},
-                2050|2230=>{ui.checkbox(&mut self.extra.pan_lock,"翻图保留平移位置");ui.checkbox(&mut self.extra.zoom_lock,"翻图保留缩放倍率");ui.label("图像缓存上限 768 MiB；动画期间清空静态预读；GPU细节 256 MiB。");
+                2050|2230=>{ui.checkbox(&mut self.extra.pan_lock,"翻图保留平移位置");ui.checkbox(&mut self.extra.zoom_lock,"翻图保留缩放倍率");ui.label("最近图片缓存可在「选项与快捷键」调整。GPU 细节纹理上限为 256 MiB。");
                     if ui.button("将当前图像预览设为平铺背景").clicked(){if let Some(image)=&self.current{self.extra.background_tile=Some(ctx.load_texture("background-tile",egui::ColorImage::from_rgba_unmultiplied([image.preview_width as usize,image.preview_height as usize],&image.preview),egui::TextureOptions{wrap_mode:egui::TextureWrapMode::Repeat,..egui::TextureOptions::LINEAR}));}}
                     if ui.button("重设背景平铺 (Ctrl+Shift+G)").clicked(){self.extra.background_tile=None;}
                 },

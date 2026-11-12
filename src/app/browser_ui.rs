@@ -1661,7 +1661,7 @@ pub(super) mod tests {
             note: String::new(),
             record: None,
         });
-        app.cache.insert((0, false), pixels, None);
+        app.cache.insert((0, false), pixels, false);
         let ctx = egui::Context::default();
         app.activate_management(0, egui::Modifiers::CTRL, false);
         assert!(app.browser);

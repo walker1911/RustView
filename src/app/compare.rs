@@ -169,7 +169,7 @@ impl Viewer {
         self.overview = None;
         self.tiles.clear();
         self.tile_bytes = 0;
-        self.cache = ImageCache::default();
+        self.cache.clear();
         self.status = "正在按需读取比较图像…".into();
     }
     pub(super) fn reset_comparison(&mut self) {

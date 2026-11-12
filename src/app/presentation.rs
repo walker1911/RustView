@@ -50,22 +50,22 @@ struct Frame {
     epoch: u64,
     index: usize,
     name: String,
-    pixels: PreviewPixels,
-    texture: Option<TextureHandle>,
+    token: usize,
+    dimensions: [u32; 2],
+    overview: TextureHandle,
     placement: Placement,
 }
 
 struct Target {
     index: usize,
     name: String,
+    started: Instant,
+    preview: Option<TargetPreview>,
 }
 
-#[derive(Clone, Copy, PartialEq)]
-struct Recorded {
-    epoch: u64,
-    index: usize,
-    token: usize,
-    placement: Placement,
+struct TargetPreview {
+    pixels: PreviewPixels,
+    texture: Option<TextureHandle>,
 }
 
 #[derive(Default)]
@@ -73,52 +73,47 @@ pub(super) struct State {
     epoch: u64,
     frame: Option<Frame>,
     target: Option<Target>,
-    waiting: bool,
-    waiting_since: Option<Instant>,
-    recorded: Option<Recorded>,
 }
 
 impl State {
     pub fn begin_source(&mut self) {
         self.epoch = self.epoch.wrapping_add(1);
         self.cancel_target();
-        self.recorded = None;
     }
 
     pub fn cancel_target(&mut self) {
         self.target = None;
-        self.waiting = false;
-        self.waiting_since = None;
     }
 
     pub fn begin_target(&mut self, index: usize, name: String) {
-        self.target = Some(Target { index, name });
-        self.waiting = true;
-        self.waiting_since = Some(Instant::now());
+        self.target = Some(Target { index, name, started: Instant::now(), preview: None });
     }
 
     pub fn ready(&mut self, index: usize) {
         if self.target.as_ref().is_some_and(|target| target.index == index) {
-            self.waiting = false;
-            self.waiting_since = None;
+            self.cancel_target();
         }
     }
 
     pub fn stage_preview(&mut self, index: usize, pixels: PreviewPixels) {
-        if !self.waiting || !self.target.as_ref().is_some_and(|target| target.index == index) { return; }
-        if self.frame.as_ref().is_some_and(|frame| frame.epoch == self.epoch && frame.index == index) { return; }
+        let Some(target) = self.target.as_mut().filter(|target| target.index == index) else { return; };
+        if target.preview.is_some() { return; }
+        if self.frame.as_ref().is_some_and(|frame| {
+            frame.epoch == self.epoch && frame.index == index && frame.name == target.name
+        }) { return; }
         if pixels.width == 0 || pixels.height == 0 || pixels.width > PREVIEW_SIDE || pixels.height > PREVIEW_SIDE
             || pixels.source_width == 0 || pixels.source_height == 0
             || pixels.rgba.len() != pixels.width as usize * pixels.height as usize * 4 { return; }
-        let name = self.target.as_ref().unwrap().name.clone();
-        self.frame = Some(Frame { epoch: self.epoch, index, name, pixels,
-            texture: None, placement: Placement::default() });
-        self.recorded = None;
+        target.preview = Some(TargetPreview { pixels, texture: None });
     }
 
-    pub fn has_frame(&self) -> bool { self.frame.is_some() }
-    pub fn is_waiting(&self) -> bool { self.waiting }
-    pub fn waiting_elapsed(&self) -> Duration { self.waiting_since.map(|time| time.elapsed()).unwrap_or_default() }
+    pub fn has_frame(&self) -> bool {
+        self.frame.is_some() || self.target.as_ref().is_some_and(|target| target.preview.is_some())
+    }
+    pub fn is_waiting(&self) -> bool { self.target.is_some() }
+    pub fn waiting_elapsed(&self) -> Duration {
+        self.target.as_ref().map(|target| target.started.elapsed()).unwrap_or_default()
+    }
     pub fn target_index(&self) -> Option<usize> { self.target.as_ref().map(|target| target.index) }
 
     pub fn clear(&mut self) {
@@ -127,44 +122,55 @@ impl State {
     }
 
     pub fn texture_for(&self, index: usize) -> Option<TextureHandle> {
-        self.frame.as_ref().filter(|frame| frame.epoch == self.epoch && frame.index == index)?.texture.clone()
+        self.target.as_ref().filter(|target| target.index == index)
+            .and_then(|target| target.preview.as_ref())
+            .and_then(|preview| preview.texture.clone())
+            .or_else(|| self.frame.as_ref().filter(|frame| frame.epoch == self.epoch && frame.index == index)
+                .map(|frame| frame.overview.clone()))
     }
 
-    pub fn capture_displayed(&mut self, ctx: &Context, index: usize, image: &Pixels,
-        token: usize, placement: Placement, name: &str,
+    pub fn capture_displayed(&mut self, ctx: &Context, index: usize, image: &Arc<Pixels>,
+        overview: &TextureHandle, placement: Placement, name: &str,
     ) -> Option<(PreviewPixels, TextureHandle)> {
-        let record = Recorded { epoch: self.epoch, index, token, placement };
-        if self.recorded == Some(record) && self.frame.as_ref().is_some_and(|frame|
-            frame.epoch == self.epoch && frame.index == index && frame.name == name)
-        { return None; }
-        let same_pixels = self.recorded.is_some_and(|old| old.epoch == record.epoch
-            && old.index == record.index && old.token == record.token)
-            && self.frame.as_ref().is_some_and(|frame| frame.epoch == self.epoch && frame.index == index);
-        if same_pixels {
-            let frame = self.frame.as_mut().unwrap();
+        let token = Arc::as_ptr(image) as usize;
+        if let Some(frame) = self.frame.as_mut().filter(|frame|
+            frame.epoch == self.epoch && frame.index == index && frame.token == token
+                && frame.overview.id() == overview.id()
+        ) {
             frame.placement = placement;
             if frame.name != name { frame.name = name.to_owned(); }
-            self.recorded = Some(record);
             return None;
         }
+        // Reuse the overview that actually drew. The 64px texture is only for
+        // an identified target preview and the filmstrip.
+        self.frame = Some(Frame { epoch: self.epoch, index, name: name.to_owned(), token,
+            dimensions: [image.width, image.height], overview: overview.clone(), placement });
         let pixels = PreviewPixels::sample(image.preview_width, image.preview_height, &image.preview,
             image.width, image.height).or_else(|| PreviewPixels::sample(image.width, image.height,
                 &image.rgba, image.width, image.height))?;
         let texture = pixels.upload(ctx);
-        self.frame = Some(Frame { epoch: self.epoch, index, name: name.to_owned(), pixels: pixels.clone(),
-            texture: Some(texture.clone()), placement });
-        self.recorded = Some(record);
-        if !self.waiting || self.target.is_none() {
-            self.target = Some(Target { index, name: name.to_owned() });
-        }
         Some((pixels, texture))
     }
 
     pub fn draw(&mut self, painter: &Painter, viewport: Rect, ctx: &Context) -> bool {
-        let Some(frame) = &mut self.frame else { return false; };
-        let texture = frame.texture.get_or_insert_with(|| frame.pixels.upload(ctx));
-        let corners = frame_corners(viewport, &frame.pixels, frame.placement, ctx.pixels_per_point());
-        let mut mesh = Mesh::with_texture(texture.id());
+        let target = self.target.as_mut();
+        let preview = target.and_then(|target| {
+            target.preview.as_mut().map(|preview| (&target.name, preview))
+        });
+        let (texture, dimensions, placement, label) = if let Some((name, preview)) = preview {
+            let texture = preview.texture.get_or_insert_with(|| preview.pixels.upload(ctx)).id();
+            (texture, [preview.pixels.source_width, preview.pixels.source_height],
+                Placement::default(), Some(format!("目标：{name} · 低清预览")))
+        } else if let Some(frame) = &self.frame {
+            let label = self.target.as_ref().map(|target| {
+                format!("目标：{} · 暂显示 {}", target.name, frame.name)
+            });
+            (frame.overview.id(), frame.dimensions, frame.placement, label)
+        } else {
+            return false;
+        };
+        let corners = frame_corners(viewport, dimensions, placement, ctx.pixels_per_point());
+        let mut mesh = Mesh::with_texture(texture);
         for (pos, uv) in corners.into_iter().zip([
             Pos2::new(0.0, 0.0), Pos2::new(1.0, 0.0), Pos2::new(1.0, 1.0), Pos2::new(0.0, 1.0),
         ]) {
@@ -174,29 +180,21 @@ impl State {
         let painter = painter.with_clip_rect(viewport);
         super::paint_transparency(&painter, Rect::from_points(&corners));
         painter.add(mesh);
-        if self.waiting {
-            if let Some(target) = &self.target {
-                let text = if frame.epoch == self.epoch && frame.index == target.index {
-                    format!("目标：{} · 低清预览", target.name)
-                } else {
-                    format!("目标：{} · 暂显示 {}", target.name, frame.name)
-                };
-                painter.text(
-                    viewport.left_bottom() + Vec2::new(14.0, -14.0),
-                    egui::Align2::LEFT_BOTTOM,
-                    text,
-                    egui::TextStyle::Small.resolve(&ctx.style()),
-                    Color32::WHITE,
-                );
-            }
+        if let Some(label) = label {
+            painter.text(
+                viewport.left_bottom() + Vec2::new(14.0, -14.0),
+                egui::Align2::LEFT_BOTTOM,
+                label,
+                egui::TextStyle::Small.resolve(&ctx.style()),
+                Color32::WHITE,
+            );
         }
         true
     }
 }
 
-fn frame_corners(viewport: Rect, pixels: &PreviewPixels, placement: Placement, pixels_per_point: f32) -> [Pos2; 4] {
-    let width = pixels.source_width as f32;
-    let height = pixels.source_height as f32;
+fn frame_corners(viewport: Rect, dimensions: [u32; 2], placement: Placement, pixels_per_point: f32) -> [Pos2; 4] {
+    let [width, height] = dimensions.map(|size| size as f32);
     let dimensions = if placement.rotation % 2 == 0 { Vec2::new(width, height) } else { Vec2::new(height, width) };
     let scale = if placement.fit {
         (viewport.width() / dimensions.x).min(viewport.height() / dimensions.y).min(1.0 / pixels_per_point)
@@ -214,17 +212,23 @@ fn frame_corners(viewport: Rect, pixels: &PreviewPixels, placement: Placement, p
 mod tests {
     use super::*;
 
-    fn pixels(color: [u8; 4]) -> Pixels {
-        Pixels { width: 512, height: 256, rgba: color.repeat(512 * 256),
-            preview: color.repeat(128 * 64), preview_width: 128, preview_height: 64,
-            note: String::new(), record: None }
+    fn image_and_overview(ctx: &Context) -> (Arc<Pixels>, TextureHandle) {
+        let color = [255, 20, 40, 255];
+        let image = Arc::new(Pixels { width: 512, height: 256, rgba: color.repeat(512 * 256),
+            preview: color.repeat(256 * 128), preview_width: 256, preview_height: 128,
+            note: String::new(), record: None });
+        let overview = ctx.load_texture("overview", egui::ColorImage::from_rgba_unmultiplied(
+            [256, 128], &image.preview), TextureOptions::LINEAR);
+        (image, overview)
     }
 
     fn capture(state: &mut State, ctx: &Context, index: usize) -> TextureHandle {
         state.begin_target(index, format!("{index}.png"));
         state.ready(index);
-        state.capture_displayed(ctx, index, &pixels([255, 20, 40, 255]), index,
-            Placement::default(), &format!("{index}.png")).unwrap().1
+        let (image, overview) = image_and_overview(ctx);
+        let _ = state.capture_displayed(ctx, index, &image, &overview,
+            Placement::default(), &format!("{index}.png")).unwrap();
+        overview
     }
 
     #[test]
@@ -267,14 +271,15 @@ mod tests {
         assert!(state.texture_for(0).is_none());
         state.begin_target(0, "new-folder.png".into());
         state.stage_preview(0, PreviewPixels::sample(1, 1, &[20, 30, 40, 255], 6000, 4000).unwrap());
-        assert_eq!(state.frame.as_ref().unwrap().pixels.source_width, 6000);
+        assert_eq!(state.target.as_ref().unwrap().preview.as_ref().unwrap().pixels.source_width, 6000);
+        assert_eq!(state.frame.as_ref().unwrap().dimensions, [512, 256]);
     }
 
     #[test]
     fn waiting_age_resets_only_for_the_active_target_or_source() {
         let mut state = State::default();
         state.begin_target(2, "target.png".into());
-        state.waiting_since = Some(Instant::now() - Duration::from_millis(300));
+        state.target.as_mut().unwrap().started = Instant::now() - Duration::from_millis(300);
         state.ready(1);
         assert!(state.is_waiting() && state.waiting_elapsed() >= Duration::from_millis(300));
         state.ready(2);
@@ -288,19 +293,18 @@ mod tests {
     fn previews_are_bounded_and_static_or_transformed_frames_reuse_the_same_upload() {
         let ctx = Context::default();
         let mut state = State::default();
-        let image = Arc::new(pixels([20, 40, 60, 128]));
-        let (tiny, texture) = state.capture_displayed(&ctx, 0, &image, 99,
+        let (image, overview) = image_and_overview(&ctx);
+        let (tiny, texture) = state.capture_displayed(&ctx, 0, &image, &overview,
             Placement::default(), "A.png").unwrap();
         assert_eq!((tiny.width, tiny.height), (64, 32));
         assert!(tiny.rgba.len() <= 64 * 64 * 4);
         assert_eq!(Arc::strong_count(&image), 1);
-        let cloned = tiny.clone();
-        assert!(Arc::ptr_eq(&tiny.rgba, &cloned.rgba));
+        assert_ne!(texture.id(), overview.id());
         for step in 0..120 {
             let placement = Placement { pan: Vec2::new(step as f32, 4.0), fit: false, ..Default::default() };
-            assert!(state.capture_displayed(&ctx, 0, &image, 99, placement, "A.png").is_none());
-            assert_eq!(state.texture_for(0).unwrap().id(), texture.id());
-            assert!(Arc::ptr_eq(&tiny.rgba, &state.frame.as_ref().unwrap().pixels.rgba));
+            assert!(state.capture_displayed(&ctx, 0, &image, &overview, placement, "A.png").is_none());
+            assert_eq!(state.texture_for(0).unwrap().id(), overview.id());
+            assert_eq!(state.frame.as_ref().unwrap().placement, placement);
         }
     }
 
@@ -322,7 +326,8 @@ mod tests {
         let texture = state.texture_for(1).unwrap().id();
         state.stage_preview(1, tiny);
         assert_eq!(state.texture_for(1).unwrap().id(), texture);
-        assert_eq!(state.frame.as_ref().unwrap().pixels.rgba[3], 0);
+        let preview = state.target.as_ref().unwrap().preview.as_ref().unwrap();
+        assert_eq!(preview.pixels.rgba[3], 0);
         let meshes: Vec<_> = output.shapes.iter().filter_map(|shape| match &shape.shape {
             egui::Shape::Mesh(mesh) => Some(mesh), _ => None,
         }).collect();
@@ -330,8 +335,56 @@ mod tests {
         assert_eq!(meshes.iter().map(|mesh| mesh.texture_id).collect::<Vec<_>>(),
             [checker.id(), texture]);
         assert_eq!(meshes[0].calc_bounds(), meshes[1].calc_bounds());
-        let quad = frame_corners(viewport, &state.frame.as_ref().unwrap().pixels, Placement::default(), 1.0);
+        let quad = frame_corners(viewport, [preview.pixels.source_width, preview.pixels.source_height], Placement::default(), 1.0);
         assert!((quad[1].x - quad[0].x - 900.0).abs() < 0.001);
         assert!((quad[3].y - quad[0].y - 600.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn retarget_and_cancel_keep_the_last_clear_texture_and_discard_stale_previews() {
+        let ctx = Context::default();
+        let mut state = State::default();
+        let previous = capture(&mut state, &ctx, 0).id();
+        let viewport = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
+        let draw = |state: &mut State| {
+            let output = ctx.run(egui::RawInput { screen_rect: Some(viewport), ..Default::default() }, |ctx| {
+                assert!(state.draw(&ctx.layer_painter(egui::LayerId::background()), viewport, ctx));
+            });
+            let mesh = output.shapes.iter().rev().find_map(|shape| match &shape.shape {
+                egui::Shape::Mesh(mesh) => Some(mesh), _ => None,
+            }).unwrap();
+            (mesh.texture_id, output)
+        };
+        let green = PreviewPixels::sample(1, 1, &[0, 255, 0, 255], 512, 256).unwrap();
+        let blue = PreviewPixels::sample(1, 1, &[0, 0, 255, 255], 512, 256).unwrap();
+
+        state.begin_target(1, "green.png".into());
+        assert_eq!(draw(&mut state).0, previous);
+        state.stage_preview(1, green.clone());
+        let green_texture = draw(&mut state).0;
+        assert_ne!(green_texture, previous);
+
+        state.begin_target(2, "blue.png".into());
+        state.stage_preview(1, green.clone()); // The superseded worker returned late.
+        assert_eq!(draw(&mut state).0, previous);
+        assert!(state.texture_for(1).is_none());
+        state.stage_preview(2, blue.clone());
+        let (blue_texture, output) = draw(&mut state);
+        assert_ne!(blue_texture, green_texture);
+        let upload = &output.textures_delta.set.iter()
+            .find(|(id, _)| *id == blue_texture).unwrap().1.image;
+        let egui::ImageData::Color(upload) = upload else { panic!("expected target pixels") };
+        assert_eq!(upload.pixels, [Color32::BLUE]);
+
+        state.cancel_target();
+        state.stage_preview(2, blue);
+        assert_eq!(draw(&mut state).0, previous);
+        assert!(state.texture_for(2).is_none());
+        state.begin_source();
+        state.begin_target(0, "different.png".into());
+        assert!(state.texture_for(0).is_none());
+        assert_eq!(draw(&mut state).0, previous);
+        state.stage_preview(0, green);
+        assert_ne!(draw(&mut state).0, previous);
     }
 }

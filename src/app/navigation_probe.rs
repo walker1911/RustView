@@ -268,7 +268,7 @@ fn exercise(
         || stats.welcome_frames_after_seed != 0
         || stats.retired_stale_generations == 0
         || stats.cancel_requests == 0
-        || stats.maximum_cache_bytes > CPU_BUDGET
+        || stats.maximum_cache_bytes > viewer.cache.budget
     {
         return Err("导航目标/像素/连续显示/任务退休/内存预算断言失败".into());
     }
@@ -317,7 +317,7 @@ pub fn probe_main() {
                 .position(|e| e.name == input.large_entry)
                 .unwrap();
             let advertised = viewer.entries[large].size;
-            viewer.cache = ImageCache::default();
+            viewer.cache.clear();
             viewer.load_index(large, false);
             match wait_for_partial(
                 &mut viewer,

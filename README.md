@@ -8,13 +8,13 @@
 
 An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, Photoshop composites, and pictures inside compressed archives.
 
-[Download v0.6.1](https://github.com/walker1911/RustView/releases/tag/v0.6.1) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+[Download v0.6.2](https://github.com/walker1911/RustView/releases/tag/v0.6.2) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
 
 ![RustView illustrated overview](assets/readme/hero.svg)
 
 *Project illustration.*
 
-**v0.6.1** brings the official lotus icon to the Windows executable and app window. Opening an individual image shows it first and scans the surrounding folder in the background. In ZIP, RAR, and 7z archives you can resume from the last image shown or jump by filename, path, or number. [v0.6.1 release notes](docs/RELEASE-v0.6.1.md) · [v0.6.0 release notes](docs/RELEASE-v0.6.0.md) · [v0.4.1 release notes](docs/RELEASE-v0.4.1.md)
+**v0.6.2** can reuse recently decoded still images when you go back to them, and keeps a clear picture on screen while the next image loads. Opening an individual image shows it first and scans the surrounding folder in the background. In ZIP, RAR, and 7z archives you can resume from the last image shown or jump by filename, path, or number. [v0.6.2 release notes](docs/RELEASE-v0.6.2.md) · [v0.6.1 release notes](docs/RELEASE-v0.6.1.md) · [v0.6.0 release notes](docs/RELEASE-v0.6.0.md) · [v0.4.1 release notes](docs/RELEASE-v0.4.1.md)
 
 ## Start with the pictures
 
@@ -33,7 +33,7 @@ An archive-first photo viewer for **Windows x64**, written in Rust. Familiar key
 
 In single-image view, click **跳页…** to find an archive image. Enter part of a filename, the full path inside the archive, or a number starting at 1 in the current browsing order. When filenames repeat, use the path to select the intended entry. Resume positions are stored in the local catalog. Encrypted archives prompt for the password again when reopened.
 
-During rapid navigation, RustView can reuse a matching read in progress. The target preview can come from the cache or the same worker that provides the full image. While the target preview is pending, a small mosaic of the previous image stays visible and names the image being loaded. [Browsing behavior](docs/PICASA-BROWSING.md)
+During rapid navigation, RustView can reuse a matching read in progress. While the target preview loads, the previous image's clear overview stays visible with a label identifying both images. A low-resolution preview of the selected target can then appear before the full image is ready. [Browsing behavior](docs/PICASA-BROWSING.md)
 
 ZIP and 7z updates create a backup. RAR is read-only. RAW metadata uses XMP sidecars.
 
@@ -43,12 +43,14 @@ Decoding uses a separate, memory-limited Windows process tree. Failed records ca
 
 | Resource | Limit |
 |---|---:|
-| Image LRU cache | 768 MiB |
+| Recent still-image cache for the current folder or archive | 0–2048 MiB, adjustable in Options |
 | GPU detail tiles | 256 MiB |
 | Image worker process tree | 2 GiB |
 | Ordinary input / static RGBA output | 512 MiB each |
 | Validated PSD/PSB source, local or archived | 64 GiB; pixel budgets still apply |
 | Animation | Current frame + one prefetched frame |
+
+Press `Alt+O` to adjust the recent still-image cache. The initial limit is based on your computer's physical memory. Set it to 0 to disable the cache, or select the recommended value to restore it. Save options to keep the setting across launches.
 
 ![Memory and worker architecture](assets/readme/memory.svg)
 
@@ -58,7 +60,7 @@ v0.4.0 permits [local and ZIP/RAR/7z-contained PSD/PSB](docs/PSD.md) sources up 
 
 ## Download and use
 
-1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.1/RustView-0.6.1-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.6.1/RustView-0.6.1-win-x64-offline.zip.sha256)
+1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.2/RustView-0.6.2-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.6.2/RustView-0.6.2-win-x64-offline.zip.sha256)
 2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. The package includes the image engines and runtime libraries for offline use from first launch.
 3. Open or drag in a folder, picture, or archive. Keep the complete extracted folder.
 

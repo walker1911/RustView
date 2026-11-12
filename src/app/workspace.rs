@@ -491,7 +491,7 @@ impl Viewer {
                 self.flip_y = false;
                 self.extra.workspace.mark_saved(&self.extra.edits);
                 self.extra.edited = false;
-                self.cache = ImageCache::default();
+                self.cache.clear();
                 self.render_edits();
                 self.status = "已保存无损编辑记录；原始像素未改写".into();
             }

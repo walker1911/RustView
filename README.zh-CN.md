@@ -8,13 +8,13 @@
 
 面向 **Windows x64** 的 Rust 看图项目。把相机 RAW、GIF/WebP 动画、Photoshop 合成图和 ZIP／RAR／7z 里的照片，放进熟悉的键盘翻图、Picasa 式胶片带与平滑缩放流程。
 
-[下载 v0.6.1](https://github.com/walker1911/RustView/releases/tag/v0.6.1) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
+[下载 v0.6.2](https://github.com/walker1911/RustView/releases/tag/v0.6.2) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
 
 ![RustView 项目概念图](assets/readme/hero.svg)
 
 *配图为项目概念图。*
 
-**v0.6.1** 将正式莲花图标嵌入 Windows 程序和主窗口。直接打开一张图片时，先显示图片，再在后台扫描同目录。ZIP、RAR、7z 支持从上次显示的图片继续浏览，也可以按文件名、路径或序号跳页。[v0.6.1 更新说明](docs/RELEASE-v0.6.1.md) · [v0.6.0 更新说明](docs/RELEASE-v0.6.0.md) · [v0.4.1 更新说明](docs/RELEASE-v0.4.1.md)
+**v0.6.2** 支持回看时复用近期解码的静态图片，等待目标图时保留清晰画面。直接打开一张图片时，先显示图片，再在后台扫描同目录。ZIP、RAR、7z 支持从上次显示的图片继续浏览，也可以按文件名、路径或序号跳页。[v0.6.2 更新说明](docs/RELEASE-v0.6.2.md) · [v0.6.1 更新说明](docs/RELEASE-v0.6.1.md) · [v0.6.0 更新说明](docs/RELEASE-v0.6.0.md) · [v0.4.1 更新说明](docs/RELEASE-v0.4.1.md)
 
 ## 从照片出发
 
@@ -35,7 +35,7 @@
 
 在单图查看中点击工具栏的 **「跳页…」**，可以输入文件名的一部分、完整包内路径或从 1 开始的当前浏览序号。文件名重复时，可按包内路径选择。续看位置存入本地目录库，重新打开加密包时会再次询问密码。
 
-快速翻图时，可复用已经在读取的目标任务。目标预览可以来自缓存，也可以由同一次解码提前提供。目标预览就绪前保留上一张小马赛克，并标出正在读取的目标文件。[浏览说明](docs/PICASA-BROWSING.md)
+快速翻图时，可复用已经在读取的目标任务。目标预览就绪前保留上一张的清晰预览，并同时标出目标文件和暂时显示的文件。目标的低清预览就绪后即可先行显示，随后切换为清晰图。[浏览说明](docs/PICASA-BROWSING.md)
 
 处理步骤保存为记录，常用参数保存为预设。导出会重新读取源数据计算，界面中的 RGBA8 显示预览不作为 RAW／高位输出的来源。
 
@@ -49,12 +49,14 @@
 
 | 资源 | 上限 |
 |---|---:|
-| 图像 LRU 缓存 | 768 MiB |
+| 当前文件夹或压缩包的最近静态图片缓存 | 0–2048 MiB，可在选项中调整 |
 | GPU 细节分块 | 256 MiB |
 | 图像工作进程树 | 2 GiB |
 | 普通格式输入／静态 RGBA 输出 | 各 512 MiB |
 | 验证后的本地及包内 PSD/PSB 源文件 | 64 GiB；像素预算继续生效 |
 | 动画驻留 | 当前帧＋一个预读帧 |
+
+按 `Alt+O` 可调整「最近图片缓存上限」。默认使用按本机物理内存计算的推荐值，设为 0 可关闭，也可点击「使用推荐值」恢复。点击「保存选项与快捷键」后，下次启动会使用保存的数值。
 
 ![内存与工作进程结构](assets/readme/memory.svg)
 
@@ -64,7 +66,7 @@ v0.4.0 对[本地及ZIP／RAR／7z内的PSD/PSB](docs/PSD.md)提供源文件例�
 
 ## 下载与运行
 
-1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.1/RustView-0.6.1-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.6.1/RustView-0.6.1-win-x64-offline.zip.sha256)
+1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.2/RustView-0.6.2-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.6.2/RustView-0.6.2-win-x64-offline.zip.sha256)
 2. 完整解压，双击 `RustView.exe` 或 `Start-RustView.cmd`。图片引擎和运行库已经包含，首次启动也无需联网或安装依赖。
 3. 打开或拖入文件夹、图片、ZIP／RAR／7z。请保留完整目录。
 

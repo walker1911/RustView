@@ -32,7 +32,7 @@ mod workspace;
 use commands::Extras;
 pub use navigation_probe::probe_main as navigation_probe_main;
 
-const CPU_BUDGET: usize = 768 * 1024 * 1024;
+const MIB: usize = 1024 * 1024;
 const GPU_BUDGET: usize = 256 * 1024 * 1024;
 const TILE: u32 = 1024;
 
@@ -48,64 +48,65 @@ struct Pixels {
 }
 impl Pixels {
     fn bytes(&self) -> usize {
-        self.rgba.len()
-            + self.preview.len()
+        self.rgba.capacity()
+            + self.preview.capacity()
             + if self.record.is_some() {
-                1024 * 1024
+                MIB
             } else {
                 0
             }
     }
 }
 
+#[derive(Default)]
 struct ImageCache {
     entries: HashMap<(usize, bool), Arc<Pixels>>,
     order: VecDeque<(usize, bool)>,
     bytes: usize,
     budget: usize,
 }
-impl Default for ImageCache {
-    fn default() -> Self {
-        Self {
-            entries: HashMap::new(),
-            order: VecDeque::new(),
-            bytes: 0,
-            budget: CPU_BUDGET,
+impl ImageCache {
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.order.clear();
+        self.bytes = 0;
+    }
+
+    fn trim_to(&mut self, limit: usize) {
+        while self.bytes > limit {
+            let old = self.order.pop_front().expect("cached image has an LRU key");
+            self.bytes -= self.entries.remove(&old).expect("LRU key has a cached image").bytes();
         }
     }
-}
-impl ImageCache {
+
     fn get(&mut self, key: (usize, bool)) -> Option<Arc<Pixels>> {
         let value = self.entries.get(&key)?.clone();
         self.order.retain(|x| *x != key);
         self.order.push_back(key);
         Some(value)
     }
-    fn insert(&mut self, key: (usize, bool), value: Arc<Pixels>, pinned: Option<(usize, bool)>) {
-        if let Some(old) = self.entries.remove(&key) {
-            self.bytes -= old.bytes();
-        }
-        self.order.retain(|x| *x != key);
-        while self.bytes.saturating_add(value.bytes()) > self.budget && !self.order.is_empty() {
-            let old = self.order.pop_front().unwrap();
-            if Some(old) == pinned {
-                self.order.push_back(old);
-                if self.order.len() == 1 {
-                    break;
-                }
-                continue;
-            }
-            if let Some(old) = self.entries.remove(&old) {
-                self.bytes -= old.bytes();
-            }
-        }
-        // A pinned current image is never displaced by speculative preloading.
-        if self.bytes.saturating_add(value.bytes()) > self.budget {
+    fn insert(&mut self, key: (usize, bool), value: Arc<Pixels>, preload: bool) {
+        let bytes = value.bytes();
+        if self.budget == 0 || bytes > self.budget {
             return;
         }
-        self.bytes += value.bytes();
+        let limit = self.budget - bytes;
+        // Background work must not evict pictures the user already viewed.
+        if preload && self.bytes > limit {
+            return;
+        }
+        if let Some(old) = self.entries.remove(&key) {
+            self.bytes -= old.bytes();
+            self.order.retain(|x| *x != key);
+        }
+        self.trim_to(limit);
+        self.bytes += bytes;
         self.entries.insert(key, value);
-        self.order.push_back(key);
+        if preload {
+            self.order.push_front(key);
+        } else {
+            self.order.push_back(key);
+        }
     }
 }
 
@@ -237,7 +238,10 @@ impl Viewer {
             pending: None,
             running: None,
             status: "打开图片、文件夹，或 ZIP／RAR／7z 压缩包".into(),
-            cache: ImageCache::default(),
+            cache: ImageCache {
+                budget: settings_ui::recommended_cache_mib() as usize * MIB,
+                ..ImageCache::default()
+            },
             current: None,
             current_key: None,
             full_raw: false,
@@ -260,6 +264,21 @@ impl Viewer {
             properties: false,
             error: None,
             closing: false,
+        }
+    }
+
+    fn set_recent_image_cache_budget(&mut self, budget_bytes: usize) {
+        self.cache.budget = budget_bytes;
+        self.cache.trim_to(budget_bytes);
+        if budget_bytes == 0 {
+            if self.pending.as_ref().is_some_and(|task| matches!(task.operation, Operation::Load { preload: true, .. })) {
+                self.pending = None;
+            }
+            if let Some(active) = &self.running {
+                if active.preload.is_some() && !active.promoted {
+                    active.cancel.store(true, Ordering::Relaxed);
+                }
+            }
         }
     }
 
@@ -545,7 +564,7 @@ impl Viewer {
         }
         self.stop_animation();
         if self.extra.edited {
-            self.cache = ImageCache::default();
+            self.cache.clear();
         }
         self.extra.edits.clear();
         self.extra.redo_edits.clear();
@@ -553,7 +572,7 @@ impl Viewer {
         self.extra.workspace.preview_due = None;
         self.extra.workspace.save_pending = false;
         if self.extra.page_index != 0 {
-            self.cache = ImageCache::default();
+            self.cache.clear();
         }
         self.extra.page_index = 0;
         self.extra.page_total = 1;
@@ -573,10 +592,7 @@ impl Viewer {
         self.browser = false;
         self.extra.presentation.begin_target(index, self.entries[index].name.clone());
         self.prioritize_coverflow_preview(index);
-        if let Some(image) = (!Self::is_animation_candidate(&request))
-            .then(|| self.cache.get((index, full_raw)))
-            .flatten()
-        {
+        if let Some(image) = self.cache.get((index, full_raw)) {
             self.serial += 1;
             self.pending = None;
             if let Some(active) = &self.running {
@@ -646,7 +662,9 @@ impl Viewer {
     }
 
     fn schedule_preload(&mut self) {
-        if self.browser
+        if self.cache.budget == 0
+            || self.cache.bytes > self.cache.budget / 2
+            || self.browser
             || self.archive_jump.open
             || self.pending.is_some()
             || self.password_dialog
@@ -680,9 +698,6 @@ impl Viewer {
                 || item.size > 64 * 1024 * 1024
             {
                 continue;
-            }
-            if self.cache.bytes > CPU_BUDGET / 2 {
-                return;
             }
             if let Some(request) = self.make_load(candidate, false) {
                 self.serial += 1;
@@ -795,7 +810,7 @@ impl Viewer {
                                     self.extra.edits.clear();
                                     self.extra.redo_edits.clear();
                                     self.extra.edited = false;
-                                    self.cache = ImageCache::default();
+                                    self.cache.clear();
                                     self.rebuild_visible();
                                     self.browser = false;
                                     self.set_current(
@@ -874,11 +889,11 @@ impl Viewer {
                                         note: output.reply.note,
                                         record: output.reply.editing_record.map(Arc::new),
                                     });
-                                    self.cache.insert(
-                                        (index, full_raw),
-                                        image.clone(),
-                                        if preload { self.current_key } else { None },
-                                    );
+                                    if matches!(event.request, Request::Load { .. } | Request::ColorPreview { .. })
+                                        && !Self::is_animation_candidate(&event.request)
+                                    {
+                                        self.cache.insert((index, full_raw), image.clone(), preload);
+                                    }
                                     if !preload {
                                         self.set_current(index, full_raw, image);
                                         self.schedule_preload();
@@ -1681,14 +1696,14 @@ impl Viewer {
                 }
             }
         }
-        if let Some((index, _)) = self.current_key {
+        if let (Some((index, _)), Some(overview)) = (self.current_key, &self.overview) {
             let placement = presentation::Placement {
                 scale: self.scale, pan: self.pan, rotation: self.rotation,
                 flip_x: self.flip_x, flip_y: self.flip_y, fit: self.fit,
             };
             let name = self.entries.get(index).map(|entry| entry.name.as_str()).unwrap_or("");
             if let Some((preview, texture)) = self.extra.presentation.capture_displayed(
-                ctx, index, &image, Arc::as_ptr(&image) as usize, placement, name,
+                ctx, index, &image, overview, placement, name,
             ) {
                 self.remember_coverflow_preview(index, preview, texture);
                 self.archive_image_drawn(index, ctx);
@@ -1733,6 +1748,7 @@ impl Viewer {
                 self.password_dialog = false;
                 self.retry = None;
                 self.password_input.clear();
+                self.extra.presentation.cancel_target();
                 self.status = "已取消密码输入".into();
             }
             if submit {
@@ -1744,6 +1760,11 @@ impl Viewer {
                         _ => self.password = password,
                     }
                     self.reset_coverflow();
+                    if let Operation::Load { index, preload: false, .. } = &operation {
+                        if let Some(entry) = self.entries.get(*index) {
+                            self.extra.presentation.begin_target(*index, entry.name.clone());
+                        }
+                    }
                     self.password_dialog = false;
                     self.status = "正在验证密码…".into();
                     self.queue(request, operation);
@@ -1760,7 +1781,7 @@ impl Viewer {
             ui.label("查看模式 Enter / Esc / Ctrl+W 返回列表；列表 Enter进入查看、Ctrl+W退出；Ctrl/Shift+单击多选。GIF/WebP按原帧时长播放，G暂停／恢复／重播。");
             ui.separator();ui.label("ZIP／7z包内修改先备份原包；RAR只读，不支持分卷。编辑支持高位副本、完整动画、无损参数记录；源图EXIF／IPTC／XMP在属性窗口中显式保存，RAW写XMP伴随文件。");
             ui.label("幻灯片、日历、刻录、在线和音视频均已移除。默认键位见docs/KEYBOARD.md，功能状态见docs/retained-command-audit.csv；未确认的原版隐藏命令不激活。");
-            ui.label("CPU图像缓存 768 MiB；细节纹理 256 MiB；单个工作进程提交内存 2 GiB；单文件输入及RGBA输出分别限512 MiB。超限文件会报告错误。");
+            ui.label(format!("最近图片缓存 {} MiB，可在「选项与快捷键」调整。细节纹理 256 MiB，图像工作进程 2 GiB，常规单文件输入和 RGBA 输出分别限 512 MiB。", self.cache.budget / MIB));
         });
         }
         self.draw_source_metadata(ctx);
@@ -1798,7 +1819,7 @@ impl Viewer {
                     self.extra.redo_edits.clear();
                     self.extra.edited = false;
                     self.extra.workspace = workspace::State::default();
-                    self.cache = ImageCache::default();
+                    self.cache.clear();
                     self.error = None;
                     self.reset_comparison();
                     self.browser=false;
@@ -1923,9 +1944,10 @@ impl eframe::App for Viewer {
             egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.small(format!(
-                        "CPU {:.0}/768 MiB · GPU细节 {:.0}/256 MiB",
-                        self.cache.bytes as f64 / 1048576.0,
-                        self.tile_bytes as f64 / 1048576.0
+                        "最近图片缓存 {:.0}/{} MiB · GPU 细节 {:.0}/256 MiB",
+                        self.cache.bytes as f64 / MIB as f64,
+                        self.cache.budget / MIB,
+                        self.tile_bytes as f64 / MIB as f64
                     ));
                     if let Some(image) = &self.current {
                         ui.separator();
@@ -2311,6 +2333,7 @@ mod tests {
         };
         viewer.set_current(0, false, image());
         let _ = draw(&mut viewer);
+        let previous = viewer.overview.as_ref().unwrap().id();
         assert!(viewer.extra.presentation.has_frame());
         viewer.set_current(1, false, image()); // Ready, but no frame containing B was painted.
         for index in [2, 1, 2, 0, 1] {
@@ -2319,7 +2342,8 @@ mod tests {
             viewer.error = Some("暂时读取失败".into());
             viewer.password_dialog = true;
             let output = draw(&mut viewer);
-            assert!(output.shapes.iter().any(|shape| matches!(shape.shape, egui::Shape::Mesh(_))));
+            assert!(output.shapes.iter().any(|shape| matches!(&shape.shape,
+                egui::Shape::Mesh(mesh) if mesh.texture_id == previous)));
             assert!(!output.shapes.iter().any(|shape| matches!(&shape.shape,
                 egui::Shape::Text(text) if text.galley.job.text == "RustView")));
             assert!(viewer.extra.presentation.has_frame());
@@ -2488,22 +2512,63 @@ mod tests {
         })
     }
     #[test]
-    fn cache_budget_evicts_lru_and_protects_current() {
+    fn cache_evicts_lru_without_losing_history_to_oversized_or_preloaded_images() {
         let mut cache = ImageCache {
             budget: 16,
             ..Default::default()
         };
-        cache.insert((0, false), pixels(8), None);
-        cache.insert((1, false), pixels(8), None);
+        cache.insert((0, false), pixels(8), false);
+        cache.insert((1, false), pixels(8), false);
         assert!(cache.get((0, false)).is_some());
-        cache.insert((2, false), pixels(8), None);
+        cache.insert((2, false), pixels(8), false);
         assert!(cache.entries.contains_key(&(0, false)));
         assert!(!cache.entries.contains_key(&(1, false)));
         assert_eq!(cache.bytes, 16);
-        cache.insert((3, false), pixels(12), Some((0, false)));
+        cache.insert((3, false), pixels(12), true);
+        cache.insert((4, false), pixels(20), false);
+        assert_eq!(cache.bytes, 16);
         assert!(cache.entries.contains_key(&(0, false)));
+        assert!(cache.entries.contains_key(&(2, false)));
         assert!(!cache.entries.contains_key(&(3, false)));
-        assert_eq!(cache.bytes, 8);
+        assert!(!cache.entries.contains_key(&(4, false)));
+    }
+
+    #[test]
+    fn recent_static_picture_is_reused_until_evicted_and_zero_disables_preload() {
+        let folder = tempfile::tempdir().unwrap();
+        let entries = ["a.webp", "b.png"].into_iter().map(|name| Entry {
+            name: name.into(),
+            size: 8,
+            directory: false,
+            archive: false,
+            modified: None,
+        }).collect();
+        let mut viewer = browser_ui::tests::viewer(entries);
+        viewer.source = Some(folder.path().to_owned());
+        viewer.set_recent_image_cache_budget(16);
+        let first = pixels(8);
+        let second = pixels(8);
+        viewer.cache.insert((0, false), first.clone(), false);
+        viewer.cache.insert((1, false), second.clone(), false);
+        for (index, image) in [(0, &first), (1, &second), (0, &first)] {
+            viewer.load_index(index, false);
+            assert!(Arc::ptr_eq(viewer.current.as_ref().unwrap(), image));
+            assert!(viewer.pending.is_none() && viewer.running.is_none());
+        }
+        viewer.set_recent_image_cache_budget(8);
+        assert_eq!(viewer.cache.bytes, 8);
+        assert!(!viewer.cache.entries.contains_key(&(1, false)));
+        assert!(viewer.cache.entries.contains_key(&(0, false)));
+
+        viewer.set_recent_image_cache_budget(0);
+        assert_eq!(viewer.cache.bytes, 0);
+        assert!(Arc::ptr_eq(viewer.current.as_ref().unwrap(), &first));
+        viewer.schedule_preload();
+        assert!(viewer.pending.is_none());
+        viewer.load_index(1, false);
+        assert!(matches!(&viewer.pending.as_ref().unwrap().operation, Operation::Load { index: 1, preload: false, .. }));
+        viewer.install_source(folder.path().to_owned(), None, Vec::new());
+        assert_eq!(viewer.cache.budget, 0);
     }
     #[test]
     fn visible_bounds_respect_rotation() {

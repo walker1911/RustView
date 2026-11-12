@@ -2,9 +2,13 @@ use super::*;
 use crate::legacy_settings::{self, ImportReport, ShortcutBinding};
 use crate::native_keys::NativeKeyEvent;
 
+const MAX_RECENT_IMAGE_CACHE_MIB: u32 = 2048;
+const RECENT_IMAGE_CACHE_KEY: &str = "rustview.recent_image_cache_mib";
+
 pub(super) struct State {
     pub open: bool,
     loaded: bool,
+    recent_image_cache_mib: u32,
     active: ImportReport,
     preview: Option<ImportReport>,
     error: Option<String>,
@@ -20,6 +24,7 @@ impl Default for State {
         Self {
             open: false,
             loaded: false,
+            recent_image_cache_mib: recommended_cache_mib(),
             active: ImportReport::default(),
             preview: None,
             error: None,
@@ -37,6 +42,38 @@ impl Default for State {
             saved: true,
         }
     }
+}
+
+fn recommend_cache_mib(total_mib: Option<u64>) -> u32 {
+    total_mib.map_or(256, |mib| {
+        let rounded = (mib / 16 / 64) * 64;
+        rounded.clamp(128, u64::from(MAX_RECENT_IMAGE_CACHE_MIB)) as u32
+    })
+}
+
+pub(super) fn recommended_cache_mib() -> u32 {
+    static RECOMMENDATION: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *RECOMMENDATION.get_or_init(|| {
+        #[cfg(windows)]
+        let total_mib = {
+            use windows_sys::Win32::System::SystemInformation::{
+                GlobalMemoryStatusEx, MEMORYSTATUSEX,
+            };
+            // All members are integers. Windows requires dwLength before the call.
+            let mut status: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
+            status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+            (unsafe { GlobalMemoryStatusEx(&mut status) } != 0)
+                .then_some(status.ullTotalPhys / MIB as u64)
+        };
+        #[cfg(not(windows))]
+        let total_mib = None;
+        recommend_cache_mib(total_mib)
+    })
+}
+
+fn imported_recent_image_cache_mib(report: &ImportReport) -> Option<u32> {
+    let mib = report.settings.get(RECENT_IMAGE_CACHE_KEY)?.as_u64()?;
+    Some(mib.min(u64::from(MAX_RECENT_IMAGE_CACHE_MIB)) as u32)
 }
 
 fn config_path() -> Option<PathBuf> {
@@ -155,14 +192,20 @@ impl Viewer {
         if let Some(path) = config_path().filter(|p| p.is_file()) {
             match legacy_settings::import_file(&path) {
                 Ok(report) => {
-                    self.apply_visual_settings(&report);
+                    self.apply_settings(&report);
                     self.extra.settings_ui.active = report;
                 }
                 Err(e) => self.extra.settings_ui.error = Some(e),
             }
         }
+        self.set_recent_image_cache_budget(
+            self.extra.settings_ui.recent_image_cache_mib as usize * MIB,
+        );
     }
-    fn apply_visual_settings(&mut self, report: &ImportReport) {
+    fn apply_settings(&mut self, report: &ImportReport) {
+        if let Some(mib) = imported_recent_image_cache_mib(report) {
+            self.extra.settings_ui.recent_image_cache_mib = mib;
+        }
         for (key, value) in &report.settings {
             let Some(value) = value.as_bool() else {
                 continue;
@@ -218,6 +261,7 @@ impl Viewer {
             return;
         }
         let previous_color = self.extra.color_managed;
+        let previous_cache_mib = self.extra.settings_ui.recent_image_cache_mib;
         let mut open = true;
         let mut apply = false;
         let mut save = false;
@@ -228,12 +272,29 @@ impl Viewer {
         let state = &mut self.extra.settings_ui;
         egui::Window::new("选项与快捷键").open(&mut open).default_width(780.0).show(ctx,|ui|{
             ui.horizontal(|ui|{ui.checkbox(&mut self.extra.toolbar,"工具栏");ui.checkbox(&mut self.extra.statusbar,"状态栏");ui.checkbox(&mut self.extra.color_managed,"色彩管理");ui.checkbox(&mut self.extra.zoom_lock,"缩放锁定");ui.checkbox(&mut self.extra.pan_lock,"平移锁定");});
+            let recommended_mib = recommended_cache_mib();
+            ui.horizontal(|ui| {
+                ui.label("最近图片缓存上限");
+                ui.add(
+                    egui::DragValue::new(&mut state.recent_image_cache_mib)
+                        .range(0..=MAX_RECENT_IMAGE_CACHE_MIB)
+                        .suffix(" MiB"),
+                );
+                ui.label(format!("本机推荐 {recommended_mib} MiB"));
+                if ui.small_button("使用推荐值").clicked() {
+                    state.recent_image_cache_mib = recommended_mib;
+                }
+            });
+            if state.recent_image_cache_mib != previous_cache_mib {
+                state.saved = false;
+            }
+            ui.small("保留当前目录或压缩包内近期解码的静态图片。设为 0 关闭缓存，当前画面仍保留。解码进程和显存有独立上限。");
             clear_cache=ui.button("清理剪贴板导出缓存…").clicked();
             if ui.button("将当前图像预览设为平铺背景").clicked(){if let Some(image)=&self.current{if !image.preview.is_empty(){self.extra.background_tile=Some(ctx.load_texture("background-tile",egui::ColorImage::from_rgba_unmultiplied([image.preview_width as usize,image.preview_height as usize],&image.preview),egui::TextureOptions{wrap_mode:egui::TextureWrapMode::Repeat,..egui::TextureOptions::LINEAR}));}}}
             if ui.button("重设背景平铺 (Ctrl+Shift+G)").clicked(){self.extra.background_tile=None;}
             ui.separator();
             ui.horizontal(|ui|{import=ui.button("导入 JSON / REG…").clicked();inspect=ui.button("只读检查原 ACDSee 用户配置").clicked();export=ui.button("导出当前配置…").clicked();});
-            ui.small("只导入已确认的管理 / 查看 / 比较模式键位；被排除功能不会启用。未知 MFC 二进制会保留为未识别摘要，不猜测导入。");
+            ui.small("JSON 可导入 RustView 选项和快捷键。旧版只导入已确认的键位，未知 MFC 二进制保留为未识别摘要。");
             if let Some(report)=&state.preview {
                 ui.group(|ui|{
                     let usable=report.bindings.iter().filter(|b|shortcuts::allowed_command(b.command)).count();
@@ -244,7 +305,7 @@ impl Viewer {
                         for(key,value)in &report.settings{ui.small(format!("{key} = {value}"));}
                         for message in &report.ignored{ui.colored_label(Color32::YELLOW,message);}
                     });
-                    apply=ui.button("应用这些已识别键位").clicked();
+                    apply=ui.button("应用已识别的设置与键位").clicked();
                 });
             }
             ui.horizontal(|ui|{ui.label("模式");ui.selectable_value(&mut state.table,2,"管理");ui.selectable_value(&mut state.table,552,"查看");ui.selectable_value(&mut state.table,553,"比较");ui.label("筛选");ui.text_edit_singleline(&mut state.search);});
@@ -275,7 +336,7 @@ impl Viewer {
                 }
                 if ui.button("恢复本模式默认键位").clicked(){state.active.bindings.retain(|b|b.table!=state.table);state.active.replace_tables.retain(|t|*t!=state.table);state.saved=false;}
             });
-            if !state.saved{ui.small("快捷键已在本次运行生效，点击保存后下次仍保留。");}
+            if !state.saved{ui.small("修改已在本次运行生效，点击保存后下次仍保留。");}
             save=ui.button("保存选项与快捷键").clicked();
             if let Some(error)=&state.error{ui.colored_label(Color32::LIGHT_RED,error);}
         });
@@ -285,10 +346,14 @@ impl Viewer {
         }
         if apply {
             if let Some(report) = self.extra.settings_ui.preview.take() {
-                self.apply_visual_settings(&report);
+                self.apply_settings(&report);
                 self.extra.settings_ui.active = report;
                 self.extra.settings_ui.saved = false;
             }
+        }
+        let recent_cache_mib = self.extra.settings_ui.recent_image_cache_mib;
+        if recent_cache_mib != previous_cache_mib {
+            self.set_recent_image_cache_budget(recent_cache_mib as usize * MIB);
         }
         if inspect {
             match legacy_settings::inspect_current_user() {
@@ -318,6 +383,9 @@ impl Viewer {
             ] {
                 report.settings.insert(key.into(), value.into());
             }
+            report
+                .settings
+                .insert(RECENT_IMAGE_CACHE_KEY.into(), recent_cache_mib.into());
             let path = if export {
                 rfd::FileDialog::new()
                     .set_file_name("RustView-settings.json")
@@ -334,8 +402,10 @@ impl Viewer {
                     .and_then(|_| legacy_settings::export_file(&path, &report));
                 match result {
                     Ok(()) => {
-                        self.extra.settings_ui.active = report;
-                        self.extra.settings_ui.saved = true;
+                        if !export {
+                            self.extra.settings_ui.active = report;
+                            self.extra.settings_ui.saved = true;
+                        }
                         self.status = format!("设置已保存：{}", path.display());
                     }
                     Err(e) => self.extra.settings_ui.error = Some(e),
@@ -343,7 +413,7 @@ impl Viewer {
             }
         }
         if self.extra.color_managed != previous_color {
-            self.cache = ImageCache::default();
+            self.cache.clear();
             if let Some(i) = self.selected {
                 self.load_index(i, self.full_raw);
             }
@@ -354,6 +424,34 @@ impl Viewer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cache_recommendation_rounds_and_stays_within_the_supported_range() {
+        assert_eq!(recommend_cache_mib(None), 256);
+        assert_eq!(recommend_cache_mib(Some(1024)), 128);
+        assert_eq!(recommend_cache_mib(Some(8191)), 448);
+        assert_eq!(recommend_cache_mib(Some(8192)), 512);
+        assert_eq!(recommend_cache_mib(Some(64 * 1024)), 2048);
+    }
+
+    #[test]
+    fn cache_setting_round_trips_and_leaves_old_preferences_compatible() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+        let mut report: ImportReport =
+            serde_json::from_str(r#"{"settings":{"rustview.toolbar":false}}"#).unwrap();
+        assert_eq!(imported_recent_image_cache_mib(&report), None);
+        for (saved, expected) in [(0, 0), (320, 320), (5000, 2048)] {
+            report
+                .settings
+                .insert(RECENT_IMAGE_CACHE_KEY.into(), saved.into());
+            legacy_settings::export_file(&path, &report).unwrap();
+            let restored = legacy_settings::import_file(&path).unwrap();
+            assert_eq!(imported_recent_image_cache_mib(&restored), Some(expected));
+            assert_eq!(restored.settings["rustview.toolbar"].as_bool(), Some(false));
+        }
+    }
+
     fn key(virtual_key: u16) -> NativeKeyEvent {
         NativeKeyEvent::Key {
             virtual_key,

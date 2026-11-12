@@ -52,7 +52,7 @@ impl Viewer {
         self.extra.selection.clear();
         self.extra.thumbnails.clear();
         self.extra.edited = false;
-        self.cache = ImageCache::default();
+        self.cache.clear();
         self.current = None;
         self.current_key = None;
         self.overview = None;
