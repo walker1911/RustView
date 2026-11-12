@@ -33,6 +33,7 @@ pub(super) struct Extras {
     pub print_ui:super::print_ui::State,
     pub settings_ui:super::settings_ui::State,
     pub catalog: Option<Catalog>,
+    catalog_initialized: bool,
     pub selection: BTreeSet<usize>,
     pub visible: Vec<usize>,
     pub search: String,
@@ -123,9 +124,6 @@ pub(super) struct Extras {
 
 impl Extras {
     pub fn new() -> Self {
-        let database = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|p| p.join("RustView-data/catalog.sqlite")));
         Self {
             browser_ui:super::browser_ui::State::default(),
             coverflow:super::coverflow::State::default(),
@@ -134,7 +132,8 @@ impl Extras {
             metadata_ui:super::metadata_ui::State::default(),
             print_ui:super::print_ui::State::default(),
             settings_ui:super::settings_ui::State::default(),
-            catalog: database.and_then(|p| Catalog::open(&p).ok()),
+            catalog: None,
+            catalog_initialized: false,
             selection: BTreeSet::new(),
             visible: Vec::new(),
             search: String::new(),
@@ -221,6 +220,17 @@ impl Extras {
 }
 
 impl Viewer {
+    pub(super) fn initialize_catalog(&mut self) {
+        if self.extra.catalog_initialized {
+            return;
+        }
+        self.extra.catalog_initialized = true;
+        if self.extra.catalog.is_none() {
+            self.extra.catalog = catalog_path().and_then(|path| Catalog::open(&path).ok());
+        }
+        self.read_record();
+    }
+
     pub(super) fn item_key(&self, index: usize) -> Option<String> {
         let source = self.source.as_ref()?;
         let entry = self.entries.get(index)?;
@@ -269,9 +279,13 @@ impl Viewer {
     }
     pub(super) fn read_record(&mut self) {
         self.extra.record = self
-            .selected
-            .and_then(|i| self.item_key(i))
-            .and_then(|k| self.extra.catalog.as_ref()?.get(&k).ok())
+            .extra
+            .catalog
+            .as_ref()
+            .and_then(|catalog| {
+                let key = self.item_key(self.selected?)?;
+                catalog.get(&key).ok()
+            })
             .unwrap_or_default();
     }
     pub(super) fn change_record(&mut self, change: Change) {
@@ -1159,16 +1173,28 @@ impl Viewer {
                     for(key,record)in &self.extra.catalog_rows{
                         ui.horizontal(|ui|{
                             if ui.button("打开").clicked(){jump=Some(key.clone());}
-                            let response=ui.label(catalog_key_label(key));
+                            let label = catalog_key_label(key);
+                            let response = ui.add(egui::Label::new(label.as_str()).truncate())
+                                .on_hover_text(label);
                             response.context_menu(|ui|{
                                 if ui.button("打开图片").clicked(){jump=Some(key.clone());ui.close_menu();}
                                 if ui.button("打开所在文件夹").clicked(){folder=Some(key.clone());ui.close_menu();}
                                 if record.basket&&ui.button("移出图片篮子").clicked(){remove=Some(key.clone());ui.close_menu();}
                             });
                         });
-                        ui.small(format!("评级 {}　颜色 {}　{}{}",record.rating,record.label,record.category,if record.marked{"　已标记"}else{""}));
-                        if !record.title.is_empty(){ui.label(&record.title);}
-                        ui.separator();
+                        ui.small(
+                            egui::RichText::new(format!(
+                                "评级 {}　颜色 {}　{}{}",
+                                record.rating, record.label, record.category,
+                                if record.marked { "　已标记" } else { "" },
+                            ))
+                            .color(theme::MUTED),
+                        );
+                        if !record.title.is_empty() {
+                            ui.add(egui::Label::new(&record.title).truncate())
+                                .on_hover_text(&record.title);
+                        }
+                        ui.add_space(8.0);
                     }
                 });
             });
@@ -1226,8 +1252,10 @@ impl Viewer {
         if self.extra.organizer {
             egui::SidePanel::right("organizer")
                 .default_width(220.0)
+                .show_separator_line(false)
+                .frame(egui::Frame::side_top_panel(&ctx.style()).fill(theme::CHROME))
                 .show(ctx, |ui| {
-                    ui.heading("整理与筛选");
+                    ui.small(egui::RichText::new("整理与筛选").color(theme::MUTED));
                     let old = self.extra.filter;
                     egui::ComboBox::from_label("筛选")
                         .selected_text(filter_name(self.extra.filter))
@@ -1239,8 +1267,11 @@ impl Viewer {
                     if old != self.extra.filter {
                         self.rebuild_visible();
                     }
-                    ui.label(format!("已选 {} 项", self.selected_indices().len()));
-                    ui.horizontal(|ui| {
+                    ui.small(
+                        egui::RichText::new(format!("已选 {} 项", self.selected_indices().len()))
+                            .color(theme::MUTED),
+                    );
+                    ui.horizontal_wrapped(|ui| {
                         ui.label("评级");
                         for n in 0..=5 {
                             if ui
@@ -1251,7 +1282,7 @@ impl Viewer {
                             }
                         }
                     });
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         ui.label("标签");
                         for n in 0..=5 {
                             if ui

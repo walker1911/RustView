@@ -28,6 +28,8 @@ mod playback;
 mod presentation;
 mod print_ui;
 mod settings_ui;
+mod startup;
+mod theme;
 mod workspace;
 use commands::Extras;
 pub use navigation_probe::probe_main as navigation_probe_main;
@@ -161,6 +163,13 @@ struct Running {
     preload: Option<(usize, bool)>,
     promoted: bool,
 }
+
+struct DeferredImage {
+    index: usize,
+    full_raw: bool,
+    request: Request,
+    arrow: egui::Key,
+}
 struct Tile {
     texture: TextureHandle,
     bytes: usize,
@@ -177,6 +186,7 @@ pub struct Viewer {
     entries: Vec<Entry>,
     initial_entry_position: Option<usize>,
     directory_scan: directory::Scan,
+    startup_image: Option<startup::ImageStartup>,
     selected: Option<usize>,
     nav_forward: bool,
     browser: bool,
@@ -188,6 +198,7 @@ pub struct Viewer {
     serial: u64,
     pending: Option<Task>,
     running: Option<Running>,
+    deferred_image: Option<DeferredImage>,
     status: String,
     cache: ImageCache,
     current: Option<Arc<Pixels>>,
@@ -226,6 +237,7 @@ impl Viewer {
             entries: Vec::new(),
             initial_entry_position: None,
             directory_scan: directory::Scan::default(),
+            startup_image: None,
             selected: None,
             nav_forward: true,
             browser: true,
@@ -237,6 +249,7 @@ impl Viewer {
             serial: 0,
             pending: None,
             running: None,
+            deferred_image: None,
             status: "打开图片、文件夹，或 ZIP／RAR／7z 压缩包".into(),
             cache: ImageCache {
                 budget: settings_ui::recommended_cache_mib() as usize * MIB,
@@ -282,54 +295,46 @@ impl Viewer {
         }
     }
 
-    pub fn new(cc: &eframe::CreationContext<'_>, initial: Option<PathBuf>) -> Self {
-        let mut fonts = egui::FontDefinitions::default();
-        for path in [
-            "C:/Windows/Fonts/msyh.ttc",
-            "C:/Windows/Fonts/msyh.ttf",
-            "C:/Windows/Fonts/simhei.ttf",
-        ] {
-            if let Ok(data) = std::fs::read(path) {
-                fonts
-                    .font_data
-                    .insert("chinese".into(), Arc::new(egui::FontData::from_owned(data)));
-                fonts
-                    .families
-                    .entry(egui::FontFamily::Proportional)
-                    .or_default()
-                    .push("chinese".into());
-                fonts
-                    .families
-                    .entry(egui::FontFamily::Monospace)
-                    .or_default()
-                    .push("chinese".into());
-                break;
+    pub fn start(initial: Option<PathBuf>) -> Self {
+        let mut app = Self::empty();
+        // Color management and the configured image-cache limit are needed by
+        // the first read. Saved processing recipes are resolved in the worker.
+        app.load_settings();
+        if let Some(path) = initial {
+            app.open_path(path);
+            if app.pending.as_ref().is_some_and(|task| {
+                matches!(task.operation, Operation::Load { index: 0, preload: false, .. })
+            }) {
+                app.startup_image = Some(startup::ImageStartup::new(app.serial));
+                if let Some(task) = app.pending.take_if(|task| !Self::is_animation_candidate(&task.request)) {
+                    // The existing supervised read can overlap renderer creation.
+                    app.dispatch_worker(task, None);
+                }
             }
         }
-        cc.egui_ctx.set_fonts(fonts);
+        app
+    }
+
+    pub fn attach_window(mut self, cc: &eframe::CreationContext<'_>) -> Self {
+        if self.startup_image.is_none() {
+            startup::configure_fonts(&cc.egui_ctx);
+            self.initialize_catalog();
+        }
         let mut style = (*cc.egui_ctx.style()).clone();
-        style.visuals = egui::Visuals::dark();
-        style.spacing.item_spacing = egui::vec2(8.0, 6.0);
-        style.text_styles.extend([
-            (TextStyle::Small, FontId::proportional(13.0)),
-            (TextStyle::Body, FontId::proportional(14.0)),
-            (TextStyle::Button, FontId::proportional(14.0)),
-            (TextStyle::Heading, FontId::proportional(17.0)),
-            (TextStyle::Monospace, FontId::monospace(13.0)),
-        ]);
+        theme::configure(&mut style);
         cc.egui_ctx.set_style(style);
-        let mut app = Self::empty();
+        cc.egui_ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(egui::SystemTheme::Dark));
         #[cfg(windows)]
         {
             use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-            app.native_keys = cc.window_handle().ok().and_then(|h| match h.as_raw() {
+            self.native_keys = cc.window_handle().ok().and_then(|h| match h.as_raw() {
                 RawWindowHandle::Win32(h) => {
                     crate::native_keys::NativeKeys::attach(h.hwnd.get() as _).ok()
                 }
                 _ => None,
             });
         }
-        app.extra.max_texture = cc
+        self.extra.max_texture = cc
             .wgpu_render_state
             .as_ref()
             .map(|s| s.device.limits().max_texture_dimension_2d)
@@ -337,7 +342,7 @@ impl Viewer {
         #[cfg(windows)]
         {
             use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-            app.extra.hwnd = cc
+            self.extra.hwnd = cc
                 .window_handle()
                 .ok()
                 .and_then(|h| {
@@ -349,15 +354,12 @@ impl Viewer {
                 })
                 .unwrap_or(0);
         }
-        app.load_settings();
-        if let Some(path) = initial {
-            app.open_path(path);
-        }
-        app
+        self
     }
 
     fn queue(&mut self, request: Request, operation: Operation) {
         if self.closing { return; }
+        self.deferred_image = None;
         if matches!(operation, Operation::List { .. } | Operation::Clipboard { .. }) {
             self.directory_scan.cancel();
             self.archive_jump.open = false;
@@ -394,6 +396,7 @@ impl Viewer {
         self.directory_scan.cancel();
         self.serial += 1;
         self.pending = None;
+        self.deferred_image = None;
         self.retry = None;
         self.password_dialog = false;
         self.password_input.clear();
@@ -407,6 +410,7 @@ impl Viewer {
     fn cancel_current_read(&mut self) {
         self.serial += 1;
         self.pending = None;
+        self.deferred_image = None;
         if let Some(active) = &self.running {
             active.cancel.store(true, Ordering::Relaxed);
         }
@@ -468,6 +472,7 @@ impl Viewer {
             self.open_local_image(path);
             return;
         }
+        self.initialize_catalog();
         self.status = "正在读取目录…".into();
         self.extra.workspace.preview_due = None;
         self.extra.workspace.save_pending = false;
@@ -540,6 +545,11 @@ impl Viewer {
     }
 
     fn load_index(&mut self, index: usize, full_raw: bool) {
+        self.load_index_with_arrow(index, full_raw, None);
+    }
+
+    fn load_index_with_arrow(&mut self, index: usize, full_raw: bool, arrow: Option<egui::Key>) {
+        self.deferred_image = None;
         if self.current_key.is_some_and(|k| k.0 == index) && self.extra.edited {
             self.full_raw = full_raw;
             self.render_edits();
@@ -592,6 +602,28 @@ impl Viewer {
         self.browser = false;
         self.extra.presentation.begin_target(index, self.entries[index].name.clone());
         self.prioritize_coverflow_preview(index);
+        if let Some(arrow) = arrow.filter(|_| worker::is_local_jpeg_load(&request)) {
+            self.serial += 1;
+            self.pending = None;
+            if let Some(active) = &self.running {
+                active.cancel.store(true, Ordering::Relaxed);
+            }
+            self.error = None;
+            self.clear_image_for_load(index);
+            if let Some(image) = self.cache.entries.get(&(index, full_raw)) {
+                if let Some(preview) = presentation::PreviewPixels::sample(
+                    image.preview_width, image.preview_height, &image.preview, image.width, image.height,
+                ) {
+                    self.extra.presentation.stage_preview(index, preview);
+                }
+            }
+            self.deferred_image = Some(DeferredImage { index, full_raw, request, arrow });
+            return;
+        }
+        self.load_selected(index, full_raw, request);
+    }
+
+    fn load_selected(&mut self, index: usize, full_raw: bool, request: Request) {
         if let Some(image) = self.cache.get((index, full_raw)) {
             self.serial += 1;
             self.pending = None;
@@ -602,12 +634,7 @@ impl Viewer {
             self.schedule_preload();
             return;
         }
-        self.status = format!("正在读取 {}…", self.entries[index].name);
-        self.current = None;
-        self.current_key = None;
-        self.overview = None;
-        self.tiles.clear();
-        self.tile_bytes = 0;
+        self.clear_image_for_load(index);
         if let Some(task) = &mut self.pending {
             if let Operation::Load { index: candidate, full_raw: raw, preload } = &mut task.operation {
                 if *preload && (*candidate, *raw) == (index, full_raw) {
@@ -630,6 +657,28 @@ impl Viewer {
                 preload: false,
             },
         );
+    }
+
+    fn clear_image_for_load(&mut self, index: usize) {
+        self.status = format!("正在读取 {}…", self.entries[index].name);
+        self.current = None;
+        self.current_key = None;
+        self.overview = None;
+        self.tiles.clear();
+        self.tile_bytes = 0;
+    }
+
+    fn finish_deferred_image(&mut self, ctx: &egui::Context) -> bool {
+        let Some(deferred) = self.deferred_image.as_ref() else { return false; };
+        if self.browser || self.selected != Some(deferred.index) {
+            self.deferred_image = None;
+        } else if !ctx.input(|input| input.focused && input.key_down(deferred.arrow)) {
+            let deferred = self.deferred_image.take().unwrap();
+            self.load_selected(deferred.index, deferred.full_raw, deferred.request);
+            ctx.request_repaint();
+            return self.pending.as_ref().is_some_and(|task| matches!(task.operation, Operation::Load { preload: false, .. }));
+        }
+        false
     }
 
     fn set_current(&mut self, index: usize, full_raw: bool, image: Arc<Pixels>) {
@@ -664,6 +713,7 @@ impl Viewer {
     fn schedule_preload(&mut self) {
         if self.cache.budget == 0
             || self.cache.bytes > self.cache.budget / 2
+            || self.deferred_image.is_some()
             || self.browser
             || self.archive_jump.open
             || self.pending.is_some()
@@ -934,7 +984,14 @@ impl Viewer {
         }
         self.schedule_metadata();
         self.schedule_comparison();
-        if self.running.is_none()
+        self.start_pending_task(ctx);
+        if self.running.is_some() || self.pending.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(30));
+        }
+    }
+
+    fn start_pending_task(&mut self, ctx: &egui::Context) {
+        if !self.closing && self.running.is_none()
             && (self.extra.animation.is_none()
                 || self
                     .pending
@@ -952,54 +1009,57 @@ impl Viewer {
                     self.start_animation(task, ctx);
                     return;
                 }
-                let (sender, receiver) = mpsc::sync_channel(1);
-                let (preview_tx, preview_rx) = mpsc::sync_channel(1);
-                let (preview_index, preload) = match &task.operation {
-                    Operation::Load { index, full_raw, preload } =>
-                        (Some(*index), preload.then_some((*index, *full_raw))),
-                    _ => (None, None),
-                };
-                let cancel = Arc::new(AtomicBool::new(false));
-                let thread_cancel = cancel.clone();
-                let context = ctx.clone();
-                let id = task.id;
-                std::thread::spawn(move || {
-                    let request = task.request.clone();
-                    let result = if preview_index.is_some() {
-                        worker::execute_with_preview(task.request, thread_cancel, |preview| {
-                            let _ = preview_tx.try_send(preview);
-                            context.request_repaint();
-                        })
-                    } else {
-                        worker::execute(task.request, thread_cancel)
-                    };
-                    let _ = sender.send(Event {
-                        id,
-                        request,
-                        operation: task.operation,
-                        result,
-                    });
-                    context.request_repaint();
-                });
-                self.running = Some(Running {
-                    id,
-                    cancel,
-                    receiver,
-                    preview: preview_index.map(|index| (index, preview_rx)),
-                    preload,
-                    promoted: false,
-                });
+                self.dispatch_worker(task, Some(ctx.clone()));
             }
-        }
-        if self.running.is_some() || self.pending.is_some() {
-            ctx.request_repaint_after(std::time::Duration::from_millis(30));
         }
     }
 
+    fn dispatch_worker(&mut self, task: Task, context: Option<egui::Context>) {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let (preview_tx, preview_rx) = mpsc::sync_channel(1);
+        let (preview_index, preload) = match &task.operation {
+            Operation::Load { index, full_raw, preload } => (
+                (!self.extra.presentation.has_target_preview(*index)).then_some(*index),
+                preload.then_some((*index, *full_raw)),
+            ),
+            _ => (None, None),
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let thread_cancel = cancel.clone();
+        let id = task.id;
+        std::thread::spawn(move || {
+            let repaint = || {
+                if let Some(ctx) = &context {
+                    ctx.request_repaint();
+                }
+            };
+            let request = task.request.clone();
+            let result = if preview_index.is_some() {
+                worker::execute_with_preview(task.request, thread_cancel, |preview| {
+                    let _ = preview_tx.try_send(preview);
+                    repaint();
+                })
+            } else {
+                worker::execute(task.request, thread_cancel)
+            };
+            let _ = sender.send(Event { id, request, operation: task.operation, result });
+            repaint();
+        });
+        self.running = Some(Running {
+            id, cancel, receiver,
+            preview: preview_index.map(|index| (index, preview_rx)),
+            preload, promoted: false,
+        });
+    }
+
     fn navigate(&mut self, forward: bool, end: bool) {
+        self.navigate_with_arrow(forward, end, None);
+    }
+
+    fn navigate_with_arrow(&mut self, forward: bool, end: bool, arrow: Option<egui::Key>) {
         if let Some(index) = self.navigation_target(forward, end) {
             self.nav_forward = forward;
-            self.load_index(index, false);
+            self.load_index_with_arrow(index, false, arrow);
         }
     }
 
@@ -1016,6 +1076,7 @@ impl Viewer {
 
     fn perform(&mut self, action: Action, ctx: &egui::Context) {
         if self.closing { return; }
+        self.finish_startup_ui(ctx);
         if self.comparison_action(action, ctx) {
             return;
         }
@@ -1112,6 +1173,7 @@ impl Viewer {
                 self.directory_scan.cancel();
                 self.serial += 1;
                 self.pending = None;
+                self.deferred_image = None;
                 if let Some(r) = &self.running {
                     r.cancel.store(true, Ordering::Relaxed);
                 }
@@ -1197,133 +1259,190 @@ impl Viewer {
         if !self.extra.toolbar {
             return;
         }
-        egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
-                ui.menu_button("文件", |ui| {
-                    for (label, action) in [
-                        ("打开图片或压缩包…", Action::Open),
-                        ("打开文件夹…", Action::OpenFolder),
-                        ("刷新", Action::Refresh),
-                        ("属性", Action::Properties),
-                        ("关闭当前图像", Action::Close),
-                        ("退出", Action::Exit),
-                    ] {
-                        if ui.button(label).clicked() {
-                            self.perform(action, ctx);
-                            ui.close_menu();
+        egui::TopBottomPanel::top("toolbar")
+            .show_separator_line(false)
+            .frame(
+                egui::Frame::side_top_panel(&ctx.style())
+                    .fill(theme::CHROME)
+                    .inner_margin(egui::Margin::symmetric(12, 6)),
+            )
+            .show(ctx, |ui| {
+                egui::menu::bar(ui, |ui| {
+                    ui.spacing_mut().button_padding = egui::vec2(8.0, 4.0);
+                    theme::tool_group().show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 2.0;
+                            for (label, browser) in [("管理", true), ("查看", false)] {
+                                let active = self.browser == browser;
+                                let button = egui::Button::new(label)
+                                    .selected(active)
+                                    .corner_radius(5)
+                                    .stroke(egui::Stroke::NONE);
+                                if ui.add(button).clicked() && !active {
+                                    self.perform(Action::ToggleBrowser, ctx);
+                                }
+                            }
+                        });
+                    });
+                    ui.menu_button("文件", |ui| {
+                        for (label, action) in [
+                            ("打开图片或压缩包…", Action::Open),
+                            ("打开文件夹…", Action::OpenFolder),
+                            ("刷新", Action::Refresh),
+                            ("属性", Action::Properties),
+                            ("关闭当前图像", Action::Close),
+                            ("退出", Action::Exit),
+                        ] {
+                            if ui.button(label).clicked() {
+                                self.perform(action, ctx);
+                                ui.close_menu();
+                            }
                         }
-                    }
+                    });
+                    ui.menu_button("编辑", |ui| {
+                        for (label, action) in [
+                            ("复制文件", Action::CopyFile),
+                            ("复制图像", Action::CopyImage),
+                            ("复制路径", Action::CopyPath),
+                            ("移到回收站", Action::Delete),
+                        ] {
+                            if ui.button(label).clicked() {
+                                self.perform(action, ctx);
+                                ui.close_menu();
+                            }
+                        }
+                    });
+                    ui.menu_button("视图", |ui| {
+                        for (label, action) in [
+                            ("文件列表", Action::ToggleBrowser),
+                            ("适应窗口", Action::Fit),
+                            ("原始尺寸", Action::ActualSize),
+                            ("全屏", Action::Fullscreen),
+                            ("向左旋转", Action::RotateLeft),
+                            ("向右旋转", Action::RotateRight),
+                            ("水平翻转", Action::FlipHorizontal),
+                            ("垂直翻转", Action::FlipVertical),
+                        ] {
+                            if ui.button(label).clicked() {
+                                self.perform(action, ctx);
+                                ui.close_menu();
+                            }
+                        }
+                    });
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .button("帮助")
+                            .on_hover_text("快捷键与版本说明")
+                            .clicked()
+                        {
+                            self.help = true;
+                        }
+                        if ui
+                            .button("选项")
+                            .on_hover_text("选项与快捷键（Alt+O）")
+                            .clicked()
+                        {
+                            self.extra.settings_ui.open = true;
+                        }
+                    });
                 });
-                ui.menu_button("编辑", |ui| {
-                    for (label, action) in [
-                        ("复制文件", Action::CopyFile),
-                        ("复制图像", Action::CopyImage),
-                        ("复制路径", Action::CopyPath),
-                        ("移到回收站", Action::Delete),
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().button_padding = egui::vec2(8.0, 3.0);
+                    let open = egui::Button::new("打开…")
+                        .fill(theme::SELECTED)
+                        .stroke(egui::Stroke::NONE);
+                    if ui.add(open).clicked() {
+                        self.choose_file();
+                    }
+                    if ui.button("文件夹…").clicked() {
+                        self.choose_folder();
+                    }
+                    for actions in [
+                        &[
+                            ("←", "上一张", Action::Previous),
+                            ("→", "下一张", Action::Next),
+                        ][..],
+                        &[
+                            ("−", "缩小", Action::ZoomOut),
+                            ("＋", "放大", Action::ZoomIn),
+                            ("适应", "适应窗口", Action::Fit),
+                            ("1:1", "原始尺寸", Action::ActualSize),
+                            ("全屏", "全屏", Action::Fullscreen),
+                        ],
                     ] {
-                        if ui.button(label).clicked() {
-                            self.perform(action, ctx);
-                            ui.close_menu();
-                        }
+                        theme::tool_group().show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 2.0;
+                                for &(label, hint, action) in actions {
+                                    if ui.button(label).on_hover_text(hint).clicked() {
+                                        self.perform(action, ctx);
+                                    }
+                                }
+                            });
+                        });
                     }
-                });
-                ui.menu_button("视图", |ui| {
-                    for (label, action) in [
-                        ("文件列表", Action::ToggleBrowser),
-                        ("适应窗口", Action::Fit),
-                        ("原始尺寸", Action::ActualSize),
-                        ("全屏", Action::Fullscreen),
-                        ("向左旋转", Action::RotateLeft),
-                        ("向右旋转", Action::RotateRight),
-                        ("水平翻转", Action::FlipHorizontal),
-                        ("垂直翻转", Action::FlipVertical),
-                    ] {
-                        if ui.button(label).clicked() {
-                            self.perform(action, ctx);
-                            ui.close_menu();
-                        }
-                    }
-                });
-                if ui.button("快捷键与版本说明").clicked() {
-                    self.help = true;
-                }
-            });
-            ui.separator();
-            ui.horizontal(|ui| {
-                if ui.button("打开…").clicked() {
-                    self.choose_file();
-                }
-                if ui.button("文件夹…").clicked() {
-                    self.choose_folder();
-                }
-                ui.separator();
-                for (label, action) in [
-                    ("上一张", Action::Previous),
-                    ("下一张", Action::Next),
-                    ("−", Action::ZoomOut),
-                    ("＋", Action::ZoomIn),
-                    ("适应", Action::Fit),
-                    ("1:1", Action::ActualSize),
-                    ("全屏", Action::Fullscreen),
-                ] {
-                    if ui.button(label).clicked() {
-                        self.perform(action, ctx);
-                    }
-                }
-                if self.is_archive_source() && !self.browser
-                    && self.extra.compare == 0 && self.extra.edit_dialog.is_none()
-                {
-                    let available = !self.password_dialog && !self.browse_entries().1.is_empty();
-                    if ui.add_enabled(available, egui::Button::new("跳页…")).clicked() {
-                        self.open_archive_jump();
-                    }
-                }
-                let is_raw = self
-                    .selected
-                    .and_then(|i| self.entries.get(i))
-                    .is_some_and(|e| crate::imaging::is_raw(&e.name));
-                if is_raw {
-                    let mut full = self.full_raw;
-                    if ui.checkbox(&mut full, "完整 RAW 解码").changed() {
-                        if let Some(i) = self.selected {
-                            self.load_index(i, full);
-                        }
-                    }
-                }
-                if (self.running.is_some() || !self.directory_scan.is_idle())
-                    && self.extra.pending_write.is_none()
-                    && self.extra.writing.is_none()
-                {
-                    ui.spinner();
-                    if ui.small_button("取消").clicked() {
-                        self.cancel_current_read();
-                    }
-                }
-                if self.extra.animated {
-                    if ui
-                        .button(if self.extra.animation_ended {
-                            "重播动画 (G)"
-                        } else if self.extra.animation_paused {
-                            "播放动画 (G)"
-                        } else {
-                            "暂停动画 (G)"
-                        })
-                        .clicked()
+                    if self.is_archive_source()
+                        && !self.browser
+                        && self.extra.compare == 0
+                        && self.extra.edit_dialog.is_none()
                     {
-                        self.toggle_animation();
+                        let available =
+                            !self.password_dialog && !self.browse_entries().1.is_empty();
+                        if ui
+                            .add_enabled(available, egui::Button::new("跳页…"))
+                            .clicked()
+                        {
+                            self.open_archive_jump();
+                        }
                     }
-                }
-                if self.extra.edited {
-                    ui.colored_label(Color32::YELLOW, "有未保存的编辑");
+                    let is_raw = self
+                        .selected
+                        .and_then(|i| self.entries.get(i))
+                        .is_some_and(|e| crate::imaging::is_raw(&e.name));
+                    if is_raw {
+                        let mut full = self.full_raw;
+                        if ui.checkbox(&mut full, "完整 RAW 解码").changed() {
+                            if let Some(i) = self.selected {
+                                self.load_index(i, full);
+                            }
+                        }
+                    }
+                    if (self.running.is_some() || !self.directory_scan.is_idle())
+                        && self.extra.pending_write.is_none()
+                        && self.extra.writing.is_none()
+                    {
+                        ui.spinner();
+                        if ui.small_button("取消").clicked() {
+                            self.cancel_current_read();
+                        }
+                    }
+                    if self.extra.animated {
+                        if ui
+                            .button(if self.extra.animation_ended {
+                                "重播动画 (G)"
+                            } else if self.extra.animation_paused {
+                                "播放动画 (G)"
+                            } else {
+                                "暂停动画 (G)"
+                            })
+                            .clicked()
+                        {
+                            self.toggle_animation();
+                        }
+                    }
+                    if self.extra.edited {
+                        ui.colored_label(Color32::YELLOW, "有未保存的编辑");
+                    }
+                });
+                if let Some(path) = &self.source {
+                    let path = path.to_string_lossy();
+                    let label = egui::RichText::new(path.as_ref())
+                        .small()
+                        .color(theme::MUTED);
+                    ui.add(egui::Label::new(label).truncate())
+                        .on_hover_text(path.as_ref());
                 }
             });
-            if let Some(path) = &self.source {
-                let path = path.to_string_lossy();
-                let label = egui::RichText::new(path.as_ref()).small().weak();
-                ui.add(egui::Label::new(label).truncate())
-                    .on_hover_text(path.as_ref());
-            }
-        });
     }
 
     fn ensure_overview(&mut self, ctx: &egui::Context) {
@@ -1346,7 +1465,7 @@ impl Viewer {
             ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
         self.extra.viewport = viewport;
         let painter = ui.painter_at(viewport);
-        painter.rect_filled(viewport, 0.0, Color32::from_rgb(23, 24, 26));
+        painter.rect_filled(viewport, 0.0, theme::CANVAS);
         if let Some(texture) = &self.extra.background_tile {
             let period = texture.size_vec2() / ctx.pixels_per_point();
             painter.image(
@@ -1360,23 +1479,26 @@ impl Viewer {
             );
         }
         let Some(image) = self.current.clone() else {
-            if self.extra.presentation.draw(&painter, viewport, ctx) {
+            let regular_ui = self.startup_image.is_none();
+            if self.extra.presentation.draw(&painter, viewport, ctx, regular_ui) {
                 return;
             }
             painter.text(
                 viewport.center() - egui::vec2(0.0, 18.0),
                 egui::Align2::CENTER_CENTER,
                 "RustView",
-                FontId::proportional(24.0),
-                Color32::LIGHT_GRAY,
+                FontId::proportional(20.0),
+                theme::TEXT,
             );
-            painter.text(
-                viewport.center() + egui::vec2(0.0, 15.0),
-                egui::Align2::CENTER_CENTER,
-                "打开或拖入图片、文件夹或 ZIP／RAR／7z",
-                TextStyle::Body.resolve(ui.style()),
-                Color32::GRAY,
-            );
+            if regular_ui {
+                painter.text(
+                    viewport.center() + egui::vec2(0.0, 15.0),
+                    egui::Align2::CENTER_CENTER,
+                    "打开或拖入图片、文件夹或 ZIP／RAR／7z",
+                    TextStyle::Body.resolve(ui.style()),
+                    theme::MUTED,
+                );
+            }
             return;
         };
         let dimensions = if self.rotation % 2 == 0 {
@@ -1842,9 +1964,11 @@ impl Viewer {
 impl eframe::App for Viewer {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.handle_close_request(ctx) { return; }
+        self.advance_startup(ctx);
         self.poll(ctx);
         let dropped = ctx.input(|i| i.raw.dropped_files.first().and_then(|f| f.path.clone()));
         if let Some(path) = dropped {
+            self.finish_startup_ui(ctx);
             self.open_path(path);
         }
         // Focused list/buttons keep application shortcuts; text fields consume typing.
@@ -1854,6 +1978,8 @@ impl eframe::App for Viewer {
             .as_ref()
             .map(|n| n.drain())
             .unwrap_or_default();
+        #[cfg(not(windows))]
+        let native_events = Vec::new();
         #[cfg(windows)]
         if self.extra.settings_ui.open {
             let _ = self.custom_native_action(&native_events, 2);
@@ -1930,56 +2056,88 @@ impl eframe::App for Viewer {
                             Action::Next | Action::Previous | Action::First | Action::Last
                         ))
             }) {
+                let held_arrow = single_view
+                    .then(|| held_navigation_key(ctx, &native_events, action))
+                    .flatten();
                 if single_view {
                     ctx.input_mut(consume_view_arrows);
                 }
-                self.perform(action, ctx);
+                if let Some(key) = held_arrow {
+                    self.navigate_with_arrow(key == egui::Key::ArrowRight, false, Some(key));
+                } else {
+                    self.perform(action, ctx);
+                }
             }
         }
+        if self.finish_deferred_image(ctx) {
+            self.start_pending_task(ctx);
+        }
+        if self.draw_direct_startup(ctx) {
+            self.update_window_title(ctx);
+            return;
+        }
         self.draw_toolbar(ctx);
+        if self.extra.statusbar {
+            egui::TopBottomPanel::bottom("status")
+                .show_separator_line(false)
+                .frame(
+                    egui::Frame::side_top_panel(&ctx.style())
+                        .fill(theme::CHROME)
+                        .inner_margin(egui::Margin::symmetric(12, 5)),
+                )
+                .show(ctx, |ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "最近图片缓存 {:.0}/{} MiB · GPU 细节 {:.0}/256 MiB",
+                                self.cache.bytes as f64 / MIB as f64,
+                                self.cache.budget / MIB,
+                                self.tile_bytes as f64 / MIB as f64
+                            ))
+                            .small()
+                            .color(theme::MUTED),
+                        );
+                        if let Some(image) = &self.current {
+                            ui.add_space(8.0);
+                            let (width, height) = self
+                                .extra
+                                .comparison
+                                .active_dimensions()
+                                .unwrap_or((image.width, image.height));
+                            ui.small(format!(
+                                "{} × {}  · {:.0}%",
+                                width,
+                                height,
+                                self.scale * ctx.pixels_per_point() * 100.0
+                            ));
+                        }
+                        ui.add_space(8.0);
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(
+                                ui.available_width(),
+                                ui.text_style_height(&TextStyle::Small),
+                            ),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                let label = egui::RichText::new(&self.status).small();
+                                ui.add(egui::Label::new(label).truncate())
+                                    .on_hover_text(&self.status);
+                            },
+                        );
+                    });
+                });
+        }
         self.draw_extra_panels(ctx);
         self.draw_browser_panels(ctx);
         self.edit_dialogs(ctx);
-        if self.extra.statusbar {
-            egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.small(format!(
-                        "最近图片缓存 {:.0}/{} MiB · GPU 细节 {:.0}/256 MiB",
-                        self.cache.bytes as f64 / MIB as f64,
-                        self.cache.budget / MIB,
-                        self.tile_bytes as f64 / MIB as f64
-                    ));
-                    if let Some(image) = &self.current {
-                        ui.separator();
-                        let (width, height) = self
-                            .extra
-                            .comparison
-                            .active_dimensions()
-                            .unwrap_or((image.width, image.height));
-                        ui.small(format!(
-                            "{} × {}  · {:.0}%",
-                            width,
-                            height,
-                            self.scale * ctx.pixels_per_point() * 100.0
-                        ));
-                    }
-                    ui.separator();
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(ui.available_width(), ui.text_style_height(&TextStyle::Small)),
-                        egui::Layout::left_to_right(egui::Align::Center),
-                        |ui| {
-                            let label = egui::RichText::new(&self.status).small();
-                            ui.add(egui::Label::new(label).truncate())
-                                .on_hover_text(&self.status);
-                        },
-                    );
-                });
-            });
-        }
         self.poll_coverflow(ctx);
         self.draw_coverflow(ctx);
+        let mut canvas = egui::Frame::NONE.fill(theme::CANVAS);
+        if self.browser && self.extra.layout != 2014 && self.extra.compare == 0 {
+            canvas = canvas.inner_margin(egui::Margin::symmetric(10, 8));
+        }
         egui::CentralPanel::default()
-            .frame(egui::Frame::NONE)
+            .frame(canvas)
             .show(ctx, |ui| {
                 if self.extra.compare > 0 {
                     self.draw_comparison(ui, ctx)
@@ -1992,6 +2150,11 @@ impl eframe::App for Viewer {
         self.dialogs(ctx);
         self.command_dialogs(ctx);
         self.draw_inspectors(ctx);
+        self.update_window_title(ctx);
+    }
+}
+impl Viewer {
+    fn update_window_title(&mut self, ctx: &egui::Context) {
         let title = self
             .selected
             .and_then(|i| self.entries.get(i))
@@ -2008,12 +2171,43 @@ impl Drop for Viewer {
         self.save_archive_resume(true);
         if let Some(r) = &self.running {
             r.cancel.store(true, Ordering::Relaxed);
+            if self.startup_image.is_some() {
+                // A renderer failure can drop the viewer before its first update.
+                let _ = r.receiver.recv_timeout(std::time::Duration::from_secs(2));
+            }
         }
     }
 }
 
 fn shortcuts_enabled(ctx: &egui::Context, password_dialog: bool) -> bool {
     !password_dialog && !ctx.memory(|m| m.any_popup_open())
+}
+
+fn held_navigation_key(
+    ctx: &egui::Context,
+    native_events: &[crate::native_keys::NativeKeyEvent],
+    action: Action,
+) -> Option<egui::Key> {
+    let (key, virtual_key) = match action {
+        Action::Previous => (egui::Key::ArrowLeft, 0x25),
+        Action::Next => (egui::Key::ArrowRight, 0x27),
+        _ => return None,
+    };
+    ctx.input(|input| {
+        if !input.focused || !input.modifiers.is_none() || !input.key_down(key) {
+            return None;
+        }
+        let bare_press = if native_events.is_empty() {
+            input.events.iter().any(|event| matches!(event,
+                egui::Event::Key { key: pressed_key, pressed: true, modifiers, .. }
+                    if *pressed_key == key && modifiers.is_none()))
+        } else {
+            native_events.iter().any(|event| matches!(event,
+                crate::native_keys::NativeKeyEvent::Key { virtual_key: pressed_key, pressed: true, modifiers, .. }
+                    if *pressed_key == virtual_key && modifiers.is_none()))
+        };
+        bare_press.then_some(key)
+    })
 }
 
 fn consume_view_arrows(input: &mut egui::InputState) {
@@ -2569,6 +2763,40 @@ mod tests {
         assert!(matches!(&viewer.pending.as_ref().unwrap().operation, Operation::Load { index: 1, preload: false, .. }));
         viewer.install_source(folder.path().to_owned(), None, Vec::new());
         assert_eq!(viewer.cache.budget, 0);
+    }
+
+    #[test]
+    fn held_jpeg_navigation_only_queues_full_resolution_for_the_released_target() {
+        let folder = tempfile::tempdir().unwrap();
+        let entries = ["first.jpg", "second.jpg", "third.jpg"].into_iter().map(|name| Entry {
+            name: name.into(), size: 1, directory: false, archive: false, modified: None,
+        }).collect();
+        let mut viewer = browser_ui::tests::viewer(entries);
+        viewer.source = Some(folder.path().to_owned());
+        viewer.extra.header_visible = true;
+        let arrow = egui::Key::ArrowRight;
+        let ctx = egui::Context::default();
+        let event = |pressed| egui::Event::Key {
+            key: arrow, physical_key: Some(arrow), modifiers: egui::Modifiers::NONE,
+            pressed, repeat: false,
+        };
+        let _ = ctx.run(egui::RawInput { focused: true, events: vec![event(true)], ..Default::default() }, |ctx| {
+            assert_eq!(held_navigation_key(ctx, &[], Action::Next), Some(arrow));
+            viewer.load_index_with_arrow(1, false, Some(arrow));
+            viewer.load_index_with_arrow(2, false, Some(arrow));
+            viewer.schedule_metadata();
+            viewer.finish_deferred_image(ctx);
+            assert!(viewer.pending.is_none());
+            assert_eq!(viewer.extra.presentation.target_index(), Some(2));
+        });
+        let _ = ctx.run(egui::RawInput { focused: true, events: vec![event(false)], ..Default::default() }, |ctx| {
+            viewer.schedule_metadata();
+            viewer.finish_deferred_image(ctx);
+            assert!(viewer.deferred_image.is_none());
+            assert!(matches!(&viewer.pending.as_ref().unwrap().operation,
+                Operation::Load { index: 2, preload: false, .. }));
+            assert_eq!(viewer.extra.presentation.target_index(), Some(2));
+        });
     }
     #[test]
     fn visible_bounds_respect_rotation() {

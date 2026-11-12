@@ -1,4 +1,4 @@
-use super::{rotate, Pixels};
+use super::{rotate, theme, Pixels};
 use crate::worker::{ContinuityPreview, CONTINUITY_SIDE as PREVIEW_SIDE};
 use egui::{Color32, Context, Mesh, Painter, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
 use std::{sync::Arc, time::{Duration, Instant}};
@@ -111,6 +111,9 @@ impl State {
         self.frame.is_some() || self.target.as_ref().is_some_and(|target| target.preview.is_some())
     }
     pub fn is_waiting(&self) -> bool { self.target.is_some() }
+    pub fn has_target_preview(&self, index: usize) -> bool {
+        self.target.as_ref().is_some_and(|target| target.index == index && target.preview.is_some())
+    }
     pub fn waiting_elapsed(&self) -> Duration {
         self.target.as_ref().map(|target| target.started.elapsed()).unwrap_or_default()
     }
@@ -152,7 +155,7 @@ impl State {
         Some((pixels, texture))
     }
 
-    pub fn draw(&mut self, painter: &Painter, viewport: Rect, ctx: &Context) -> bool {
+    pub fn draw(&mut self, painter: &Painter, viewport: Rect, ctx: &Context, show_label: bool) -> bool {
         let target = self.target.as_mut();
         let preview = target.and_then(|target| {
             target.preview.as_mut().map(|preview| (&target.name, preview))
@@ -180,14 +183,19 @@ impl State {
         let painter = painter.with_clip_rect(viewport);
         super::paint_transparency(&painter, Rect::from_points(&corners));
         painter.add(mesh);
-        if let Some(label) = label {
-            painter.text(
-                viewport.left_bottom() + Vec2::new(14.0, -14.0),
-                egui::Align2::LEFT_BOTTOM,
+        if let Some(label) = label.filter(|_| show_label) {
+            let galley = painter.layout_no_wrap(
                 label,
                 egui::TextStyle::Small.resolve(&ctx.style()),
-                Color32::WHITE,
+                theme::TEXT,
             );
+            let position = viewport.left_bottom() + Vec2::new(14.0, -14.0 - galley.size().y);
+            painter.rect_filled(
+                Rect::from_min_size(position, galley.size()).expand2(Vec2::new(8.0, 4.0)),
+                5.0,
+                theme::CHROME,
+            );
+            painter.galley(position, galley, theme::TEXT);
         }
         true
     }
@@ -321,7 +329,7 @@ mod tests {
         let viewport = Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 600.0));
         let output = ctx.run(egui::RawInput { screen_rect: Some(viewport), ..Default::default() }, |ctx| {
             let painter = ctx.layer_painter(egui::LayerId::background());
-            assert!(state.draw(&painter, viewport, ctx));
+            assert!(state.draw(&painter, viewport, ctx, true));
         });
         let texture = state.texture_for(1).unwrap().id();
         state.stage_preview(1, tiny);
@@ -348,7 +356,7 @@ mod tests {
         let viewport = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
         let draw = |state: &mut State| {
             let output = ctx.run(egui::RawInput { screen_rect: Some(viewport), ..Default::default() }, |ctx| {
-                assert!(state.draw(&ctx.layer_painter(egui::LayerId::background()), viewport, ctx));
+                assert!(state.draw(&ctx.layer_painter(egui::LayerId::background()), viewport, ctx, true));
             });
             let mesh = output.shapes.iter().rev().find_map(|shape| match &shape.shape {
                 egui::Shape::Mesh(mesh) => Some(mesh), _ => None,

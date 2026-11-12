@@ -8,20 +8,18 @@
 
 An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, Photoshop composites, and pictures inside compressed archives.
 
-[Download v0.6.2](https://github.com/walker1911/RustView/releases/tag/v0.6.2) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+[Download v0.6.3](https://github.com/walker1911/RustView/releases/tag/v0.6.3) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
 
-![RustView illustrated overview](assets/readme/hero.svg)
+![RustView's native Windows viewer with its graphite theme and Picasa-style filmstrip](assets/readme/viewer.png)
 
-*Project illustration.*
-
-**v0.6.2** can reuse recently decoded still images when you go back to them, and keeps a clear picture on screen while the next image loads. Opening an individual image shows it first and scans the surrounding folder in the background. In ZIP, RAR, and 7z archives you can resume from the last image shown or jump by filename, path, or number. [v0.6.2 release notes](docs/RELEASE-v0.6.2.md) · [v0.6.1 release notes](docs/RELEASE-v0.6.1.md) · [v0.6.0 release notes](docs/RELEASE-v0.6.0.md) · [v0.4.1 release notes](docs/RELEASE-v0.4.1.md)
+**v0.6.3** brings a graphite interface to Manage and View, with grouped controls and softer selection colors. Hold `←` or `→` to browse local JPEGs with quick target previews. Release the key to finish loading the selected image at full quality. [v0.6.3 release notes](docs/RELEASE-v0.6.3.md) · [Archive resume and jump](docs/RELEASE-v0.6.0.md)
 
 ## Start with the pictures
 
 | Capability | What you can do |
 |---|---|
 | **Browse archives** | Read ZIP / RAR / 7z images on demand with password prompts, resume from the last image shown, and jump by filename, path, or number. |
-| **Keep browsing** | Left/right changes images; up/down zooms. A flat, animated filmstrip keeps the selected photo centered, with a filename and `1/84` counter. |
+| **Keep browsing** | Left/right changes images and up/down zooms. Hold an arrow key for quick local JPEG previews. A flat, animated filmstrip keeps the selected photo centered, with a filename and `1/84` counter. |
 | **View modern formats** | Common images, LibRaw-supported RAW and ProRAW DNG, plus HEIC/HEIF, AVIF, and JPEG XL. |
 | **Open Photoshop documents** | View saved PSD/PSB composites locally or inside ZIP/RAR/7z, including sources larger than 512 MiB. |
 | **Zoom and compare** | Pointer-anchored zoom, panning, visible detail tiles, and up to four linked or independent comparison views. |
@@ -29,11 +27,13 @@ An archive-first photo viewer for **Windows x64**, written in Rust. Familiar key
 | **Work from the source** | RAW adjustments, crop, resize, color, sharpening, text/watermarks, real 16-bit PNG/TIFF, processing records, and presets. |
 | **Manage a collection** | Rename previews, folder/XMP moves, ratings, labels, explicit EXIF/IPTC/XMP editing, and contact sheets. |
 
+![RustView's native Windows management grid with a selected image and its preview](assets/readme/management.png)
+
 ![Archive browsing flow](assets/readme/archive-flow.svg)
 
 In single-image view, click **跳页…** to find an archive image. Enter part of a filename, the full path inside the archive, or a number starting at 1 in the current browsing order. When filenames repeat, use the path to select the intended entry. Resume positions are stored in the local catalog. Encrypted archives prompt for the password again when reopened.
 
-During rapid navigation, RustView can reuse a matching read in progress. While the target preview loads, the previous image's clear overview stays visible with a label identifying both images. A low-resolution preview of the selected target can then appear before the full image is ready. [Browsing behavior](docs/PICASA-BROWSING.md)
+During rapid navigation, RustView can reuse a matching read in progress. While the target preview loads, the previous image's clear overview stays visible with a label identifying both images. Opening an individual image starts the read before directory scanning. For a static image opened at launch, the supervised read can also overlap graphics initialization. [Browsing behavior](docs/PICASA-BROWSING.md)
 
 ZIP and 7z updates create a backup. RAR is read-only. RAW metadata uses XMP sidecars.
 
@@ -60,7 +60,7 @@ v0.4.0 permits [local and ZIP/RAR/7z-contained PSD/PSB](docs/PSD.md) sources up 
 
 ## Download and use
 
-1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.2/RustView-0.6.2-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.6.2/RustView-0.6.2-win-x64-offline.zip.sha256)
+1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.3/RustView-0.6.3-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.6.3/RustView-0.6.3-win-x64-offline.zip.sha256)
 2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. The package includes the image engines and runtime libraries for offline use from first launch.
 3. Open or drag in a folder, picture, or archive. Keep the complete extracted folder.
 

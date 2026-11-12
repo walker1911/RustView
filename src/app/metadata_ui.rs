@@ -96,6 +96,7 @@ impl Viewer {
             };
         }
         if self.extra.metadata_ui.requested
+            || self.deferred_image.is_some()
             || self.running.is_some()
             || self.pending.is_some()
             || self.extra.writing.is_some()

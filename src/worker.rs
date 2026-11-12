@@ -387,6 +387,51 @@ fn source_record(request: &Request) -> Option<crate::recipes::EditRecord> {
     identity(request).and_then(|(path, entry)| crate::recipes::read_for(path, entry))
 }
 
+fn local_jpeg_load(request: &Request) -> Option<(&Path, bool)> {
+    let (source, managed) = match request {
+        Request::ColorPreview { source, managed } => (source.as_ref(), *managed),
+        _ => (request, true),
+    };
+    let Request::Load { path, entry: None, full_raw: false, .. } = source else {
+        return None;
+    };
+    path.extension().and_then(|extension| extension.to_str()).filter(|extension| {
+        ["jpg", "jpeg", "jpe", "jfif"].iter().any(|suffix| extension.eq_ignore_ascii_case(suffix))
+    })?;
+    Some((path, managed))
+}
+
+pub(crate) fn is_local_jpeg_load(request: &Request) -> bool {
+    local_jpeg_load(request).is_some()
+}
+
+fn scaled_jpeg(request: &Request, side: u32) -> Option<crate::imaging::JpegPreview> {
+    let (path, managed) = local_jpeg_load(request)?;
+    // The fast lane never expands a large source in the UI process. Larger or
+    // unsupported images use the existing supervised decoding path.
+    crate::imaging::decode_jpeg_preview(path, side, 32_000_000, MAX_IMAGE_BYTES, managed)
+}
+
+pub(crate) fn scaled_jpeg_thumbnail(request: &Request) -> Option<Output> {
+    if !is_local_jpeg_load(request) || source_record(request).is_some() {
+        return None;
+    }
+    let preview = scaled_jpeg(request, THUMBNAIL_SIDE)?;
+    Some(Output {
+        reply: Reply {
+            width: preview.image.width,
+            height: preview.image.height,
+            source_width: preview.source_width,
+            source_height: preview.source_height,
+            note: preview.image.note,
+            page_total: 1,
+            ..Default::default()
+        },
+        rgba: preview.image.rgba,
+        preview: Vec::new(),
+    })
+}
+
 fn render_record_preview(
     input: &Path,
     index: u32,
@@ -460,7 +505,14 @@ fn decode_recorded_source(
     ),
     Reply,
 > {
-    let record = source_record(request);
+    decode_source_with_record(request, output, source_record(request))
+}
+
+fn decode_source_with_record(
+    request: &Request,
+    output: &Path,
+    record: Option<crate::recipes::EditRecord>,
+) -> Result<((crate::imaging::DecodedImage, u32, u32), Option<crate::recipes::EditRecord>), Reply> {
     let Some(record) = record else {
         return decode_source(request, output).map(|image| (image, None));
     };
@@ -889,11 +941,19 @@ fn handle_request(request: Request, output: &Path, publish_preview: bool) -> Rep
         | Request::Page { .. }
         | Request::ColorPreview { .. }
         | Request::Unedited { .. } => {
-            let (decoded, record) = match decode_recorded_source(&request, output) {
+            let record = source_record(&request);
+            let early_preview = publish_preview && record.is_none()
+                && scaled_jpeg(&request, CONTINUITY_SIDE)
+                    .and_then(|preview| ContinuityPreview::sample(
+                        preview.image.width, preview.image.height, &preview.image.rgba,
+                        preview.source_width, preview.source_height,
+                    ))
+                    .is_some_and(|preview| preview.publish(output).is_ok());
+            let (decoded, record) = match decode_source_with_record(&request, output, record) {
                 Ok(d) => d,
                 Err(r) => return r,
             };
-            write_source(output, decoded, publish_preview)
+            write_source(output, decoded, publish_preview && !early_preview)
                 .map(|mut reply| {
                     reply.editing_record = record;
                     reply

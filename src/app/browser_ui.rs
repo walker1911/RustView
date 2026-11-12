@@ -245,7 +245,7 @@ impl Viewer {
                             egui::Align2::LEFT_CENTER,
                             &self.extra.browser_ui.groups[group].1,
                             egui::TextStyle::Body.resolve(ui.style()),
-                            Color32::LIGHT_BLUE,
+                            theme::MUTED,
                         );
                         ui.allocate_space(egui::vec2(width, height));
                         continue;
@@ -516,21 +516,28 @@ impl Viewer {
                         ui.selectable_value(&mut self.extra.browser_ui.group, value, value.title());
                     }
                 });
-            ui.label(format!(
-                "{} 项／已选 {} 项",
-                self.extra.visible.len(),
-                self.extra.selection.len()
-            ));
+            ui.small(
+                egui::RichText::new(format!(
+                    "{} 项 · 已选 {} 项",
+                    self.extra.visible.len(),
+                    self.extra.selection.len()
+                ))
+                .color(theme::MUTED),
+            );
             if self.extra.browser_ui.metadata_task.is_some() {
                 ui.spinner();
             }
         });
-        ui.separator();
+        ui.add_space(6.0);
     }
 
     fn management_detail_header(&mut self, ui: &mut egui::Ui) {
         let width = ui.available_width();
         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            let inactive = &mut ui.visuals_mut().widgets.inactive;
+            inactive.weak_bg_fill = Color32::TRANSPARENT;
+            inactive.bg_stroke = egui::Stroke::NONE;
             for (value, fraction) in [
                 (SortBy::Name, 0.40),
                 (SortBy::Type, 0.10),
@@ -541,8 +548,15 @@ impl Viewer {
             ] {
                 if ui
                     .add_sized(
-                        [width * fraction - 8.0, 22.0],
-                        egui::Button::new(value.title()),
+                        [(width * fraction - 8.0).max(0.0), 22.0],
+                        egui::Button::new(egui::RichText::new(value.title()).color(
+                            if self.extra.browser_ui.sort == value {
+                                theme::ACCENT
+                            } else {
+                                theme::MUTED
+                            },
+                        ))
+                        .wrap_mode(egui::TextWrapMode::Truncate),
                     )
                     .clicked()
                 {
@@ -580,17 +594,16 @@ impl Viewer {
             )
         });
         let painter = ui.painter_at(rect);
-        if selected || response.hovered() {
-            painter.rect_filled(
-                rect,
-                3.0,
-                if selected {
-                    Color32::from_rgb(47, 77, 108)
-                } else {
-                    Color32::from_rgb(42, 45, 49)
-                },
-            );
-        }
+        let fill = if selected {
+            theme::SELECTED
+        } else if response.hovered() {
+            theme::HOVER
+        } else if !matches!(layout, 2011 | 2012) {
+            theme::PANEL
+        } else {
+            Color32::TRANSPARENT
+        };
+        painter.rect_filled(rect, 6.0, fill);
         let marks = self
             .extra
             .browser_ui
@@ -600,7 +613,7 @@ impl Viewer {
             .unwrap_or_default();
         let body_font = egui::TextStyle::Body.resolve(ui.style());
         let small_font = egui::TextStyle::Small.resolve(ui.style());
-        let text = Color32::from_gray(220);
+        let text = theme::TEXT;
         let draw_text = |area: Rect, value: &str, font: &egui::FontId, color| {
             let galley = painter.layout(value.to_owned(), font.clone(), color, area.width());
             painter.with_clip_rect(area).galley(area.min, galley, color);
@@ -630,15 +643,15 @@ impl Viewer {
                     ),
                     value,
                     if column == 0 { &body_font } else { &small_font },
-                    text,
+                    if column == 0 { text } else { theme::MUTED },
                 );
                 x += width;
             }
         } else if layout == 2011 {
             let prefix = if entry.directory {
-                "[文件夹] "
+                "文件夹 · "
             } else if entry.archive {
-                "[压缩包] "
+                "压缩包 · "
             } else {
                 ""
             };
@@ -672,7 +685,7 @@ impl Viewer {
                     Color32::WHITE,
                 );
             } else {
-                painter.rect_filled(image_rect, 2.0, Color32::from_rgb(30, 32, 35));
+                painter.rect_filled(image_rect, 4.0, theme::CHROME);
                 painter.text(
                     image_rect.center(),
                     egui::Align2::CENTER_CENTER,
@@ -684,7 +697,7 @@ impl Viewer {
                         "图片"
                     },
                     small_font.clone(),
-                    Color32::GRAY,
+                    theme::MUTED,
                 );
             }
             let name_rect = if vertical {
@@ -710,7 +723,7 @@ impl Viewer {
                         label_title(marks.1)
                     ),
                     &small_font,
-                    Color32::GRAY,
+                    theme::MUTED,
                 );
             }
         }
@@ -758,17 +771,21 @@ impl Viewer {
     }
 
     fn draw_management_preview(&mut self, ctx: &egui::Context) {
+        let narrow = ctx.screen_rect().width() < 900.0;
         egui::SidePanel::right("management-preview")
-            .default_width(270.0)
-            .width_range(180.0..=500.0)
+            .default_width(if narrow { 210.0 } else { 270.0 })
+            .width_range(180.0..=if narrow { 220.0 } else { 500.0 })
+            .show_separator_line(false)
+            .frame(egui::Frame::side_top_panel(&ctx.style()).fill(theme::CHROME))
             .show(ctx, |ui| {
-                ui.heading("预览");
+                ui.small(egui::RichText::new("预览").color(theme::MUTED));
                 let name = self
                     .current_key
                     .and_then(|(i, _)| self.entries.get(i))
                     .map(|e| e.name.as_str())
                     .unwrap_or("选择图片预览");
-                ui.add(egui::Label::new(name).wrap());
+                ui.add(egui::Label::new(name).truncate())
+                    .on_hover_text(name);
                 if let Some(image) = self.current.clone() {
                     if self.overview.is_none() {
                         self.overview = Some(ctx.load_texture(
@@ -792,8 +809,13 @@ impl Viewer {
                             preview.paint_at(ui, rect);
                         }
                     }
-                    ui.label(format!("{} × {}", image.width, image.height));
-                    ui.small(&image.note);
+                    ui.small(
+                        egui::RichText::new(format!("{} × {}", image.width, image.height))
+                            .color(theme::MUTED),
+                    );
+                    if !image.note.is_empty() {
+                        ui.small(&image.note);
+                    }
                 }
                 if ui.button("进入查看 (Enter)").clicked() {
                     self.open_management_selection(ctx);
@@ -805,8 +827,10 @@ impl Viewer {
         let mut command = None;
         egui::SidePanel::right("management-tasks")
             .default_width(180.0)
+            .show_separator_line(false)
+            .frame(egui::Frame::side_top_panel(&ctx.style()).fill(theme::CHROME))
             .show(ctx, |ui| {
-                ui.heading("文件任务");
+                ui.small(egui::RichText::new("文件任务").color(theme::MUTED));
                 for (title, id) in [
                     ("复制到…", 2033),
                     ("移动到…", 2034),
@@ -818,8 +842,11 @@ impl Viewer {
                         command = Some(id);
                     }
                 }
-                ui.separator();
-                ui.small("文件操作先检查冲突；压缩包修改保留原包备份。");
+                ui.add_space(6.0);
+                ui.small(
+                    egui::RichText::new("文件操作先检查冲突；压缩包修改保留原包备份。")
+                        .color(theme::MUTED),
+                );
             });
         if let Some(id) = command {
             self.legacy_command(id, ctx);
@@ -838,6 +865,8 @@ impl Viewer {
             .and_then(|index| self.extra.visible.iter().position(|i| *i == index));
         egui::TopBottomPanel::bottom("management-filmstrip")
             .exact_height(148.0)
+            .show_separator_line(false)
+            .frame(egui::Frame::side_top_panel(&ctx.style()).fill(theme::CHROME))
             .show(ctx, |ui| {
                 let mut scroll =
                     egui::ScrollArea::horizontal().id_salt("management-filmstrip-scroll");
@@ -1023,13 +1052,25 @@ impl Viewer {
     fn draw_folder_tree(&mut self, ctx: &egui::Context) {
         let mut expand = None;
         let mut open = None;
+        let narrow = ctx.screen_rect().width() < 900.0;
         egui::SidePanel::left("management-folders")
-            .default_width(220.0)
-            .width_range(140.0..=450.0)
+            .default_width(if narrow { 170.0 } else { 220.0 })
+            .width_range(140.0..=if narrow { 180.0 } else { 450.0 })
+            .show_separator_line(false)
+            .frame(egui::Frame::side_top_panel(&ctx.style()).fill(theme::CHROME))
             .show(ctx, |ui| {
-                ui.heading("文件夹");
-                if let Some(source) = self.source.clone() {
-                    ui.add(egui::Label::new(source.to_string_lossy()).wrap());
+                ui.small(egui::RichText::new("文件夹").color(theme::MUTED));
+                if let Some(source) = &self.source {
+                    let path = source.to_string_lossy();
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(path.as_ref())
+                                .small()
+                                .color(theme::MUTED),
+                        )
+                        .truncate(),
+                    )
+                    .on_hover_text(path.as_ref());
                 }
                 if let Some(problem) = &self.extra.browser_ui.folder_problem {
                     ui.colored_label(Color32::LIGHT_RED, problem);
@@ -1041,7 +1082,9 @@ impl Viewer {
                         for index in range {
                             let node = &self.extra.browser_ui.folders_rows[index];
                             ui.horizontal(|ui| {
-                                ui.add_space((node.depth.min(32) * 14) as f32);
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                let indent = (node.depth.min(32) * 14) as f32;
+                                ui.add_space(indent.min((ui.available_width() - 80.0).max(0.0)));
                                 if ui
                                     .small_button(if node.expanded { "−" } else { "+" })
                                     .clicked()
@@ -1058,6 +1101,7 @@ impl Viewer {
                                         self.source.as_ref() == Some(&node.path),
                                         title,
                                     )
+                                    .on_hover_text(node.path.to_string_lossy())
                                     .clicked()
                                 {
                                     open = Some(node.path.clone());

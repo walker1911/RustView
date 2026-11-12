@@ -1,4 +1,5 @@
 use super::*;
+use super::theme;
 use std::collections::{BTreeSet, VecDeque};
 
 const MAX_COVERS: usize = 32;
@@ -242,7 +243,8 @@ fn paint_cover(ui: &mut egui::Ui, rect: Rect, opacity: f32,
     texture: Option<&TextureHandle>, selected: bool,
 ) {
     let alpha = (opacity * 255.0).round() as u8;
-    ui.painter().rect_filled(rect, 0.0, Color32::from_rgba_unmultiplied(35, 43, 52, alpha));
+    let fill = if selected { theme::SELECTED } else { theme::PANEL };
+    ui.painter().rect_filled(rect, 5.0, fill.gamma_multiply(opacity));
     if let Some(texture) = texture {
         let dimensions = texture.size_vec2();
         let inner = rect.shrink(4.0);
@@ -250,16 +252,15 @@ fn paint_cover(ui: &mut egui::Ui, rect: Rect, opacity: f32,
         let image = Rect::from_center_size(inner.center(), dimensions * scale);
         ui.painter().image(texture.id(), image,
             Rect::from_min_max(Pos2::ZERO, egui::pos2(1.0, 1.0)), Color32::from_white_alpha(alpha));
-    } else {
-        ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, "· · ·",
-            egui::TextStyle::Small.resolve(ui.style()), Color32::from_white_alpha(alpha / 2));
     }
-    ui.painter().add(egui::Shape::closed_line(
-        vec![rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom()], egui::Stroke::new(
-        if selected { 2.0_f32 } else { 1.0_f32 },
-        if selected { Color32::from_rgba_unmultiplied(131, 215, 190, alpha) }
-        else { Color32::from_rgba_unmultiplied(142, 158, 174, alpha / 2) },
-    )));
+    if selected {
+        ui.painter().rect_stroke(
+            rect,
+            5.0,
+            egui::Stroke::new(1.0_f32, theme::ACCENT.gamma_multiply(opacity)),
+            egui::StrokeKind::Inside,
+        );
+    }
 }
 
 impl Viewer {
@@ -367,8 +368,22 @@ impl Viewer {
             if self.running.is_some() || self.pending.is_some() || self.error.is_some() {
                 return None;
             }
-            return self.extra.presentation.target_index().filter(|index| {
+            let target = self.extra.presentation.target_index()?;
+            if self.deferred_image.is_some() && self.extra.presentation.has_target_preview(target) {
+                let position = self.extra.coverflow.position(Some(target))?;
+                let next = if self.nav_forward { position + 1 } else { position.checked_sub(1)? };
+                let candidate = *self.extra.coverflow.sequence.get(next)?;
+                if !self.extra.coverflow.previews.contains_key(&candidate)
+                    && !self.extra.coverflow.failed.contains(&candidate)
+                    && self.make_load(candidate, false).as_ref().is_some_and(worker::is_local_jpeg_load)
+                {
+                    return Some(candidate);
+                }
+                return None;
+            }
+            return Some(target).filter(|index| {
                 !self.large_archived_photoshop(*index)
+                    && !self.extra.presentation.has_target_preview(*index)
                     && !self.extra.coverflow.textures.contains_key(index)
                     && !self.extra.coverflow.failed.contains(index)
             });
@@ -418,7 +433,15 @@ impl Viewer {
         let (sender, receiver) = mpsc::sync_channel(1);
         let context = ctx.clone();
         std::thread::spawn(move || {
-            let result = worker::execute(Request::Thumbnail { source: Box::new(source) }, thread_cancel);
+            let preview = if thread_cancel.load(Ordering::Relaxed) {
+                None
+            } else {
+                worker::scaled_jpeg_thumbnail(&source)
+            };
+            let result = match preview {
+                Some(output) if !thread_cancel.load(Ordering::Relaxed) => Ok(output),
+                _ => worker::execute(Request::Thumbnail { source: Box::new(source) }, thread_cancel),
+            };
             let _ = sender.send(result);
             context.request_repaint();
         });
@@ -445,7 +468,8 @@ impl Viewer {
             && !ctx.memory(|memory| memory.any_popup_open());
         egui::TopBottomPanel::bottom("viewer-coverflow")
             .exact_height(height)
-            .frame(egui::Frame::NONE.fill(Color32::from_rgb(17, 21, 27)))
+            .show_separator_line(false)
+            .frame(egui::Frame::NONE.fill(theme::CANVAS))
             .show(ctx, |ui| {
                 let (area, _) = ui.allocate_exact_size(
                     egui::vec2(ui.available_width(), height - 28.0), Sense::hover());
@@ -494,10 +518,13 @@ impl Viewer {
                 }
                 ui.horizontal(|ui| {
                     ui.add_space(12.0);
-                    ui.strong(format!("{}/{}", position + 1, total));
+                    ui.label(egui::RichText::new(format!("{} / {}", position + 1, total))
+                        .small().strong().color(theme::TEXT));
                     if let Some(index) = self.selected {
                         if let Some(entry) = self.entries.get(index) {
-                            ui.add(egui::Label::new(&entry.name).truncate());
+                            ui.add(egui::Label::new(egui::RichText::new(&entry.name)
+                                .small().color(theme::MUTED)).truncate())
+                                .on_hover_text(&entry.name);
                         }
                     }
                 });

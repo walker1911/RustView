@@ -12,6 +12,40 @@ pub struct DecodedImage {
     pub note: String,
 }
 
+pub(crate) struct JpegPreview {
+    pub image: DecodedImage,
+    pub source_width: u32,
+    pub source_height: u32,
+}
+
+/// Try a native JPEG preview. The normal decoder remains authoritative for
+/// unsupported JPEGs and for the full image.
+pub(crate) fn decode_jpeg_preview(
+    input: &Path,
+    max_side: u32,
+    max_pixels: u64,
+    max_output_bytes: usize,
+    managed: bool,
+) -> Option<JpegPreview> {
+    #[cfg(windows)]
+    {
+        if max_side == 0
+            || !matches!(
+                extension(&input.to_string_lossy()).as_str(),
+                "jpg" | "jpeg" | "jpe" | "jfif"
+            )
+        {
+            return None;
+        }
+        jpeg_preview::decode(input, max_side, max_pixels, max_output_bytes, managed)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (input, max_side, max_pixels, max_output_bytes, managed);
+        None
+    }
+}
+
 fn extension(name: &str) -> String {
     Path::new(name)
         .extension()
@@ -306,6 +340,233 @@ pub(crate) fn apply_icc(bytes: &[u8], rgba: &mut [u8]) -> Result<(), String> {
         chunk.copy_from_slice(&output[..chunk.len()]);
     }
     Ok(())
+}
+
+#[cfg(windows)]
+mod jpeg_preview {
+    use super::{apply_icc, output_size, DecodedImage, JpegPreview};
+    use image::{metadata::Orientation, DynamicImage, RgbaImage};
+    use std::{os::windows::ffi::OsStrExt, path::Path, ptr};
+    use windows::core::{w, Interface, PCWSTR, PROPVARIANT};
+    use windows::Win32::{
+        Foundation::{GENERIC_READ, WINCODEC_ERR_PROPERTYNOTFOUND, WINCODEC_ERR_PROPERTYNOTSUPPORTED},
+        Graphics::Imaging::{
+            CLSID_WICImagingFactory, CLSID_WICJpegDecoder,
+            GUID_WICPixelFormat24bppBGR as BGR24, GUID_WICPixelFormat8bppGray as GRAY8,
+            IWICBitmapDecoder, IWICBitmapFrameDecode,
+            IWICBitmapSourceTransform, IWICImagingFactory, IWICJpegFrameDecode,
+            WICBitmapTransformRotate0, WICColorContextExifColorSpace as EXIF_COLOR_SPACE,
+            WICColorContextProfile as ICC_PROFILE,
+            WICDecodeMetadataCacheOnDemand, WICJpegFrameHeader, WICJpegScanTypeInterleaved,
+        },
+        System::Com::{
+            CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
+            COINIT_MULTITHREADED, STATFLAG_NONAME, STATSTG,
+        },
+    };
+
+    const MAX_COMPRESSED_BYTES: u64 = 32 * 1024 * 1024;
+    const MAX_SCALED_RGBA_BYTES: usize = 16 * 1024 * 1024;
+
+    struct Apartment;
+
+    impl Drop for Apartment {
+        fn drop(&mut self) {
+            // Created only after a successful CoInitializeEx on this thread.
+            unsafe { CoUninitialize() };
+        }
+    }
+
+    fn orientation(frame: &IWICBitmapFrameDecode) -> Option<Orientation> {
+        let reader = unsafe { frame.GetMetadataQueryReader().ok()? };
+        let mut value = PROPVARIANT::default();
+        match unsafe { reader.GetMetadataByName(w!("/app1/ifd/{ushort=274}"), &mut value) } {
+            Ok(()) => Orientation::from_exif(u8::try_from(u16::try_from(&value).ok()?).ok()?),
+            Err(error)
+                if matches!(
+                    error.code(),
+                    WINCODEC_ERR_PROPERTYNOTFOUND | WINCODEC_ERR_PROPERTYNOTSUPPORTED
+                ) =>
+            {
+                Some(Orientation::NoTransforms)
+            }
+            Err(_) => None,
+        }
+    }
+
+    fn icc_profile(
+        factory: &IWICImagingFactory,
+        frame: &IWICBitmapFrameDecode,
+    ) -> Option<Option<Vec<u8>>> {
+        let mut count = 0;
+        // The size query requires NULL, which an empty Rust slice does not provide.
+        unsafe {
+            (frame.vtable().GetColorContexts)(frame.as_raw(), 0, ptr::null_mut(), &mut count)
+                .ok().ok()?;
+        }
+        if count > 4 {
+            return None;
+        }
+        if count == 0 {
+            return Some(None);
+        }
+        let mut contexts = (0..count)
+            .map(|_| unsafe { factory.CreateColorContext().ok().map(Some) })
+            .collect::<Option<Vec<_>>>()?;
+        unsafe { frame.GetColorContexts(&mut contexts, &mut count).ok()? };
+        if count as usize > contexts.len() {
+            return None;
+        }
+        for context in contexts.into_iter().take(count as usize) {
+            let context = context?;
+            match unsafe { context.GetType().ok()? } {
+                EXIF_COLOR_SPACE => continue,
+                ICC_PROFILE => {
+                    let mut bytes = 0;
+                    unsafe {
+                        (context.vtable().GetProfileBytes)(
+                            context.as_raw(), 0, ptr::null_mut(), &mut bytes,
+                        )
+                        .ok()
+                        .ok()?;
+                    }
+                    if bytes == 0 || bytes > 4 * 1024 * 1024 {
+                        return None;
+                    }
+                    let mut profile = vec![0; bytes as usize];
+                    unsafe { context.GetProfileBytes(&mut profile, &mut bytes).ok()? };
+                    return (bytes as usize == profile.len()).then_some(Some(profile));
+                }
+                _ => return None,
+            }
+        }
+        Some(None)
+    }
+
+    fn fit(width: u32, height: u32, max_side: u32) -> (u32, u32) {
+        let longest = u64::from(width.max(height));
+        let side = longest.min(u64::from(max_side));
+        let scale = |length| (u64::from(length) * side / longest).max(1) as u32;
+        (scale(width), scale(height))
+    }
+
+    pub(super) fn decode(
+        input: &Path,
+        max_side: u32,
+        max_pixels: u64,
+        max_output_bytes: usize,
+        managed: bool,
+    ) -> Option<JpegPreview> {
+        let input_size = super::checked_input_size(input).ok()?;
+        if input_size == 0 || input_size > MAX_COMPRESSED_BYTES {
+            return None;
+        }
+
+        unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok().ok()? };
+        let _apartment = Apartment;
+        let factory: IWICImagingFactory = unsafe {
+            CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER).ok()?
+        };
+        // Open the specific inbox JPEG decoder. Extension alone never selects a codec.
+        let decoder: IWICBitmapDecoder = unsafe {
+            CoCreateInstance(&CLSID_WICJpegDecoder, None, CLSCTX_INPROC_SERVER).ok()?
+        };
+        let path: Vec<u16> = input.as_os_str().encode_wide().chain(Some(0)).collect();
+        let stream = unsafe { factory.CreateStream().ok()? };
+        unsafe { stream.InitializeFromFilename(PCWSTR(path.as_ptr()), GENERIC_READ.0).ok()? };
+        let mut stat = STATSTG::default();
+        unsafe { stream.Stat(&mut stat, STATFLAG_NONAME).ok()? };
+        if stat.cbSize != input_size {
+            return None;
+        }
+        unsafe { decoder.Initialize(&stream, WICDecodeMetadataCacheOnDemand).ok()? };
+        let frame = unsafe { decoder.GetFrame(0).ok()? };
+        let mut header = WICJpegFrameHeader::default();
+        let jpeg = frame.cast::<IWICJpegFrameDecode>().ok()?;
+        unsafe { jpeg.GetFrameHeader(&mut header).ok()? };
+        // Multiple scans can require full-image coefficient buffers even when the output is scaled.
+        if header.ScanType != WICJpegScanTypeInterleaved || !matches!(header.cComponents, 1 | 3) {
+            return None;
+        }
+        let (source_width, source_height) = (header.Width, header.Height);
+        output_size(source_width, source_height, max_pixels, max_output_bytes).ok()?;
+        let transform = frame.cast::<IWICBitmapSourceTransform>().ok()?;
+        let (mut width, mut height) = fit(source_width, source_height, max_side);
+        unsafe { transform.GetClosestSize(&mut width, &mut height).ok()? };
+        if width > source_width
+            || height > source_height
+            || (width, height) == (source_width, source_height)
+        {
+            return None;
+        }
+        let rgba_size = output_size(width, height, max_pixels, MAX_SCALED_RGBA_BYTES).ok()?;
+        let mut format = unsafe { frame.GetPixelFormat().ok()? };
+        unsafe { transform.GetClosestPixelFormat(&mut format).ok()? };
+        let channels = match format {
+            BGR24 => 3,
+            GRAY8 => 1,
+            _ => return None,
+        };
+        let orientation = orientation(&frame)?;
+        let profile = if managed {
+            icc_profile(&factory, &frame)?
+        } else {
+            None
+        };
+        let mut packed = vec![0; rgba_size / 4 * channels];
+        unsafe {
+            transform
+                .CopyPixels(
+                    ptr::null(),
+                    width,
+                    height,
+                    &format,
+                    WICBitmapTransformRotate0,
+                    width * channels as u32,
+                    &mut packed,
+                )
+                .ok()?;
+        }
+        let mut pixels = Vec::with_capacity(rgba_size);
+        for pixel in packed.chunks_exact(channels) {
+            let [r, g, b] = if channels == 3 {
+                [pixel[2], pixel[1], pixel[0]]
+            } else {
+                [pixel[0]; 3]
+            };
+            pixels.extend_from_slice(&[r, g, b, 255]);
+        }
+        drop(packed);
+        let mut image = DynamicImage::ImageRgba8(RgbaImage::from_raw(width, height, pixels)?);
+        image.apply_orientation(orientation);
+        let (source_width, source_height) = match orientation {
+            Orientation::Rotate90
+            | Orientation::Rotate270
+            | Orientation::Rotate90FlipH
+            | Orientation::Rotate270FlipH => (source_height, source_width),
+            _ => (source_width, source_height),
+        };
+        let side = max_side.min(width.max(height));
+        let (width, height) = fit(source_width, source_height, side);
+        let mut rgba = image.into_rgba8();
+        if rgba.dimensions() != (width, height) {
+            rgba = image::imageops::thumbnail(&rgba, width, height);
+        }
+        let mut rgba = rgba.into_raw();
+        if let Some(profile) = profile {
+            apply_icc(&profile, &mut rgba).ok()?;
+        }
+        Some(JpegPreview {
+            image: DecodedImage {
+                width,
+                height,
+                rgba,
+                note: String::new(),
+            },
+            source_width,
+            source_height,
+        })
+    }
 }
 
 #[cfg(not(windows))]
@@ -871,6 +1132,64 @@ mod tests {
         std::fs::write(&path, file).unwrap();
         let decoded = decode(&path, 6, 128, false).unwrap();
         assert_eq!((decoded.width, decoded.height), (3, 2));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn jpeg_scaled_preview_uses_native_scale_and_checks_source_limits() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("preview.JPG");
+        let (width, height) = (1281, 641);
+        let rgb = [24, 140, 218].repeat(width * height);
+        image::save_buffer_with_format(&path, &rgb, width as u32, height as u32,
+            image::ExtendedColorType::Rgb8, ImageFormat::Jpeg).unwrap();
+        let preview = decode_jpeg_preview(&path, 64, 2_000_000, 8 * 1024 * 1024, true).unwrap();
+        assert_eq!((preview.source_width, preview.source_height), (1281, 641));
+        assert_eq!((preview.image.width, preview.image.height), (64, 32));
+        assert_eq!(preview.image.rgba.len(), 64 * 32 * 4);
+        assert!(preview.image.rgba.chunks_exact(4).all(|pixel| {
+            pixel[3] == 255 && pixel[..3].iter().zip([24, 140, 218])
+                .all(|(&actual, expected)| actual.abs_diff(expected) <= 4)
+        }));
+        assert!(decode_jpeg_preview(&path, 64, 2_000_000, 1000, true).is_none());
+        assert!(decode_jpeg_preview(&path, 64, 1000, 8 * 1024 * 1024, true).is_none());
+        assert!(decode_jpeg_preview(&path, 2048, 2_000_000, 8 * 1024 * 1024, true).is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn jpeg_scaled_preview_applies_exif_and_icc_like_full_decode() {
+        use image::ImageEncoder;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("旋转色彩.jpg");
+        let (width, height) = (1280, 640);
+        let mut rgb = [176, 80, 145].repeat(width * height / 2);
+        rgb.extend([64, 174, 99].repeat(width * height / 2));
+        let exif = [
+            b'I', b'I', 42, 0, 8, 0, 0, 0, 1, 0, 0x12, 1, 3, 0, 1, 0, 0, 0,
+            6, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        let mut jpeg = Vec::new();
+        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 95);
+        encoder.set_exif_metadata(exif.to_vec()).unwrap();
+        encoder.set_icc_profile(ColorProfile::new_adobe_rgb().encode().unwrap()).unwrap();
+        encoder.encode(&rgb, width as u32, height as u32, image::ExtendedColorType::Rgb8).unwrap();
+        std::fs::write(&path, jpeg).unwrap();
+
+        for managed in [true, false] {
+            let full = decode_options(&path, 2_000_000, 8 * 1024 * 1024, false, managed).unwrap();
+            let preview = decode_jpeg_preview(&path, 128, 2_000_000, 8 * 1024 * 1024, managed).unwrap();
+            assert_eq!((preview.source_width, preview.source_height), (640, 1280));
+            assert_eq!((preview.image.width, preview.image.height), (64, 128));
+            for x in [8, 56] {
+                let scaled = ((64 * 64 + x) * 4) as usize;
+                let source = ((640 * 640 + x * 10) * 4) as usize;
+                for channel in 0..4 {
+                    assert!(preview.image.rgba[scaled + channel].abs_diff(full.rgba[source + channel]) <= 5);
+                }
+            }
+        }
     }
 
     #[test]

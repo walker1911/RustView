@@ -8,13 +8,11 @@
 
 面向 **Windows x64** 的 Rust 看图项目。把相机 RAW、GIF/WebP 动画、Photoshop 合成图和 ZIP／RAR／7z 里的照片，放进熟悉的键盘翻图、Picasa 式胶片带与平滑缩放流程。
 
-[下载 v0.6.2](https://github.com/walker1911/RustView/releases/tag/v0.6.2) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
+[下载 v0.6.3](https://github.com/walker1911/RustView/releases/tag/v0.6.3) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
 
-![RustView 项目概念图](assets/readme/hero.svg)
+![RustView Windows 查看界面，采用石墨配色和 Picasa 式胶片带](assets/readme/viewer.png)
 
-*配图为项目概念图。*
-
-**v0.6.2** 支持回看时复用近期解码的静态图片，等待目标图时保留清晰画面。直接打开一张图片时，先显示图片，再在后台扫描同目录。ZIP、RAR、7z 支持从上次显示的图片继续浏览，也可以按文件名、路径或序号跳页。[v0.6.2 更新说明](docs/RELEASE-v0.6.2.md) · [v0.6.1 更新说明](docs/RELEASE-v0.6.1.md) · [v0.6.0 更新说明](docs/RELEASE-v0.6.0.md) · [v0.4.1 更新说明](docs/RELEASE-v0.4.1.md)
+**v0.6.3** 为管理和查看界面换上石墨配色，工具按用途分组，选中状态更柔和。按住 `←` 或 `→` 浏览本地 JPEG 时优先显示目标低清预览，松键后补齐选中图的清晰细节。[v0.6.3 更新说明](docs/RELEASE-v0.6.3.md) · [压缩包续看与跳页](docs/RELEASE-v0.6.0.md)
 
 ## 从照片出发
 
@@ -23,7 +21,7 @@
 | 能力 | 可以做什么 |
 |---|---|
 | **直接看包内图片** | 按需读取 ZIP／RAR／7z 里的图片，需要时输入密码。可续看到上次显示的位置，也可按文件名、路径或序号跳页。 |
-| **连续翻图** | 左右键切换，上下键缩放；平直胶片带平滑跟随，当前图居中、最清晰，并显示文件名和 `1/84` 序号。 |
+| **连续翻图** | 左右键切换，上下键缩放。按住左右键可连续预览本地 JPEG。平直胶片带平滑跟随，当前图居中并显示文件名和 `1/84` 序号。 |
 | **看 Photoshop 文档** | 直接读取本地及 ZIP／RAR／7z 内 PSD/PSB 保存的合成图，支持超过 512 MiB 的大源文件。 |
 | **接纳现代格式** | 常见图片、LibRaw 支持的相机 RAW、苹果 ProRAW DNG，以及由内置引擎读取的 HEIC/HEIF、AVIF、JPEG XL。 |
 | **平滑缩放与比较** | 保持鼠标指向位置缩放，拖动平移，按可见区域上传细节；最多四图独立或联动查看。 |
@@ -31,11 +29,13 @@
 | **从原始源处理** | RAW 调节、裁剪、尺寸、色彩、锐化、文字与水印；导出真正的 16 位 PNG/TIFF，保存处理记录与预设。 |
 | **整理与输出** | 批量改名前预览、文件夹与 XMP 伴随迁移、评级和标签、显式读写 EXIF/IPTC/XMP，以及接触表排版。 |
 
+![RustView Windows 管理视图，显示缩略图网格和所选图片的预览](assets/readme/management.png)
+
 ![压缩包浏览流程](assets/readme/archive-flow.svg)
 
 在单图查看中点击工具栏的 **「跳页…」**，可以输入文件名的一部分、完整包内路径或从 1 开始的当前浏览序号。文件名重复时，可按包内路径选择。续看位置存入本地目录库，重新打开加密包时会再次询问密码。
 
-快速翻图时，可复用已经在读取的目标任务。目标预览就绪前保留上一张的清晰预览，并同时标出目标文件和暂时显示的文件。目标的低清预览就绪后即可先行显示，随后切换为清晰图。[浏览说明](docs/PICASA-BROWSING.md)
+快速翻图时，可复用已经在读取的目标任务。目标预览就绪前保留上一张的清晰预览，并同时标出目标文件和暂时显示的文件。直接打开单张图片时，先读取该图片，再扫描同目录。以静态图启动程序时，受限解码进程还可与图形初始化并行。[浏览说明](docs/PICASA-BROWSING.md)
 
 处理步骤保存为记录，常用参数保存为预设。导出会重新读取源数据计算，界面中的 RGBA8 显示预览不作为 RAW／高位输出的来源。
 
@@ -66,7 +66,7 @@ v0.4.0 对[本地及ZIP／RAR／7z内的PSD/PSB](docs/PSD.md)提供源文件例�
 
 ## 下载与运行
 
-1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.2/RustView-0.6.2-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.6.2/RustView-0.6.2-win-x64-offline.zip.sha256)
+1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.3/RustView-0.6.3-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.6.3/RustView-0.6.3-win-x64-offline.zip.sha256)
 2. 完整解压，双击 `RustView.exe` 或 `Start-RustView.cmd`。图片引擎和运行库已经包含，首次启动也无需联网或安装依赖。
 3. 打开或拖入文件夹、图片、ZIP／RAR／7z。请保留完整目录。
 

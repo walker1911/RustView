@@ -46,9 +46,10 @@ fn main() -> eframe::Result {
         return Ok(());
     }
     let initial = std::env::args_os().nth(1).map(std::path::PathBuf::from);
+    let viewer = app::Viewer::start(initial);
     let icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/rustview-icon.png"))
         .expect("embedded RustView icon must be a valid PNG");
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 840.0])
             .with_min_inner_size([720.0, 480.0])
@@ -57,9 +58,10 @@ fn main() -> eframe::Result {
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
+    options.wgpu_options.desired_maximum_frame_latency = Some(1);
     eframe::run_native(
         "RustView 图片浏览器",
         options,
-        Box::new(move |cc| Ok(Box::new(app::Viewer::new(cc, initial)))),
+        Box::new(move |cc| Ok(Box::new(viewer.attach_window(cc)))),
     )
 }

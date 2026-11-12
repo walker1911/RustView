@@ -2,7 +2,7 @@
 
 The complete offline ZIP includes all native runtime dependencies. Source archives are provided for inspection, modification and rebuilding; **you do not need to download them to view photos offline**. RustView's original code is MIT licensed. Each native engine and its bundled libraries keep their own licenses and notices.
 
-The matching ImageMagick and ExifTool source archives for v0.6.2 are available with their checksums on the v0.4.0 release. Preserve this guide, the original notices and the matching source materials when redistributing the complete offline package. You can replace the native libraries with compatible builds and run the viewer through the offline launcher. [RustView v0.4.0 source attachments](https://github.com/walker1911/RustView/releases/tag/v0.4.0)
+The matching ImageMagick and ExifTool source archives for v0.6.3 are available with their checksums on the v0.4.0 release. Preserve this guide, the original notices and the matching source materials when redistributing the complete offline package. You can replace the native libraries with compatible builds and run the viewer through the offline launcher. [RustView v0.4.0 source attachments](https://github.com/walker1911/RustView/releases/tag/v0.4.0)
 
 ## Included in the runtime ZIP
 
@@ -49,6 +49,6 @@ After reviewing the build, close RustView and back up/replace `native/ExifTool/e
 
 ## 中文说明
 
-完整离线包已经包含全部运行依赖，**普通看图无需另外下载源码**。7-Zip 对应源码和 LibRaw 官方源码／二进制归档随运行包提供。v0.6.2 所用 ImageMagick 及其静态库的完整 Windows 源码、ExifTool／GMP／XS 补充源码与校验文件可从上方的 v0.4.0 Release 附件下载。ImageMagick 的 38 个组件版本与随包声明逐一核验一致。ExifTool 源码 ZIP 沿用原 `0.3.0` 文件名。各引擎和库保留各自的许可。
+完整离线包已经包含全部运行依赖，**普通看图无需另外下载源码**。7-Zip 对应源码和 LibRaw 官方源码／二进制归档随运行包提供。v0.6.3 所用 ImageMagick 及其静态库的完整 Windows 源码、ExifTool／GMP／XS 补充源码与校验文件可从上方的 v0.4.0 Release 附件下载。ImageMagick 的 38 个组件版本与随包声明逐一核验一致。ExifTool 源码 ZIP 沿用原 `0.3.0` 文件名。各引擎和库保留各自的许可。
 
 可以修改这些源码、重新编译并替换兼容的原生引擎；离线启动器直接执行主程序，不阻止兼容替换。重编所需的 C++ 工具链与看图所需运行库是两回事；完整离线包在首次启动时也无需下载运行依赖。
