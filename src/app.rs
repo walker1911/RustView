@@ -27,6 +27,7 @@ mod navigation_probe;
 mod playback;
 mod presentation;
 mod print_ui;
+mod recent_ui;
 mod settings_ui;
 mod startup;
 mod theme;
@@ -180,6 +181,7 @@ pub struct Viewer {
     extra: Extras,
     archive_jump: archive_jump::State,
     archive_resume: archive_resume::State,
+    recent_ui: recent_ui::State,
     #[cfg(windows)]
     native_keys: Option<crate::native_keys::NativeKeys>,
     source: Option<PathBuf>,
@@ -187,6 +189,8 @@ pub struct Viewer {
     initial_entry_position: Option<usize>,
     directory_scan: directory::Scan,
     startup_image: Option<startup::ImageStartup>,
+    #[cfg(windows)]
+    restore_window_transition_at: Option<Instant>,
     selected: Option<usize>,
     nav_forward: bool,
     browser: bool,
@@ -231,6 +235,7 @@ impl Viewer {
             extra: Extras::new(),
             archive_jump: archive_jump::State::default(),
             archive_resume: archive_resume::State::default(),
+            recent_ui: recent_ui::State::default(),
             #[cfg(windows)]
             native_keys: None,
             source: None,
@@ -238,6 +243,8 @@ impl Viewer {
             initial_entry_position: None,
             directory_scan: directory::Scan::default(),
             startup_image: None,
+            #[cfg(windows)]
+            restore_window_transition_at: None,
             selected: None,
             nav_forward: true,
             browser: true,
@@ -315,6 +322,11 @@ impl Viewer {
         app
     }
 
+    #[cfg(windows)]
+    pub fn is_direct_image_startup(&self) -> bool {
+        self.startup_image.is_some()
+    }
+
     pub fn attach_window(mut self, cc: &eframe::CreationContext<'_>) -> Self {
         if self.startup_image.is_none() {
             startup::configure_fonts(&cc.egui_ctx);
@@ -353,6 +365,9 @@ impl Viewer {
                     }
                 })
                 .unwrap_or(0);
+            if self.startup_image.is_some() {
+                self.skip_open_transition();
+            }
         }
         self
     }
@@ -391,6 +406,7 @@ impl Viewer {
             return;
         }
         self.extra.edited = false;
+        self.flush_recent_open(true);
         self.save_archive_resume(true);
         self.closing = true;
         self.directory_scan.cancel();
@@ -408,6 +424,7 @@ impl Viewer {
     }
 
     fn cancel_current_read(&mut self) {
+        self.cancel_recent_open();
         self.serial += 1;
         self.pending = None;
         self.deferred_image = None;
@@ -468,10 +485,18 @@ impl Viewer {
             return;
         }
         self.directory_scan.cancel();
+        self.recent_ui.open = false;
         if !directory && !archive {
+            self.track_recent_open(path.clone(), crate::catalog::RecentKind::Image);
             self.open_local_image(path);
             return;
         }
+        let kind = if directory {
+            crate::catalog::RecentKind::Folder
+        } else {
+            crate::catalog::RecentKind::Archive
+        };
+        self.track_recent_open(path.clone(), kind);
         self.initialize_catalog();
         self.status = "正在读取目录…".into();
         self.extra.workspace.preview_due = None;
@@ -766,6 +791,7 @@ impl Viewer {
     }
 
     fn poll(&mut self, ctx: &egui::Context) {
+        self.flush_recent_open(false);
         self.poll_archive_resume(ctx);
         self.poll_directory_scan(ctx);
         self.poll_animation(ctx);
@@ -845,6 +871,7 @@ impl Viewer {
                                     region,
                                 } => self.accept_comparison(slot, generation, region, output, ctx),
                                 Operation::Clipboard { path } => {
+                                    self.cancel_recent_open();
                                     self.reset_coverflow();
                                     self.change_archive_source(None);
                                     self.source = Some(path);
@@ -906,6 +933,7 @@ impl Viewer {
                                     self.reset_comparison();
                                     self.reset_coverflow();
                                     self.install_source(path, password, output.reply.entries.unwrap_or_default());
+                                    self.recent_source_listed(ctx);
                                     let selected = self.initial_entry_selection(select);
                                     self.browser = management;
                                     if let Some(index) = selected {
@@ -1143,6 +1171,7 @@ impl Viewer {
                     return;
                 }
                 if let Some(path) = self.source.clone() {
+                    self.cancel_recent_open();
                     let select = self
                         .selected
                         .and_then(|i| self.entries.get(i))
@@ -1167,6 +1196,7 @@ impl Viewer {
                     return;
                 }
                 self.extra.edited = false;
+                self.cancel_recent_open();
                 self.extra.edits.clear();
                 self.extra.redo_edits.clear();
                 self.stop_animation();
@@ -1285,6 +1315,10 @@ impl Viewer {
                         });
                     });
                     ui.menu_button("文件", |ui| {
+                        if ui.button("最近打开…").clicked() {
+                            self.open_recent_ui();
+                            ui.close_menu();
+                        }
                         for (label, action) in [
                             ("打开图片或压缩包…", Action::Open),
                             ("打开文件夹…", Action::OpenFolder),
@@ -1830,11 +1864,13 @@ impl Viewer {
                 self.remember_coverflow_preview(index, preview, texture);
                 self.archive_image_drawn(index, ctx);
             }
+            self.recent_image_drawn(index, ctx);
         }
     }
 
     fn dialogs(&mut self, ctx: &egui::Context) {
         self.draw_archive_jump(ctx);
+        self.draw_recent_ui(ctx);
         if self.password_dialog {
             let mut submit = false;
             let mut cancel = false;
@@ -1867,6 +1903,7 @@ impl Viewer {
                 ui.small("密码只用于当前会话，不写入设置或日志。");
             });
             if cancel {
+                self.cancel_recent_open();
                 self.password_dialog = false;
                 self.retry = None;
                 self.password_input.clear();
@@ -1988,6 +2025,7 @@ impl eframe::App for Viewer {
             ctx,
             self.password_dialog
                 || self.archive_jump.open
+                || self.recent_ui.open
                 || self.extra.dialog.is_some()
                 || self.properties
                 || self.extra.settings_ui.open

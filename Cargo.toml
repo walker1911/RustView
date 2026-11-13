@@ -1,6 +1,6 @@
 [package]
 name = "rust-viewer"
-version = "0.6.3"
+version = "0.6.4"
 edition = "2021"
 description = "A bounded-memory Windows image and archive viewer"
 license = "MIT"
@@ -34,7 +34,7 @@ raw-window-handle = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "=0.58.0", features = ["Win32_Foundation", "Win32_Graphics_Imaging", "Win32_System_Com", "Win32_UI_Shell"] }
-windows-sys = { version = "0.59", features = ["Win32_System_Registry", "Win32_System_Time", "Win32_Graphics_Gdi", "Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_SystemInformation", "Win32_UI_Shell", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Controls", "Win32_UI_WindowsAndMessaging", "Win32_Storage_FileSystem", "Win32_Graphics_Printing", "Win32_UI_Controls_Dialogs", "Win32_Storage_Xps"] }
+windows-sys = { version = "0.59", features = ["Win32_System_Registry", "Win32_System_Time", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_SystemInformation", "Win32_UI_Shell", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Controls", "Win32_UI_WindowsAndMessaging", "Win32_Storage_FileSystem", "Win32_Graphics_Printing", "Win32_UI_Controls_Dialogs", "Win32_Storage_Xps"] }
 
 [profile.release]
 opt-level = 3

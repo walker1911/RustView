@@ -8,17 +8,18 @@
 
 An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, Photoshop composites, and pictures inside compressed archives.
 
-[Download v0.6.3](https://github.com/walker1911/RustView/releases/tag/v0.6.3) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+[Download v0.6.4](https://github.com/walker1911/RustView/releases/tag/v0.6.4) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
 
 ![RustView's native Windows viewer with its graphite theme and Picasa-style filmstrip](assets/readme/viewer.png)
 
-**v0.6.3** brings a graphite interface to Manage and View, with grouped controls and softer selection colors. Hold `←` or `→` to browse local JPEGs with quick target previews. Release the key to finish loading the selected image at full quality. [v0.6.3 release notes](docs/RELEASE-v0.6.3.md) · [Archive resume and jump](docs/RELEASE-v0.6.0.md)
+**v0.6.4** shows the first image sooner when you launch RustView with a picture. Use **文件 → 最近打开…** (File → Recent) to return to an image, folder, or archive. Reopening an archive can take you back to the last image you viewed. [v0.6.4 release notes](docs/RELEASE-v0.6.4.md) · [Archive resume and jump](docs/RELEASE-v0.6.0.md)
 
 ## Start with the pictures
 
 | Capability | What you can do |
 |---|---|
 | **Browse archives** | Read ZIP / RAR / 7z images on demand with password prompts, resume from the last image shown, and jump by filename, path, or number. |
+| **Reopen recent items** | Return to up to 20 recently opened images, folders, or archives from the File menu. History stays in the local catalog. |
 | **Keep browsing** | Left/right changes images and up/down zooms. Hold an arrow key for quick local JPEG previews. A flat, animated filmstrip keeps the selected photo centered, with a filename and `1/84` counter. |
 | **View modern formats** | Common images, LibRaw-supported RAW and ProRAW DNG, plus HEIC/HEIF, AVIF, and JPEG XL. |
 | **Open Photoshop documents** | View saved PSD/PSB composites locally or inside ZIP/RAR/7z, including sources larger than 512 MiB. |
@@ -60,7 +61,7 @@ v0.4.0 permits [local and ZIP/RAR/7z-contained PSD/PSB](docs/PSD.md) sources up 
 
 ## Download and use
 
-1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.3/RustView-0.6.3-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.6.3/RustView-0.6.3-win-x64-offline.zip.sha256)
+1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.4/RustView-0.6.4-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.6.4/RustView-0.6.4-win-x64-offline.zip.sha256)
 2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. The package includes the image engines and runtime libraries for offline use from first launch.
 3. Open or drag in a folder, picture, or archive. Keep the complete extracted folder.
 

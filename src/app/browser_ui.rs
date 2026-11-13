@@ -307,6 +307,7 @@ impl Viewer {
             self.load_index(index, false);
             if !navigate && self.selected == Some(index) {
                 self.browser = false;
+                self.track_management_image(index);
             } else if !navigate {
                 self.browser = was_browser;
             }
@@ -336,6 +337,7 @@ impl Viewer {
                     && !self.entries[index].archive
                 {
                     self.browser = false;
+                    self.track_management_image(index);
                 }
             }
         }
@@ -911,6 +913,7 @@ impl Viewer {
     fn management_keyboard(&mut self, ctx: &egui::Context) {
         if text_field_focused(ctx)
             || self.password_dialog
+            || self.recent_ui.open
             || self.extra.dialog.is_some()
             || self.extra.edit_dialog.is_some()
             || self.extra.visible.is_empty()

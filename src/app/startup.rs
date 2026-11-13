@@ -22,7 +22,26 @@ impl ImageStartup {
 }
 
 impl Viewer {
+    #[cfg(windows)]
+    pub(super) fn skip_open_transition(&mut self) {
+        if set_window_transitions(self.extra.hwnd, true) {
+            // Keep the newly created window's first show out of the DWM animation.
+            // The first egui passes can finish before the compositor shows the window.
+            self.restore_window_transition_at =
+                Some(Instant::now() + std::time::Duration::from_millis(500));
+        }
+    }
+
     pub(super) fn advance_startup(&mut self, ctx: &egui::Context) {
+        #[cfg(windows)]
+        if let Some(deadline) = self.restore_window_transition_at {
+            if let Some(delay) = deadline.checked_duration_since(Instant::now()) {
+                ctx.request_repaint_after(delay);
+            } else {
+                set_window_transitions(self.extra.hwnd, false);
+                self.restore_window_transition_at = None;
+            }
+        }
         let Some(startup) = &mut self.startup_image else {
             return;
         };
@@ -88,6 +107,23 @@ impl Viewer {
             ctx.request_repaint();
         }
         true
+    }
+}
+
+#[cfg(windows)]
+fn set_window_transitions(hwnd: usize, disabled: bool) -> bool {
+    use windows_sys::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_TRANSITIONS_FORCEDISABLED,
+    };
+
+    let value = i32::from(disabled);
+    unsafe {
+        DwmSetWindowAttribute(
+            hwnd as _,
+            DWMWA_TRANSITIONS_FORCEDISABLED as u32,
+            std::ptr::from_ref(&value).cast(),
+            std::mem::size_of_val(&value) as u32,
+        ) >= 0
     }
 }
 
