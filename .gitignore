@@ -32,4 +32,7 @@ __pycache__/
 !/native/LibRaw/UPSTREAM-README.md
 !/native/LibRaw/testdata/README.txt
 !/native/LibRaw/testdata/synthetic.dng
+!/native/Tesseract/
+!/native/Tesseract/SOURCE.txt
+!/native/Tesseract/*-LICENSE.txt
 !/native/manifest.json

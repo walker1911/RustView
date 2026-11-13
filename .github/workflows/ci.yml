@@ -25,6 +25,8 @@ jobs:
           rustup target add x86_64-pc-windows-msvc
       - name: Prepare pinned official image engines
         run: .\tools\fetch-native.ps1
+      - name: Build the portable OCR helper
+        run: .\tools\build-ocr.ps1
       - name: Unit tests
         run: cargo test --locked -- --test-threads=2
       - name: Reversible Windows integration tests

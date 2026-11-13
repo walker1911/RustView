@@ -9,6 +9,16 @@
     "imageMagick": { "file": "ImageMagick-7.1.2-35-portable-Q16-HDRI-x64.7z", "url": "https://github.com/ImageMagick/ImageMagick/releases/download/7.1.2-35/ImageMagick-7.1.2-35-portable-Q16-HDRI-x64.7z", "sha256": "34db4364da26c88d6b8cc5bbc1fff22b85d00d3b399c82fe85ee4790efacbbf1" },
     "exifTool": { "file": "exiftool-13.62_64.zip", "url": "https://sourceforge.net/projects/exiftool/files/exiftool-13.62_64.zip/download", "sha256": "9c79e97a9444ba1f893da1dcbcae378fba0c0a0112afd8bf426b396c75f884ce" }
   },
+  "ocr": {
+    "sources": {
+      "tesseract": { "file": "tesseract-5.5.4.zip", "url": "https://codeload.github.com/tesseract-ocr/tesseract/zip/refs/tags/5.5.4", "sha256": "82e6e01fc48368c149efd4e6f3b861983bd8a4553ed86bd240276cb74e6bb8ca" },
+      "leptonica": { "file": "leptonica-1.87.0.zip", "url": "https://codeload.github.com/DanBloomberg/leptonica/zip/refs/tags/1.87.0", "sha256": "2cfb7ebe6036f3d017280fa9a000c9699ab28be8dff8be8e2e948e2c79917eda" }
+    },
+    "models": [
+      { "file": "eng.traineddata", "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/eng.traineddata", "sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2" },
+      { "file": "chi_sim.traineddata", "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/chi_sim.traineddata", "sha256": "a5fcb6f0db1e1d6d8522f39db4e848f05984669172e584e8d76b6b3141e1f730" }
+    ]
+  },
   "runtime_sha256": {
     "7zip/7z.exe": "dc0493429fe28136fcb177a0e77c9875cbb3b0bff5f2f8eeba4df302e98cef76",
     "7zip/7z.dll": "500db9eb17f3c21b729ba41dd02ecfe1823da05028c7e4ba129084cc74cc364e",

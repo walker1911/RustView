@@ -931,6 +931,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "encoding_rs"
+version = "0.8.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75030f3c4f45dafd7586dd6780965a8c7e8e285a5ecb86713e63a79c5b2766f3"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "endi"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1913,6 +1922,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2bf50223579dc7cdcfb3bfcacf7069ff68243f8c363f62ffa99cf000a6b9c451"
 
 [[package]]
+name = "num-derive"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed3955f1a9c7c0c15e092f9c887db08b1fc683305fdf6eb6684f22555355e202"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "num-traits"
 version = "0.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2473,6 +2493,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "quircs"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d71dee9e56835add6f9c26227e6c690b19eda9414f5affc666c3ec833ba140dc"
+dependencies = [
+ "num-derive",
+ "num-traits",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2641,11 +2672,12 @@ dependencies = [
 
 [[package]]
 name = "rust-viewer"
-version = "0.6.7"
+version = "0.6.8"
 dependencies = [
  "arboard",
  "eframe",
  "egui",
+ "encoding_rs",
  "find-msvc-tools",
  "gif",
  "image",
@@ -2654,6 +2686,7 @@ dependencies = [
  "moxcms",
  "natord",
  "png",
+ "quircs",
  "raw-window-handle",
  "rfd",
  "rusqlite",
@@ -2662,6 +2695,7 @@ dependencies = [
  "tempfile",
  "tiff",
  "trash",
+ "url",
  "windows 0.58.0",
  "windows-sys 0.59.0",
 ]

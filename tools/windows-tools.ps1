@@ -51,6 +51,29 @@ function Copy-VcRuntime([string]$Package, [string]$RuntimeDirectory) {
     }
     @('Microsoft Visual C++ x64 app-local redistributable runtime DLLs.', 'These Microsoft components are not covered by RustView''s MIT license.', 'Original source: the Visual Studio C++ Build Tools redistributable directory.', 'Redistribution information: https://learn.microsoft.com/cpp/windows/redistributing-visual-cpp-files') | Set-Content -LiteralPath (Join-Path $licenses 'MICROSOFT-RUNTIME.txt') -Encoding utf8
 }
+function Copy-OcrRuntime([string]$ProjectRoot, [string]$Package, $Spec) {
+    $source = Join-Path $ProjectRoot 'native/Tesseract'
+    $destination = Join-Path $Package 'native/Tesseract'
+    $exe = Join-Path $source 'tesseract.exe'
+    if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+        throw 'Tesseract is missing. Run tools/build-ocr.ps1 before packaging.'
+    }
+    foreach ($model in $Spec.models) {
+        $path = Join-Path $source ('tessdata/' + $model.file)
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf) -or (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $model.sha256) {
+            throw "Missing or incorrect OCR model: $($model.file). Run tools/build-ocr.ps1."
+        }
+    }
+    $tessdata = Join-Path $destination 'tessdata'
+    [void][IO.Directory]::CreateDirectory($tessdata)
+    foreach ($name in @('tesseract.exe','SOURCE.txt','Tesseract-LICENSE.txt','Leptonica-LICENSE.txt','Tessdata-LICENSE.txt')) {
+        Copy-Item -LiteralPath (Join-Path $source $name) -Destination $destination -Force
+    }
+    foreach ($model in $Spec.models) {
+        Copy-Item -LiteralPath (Join-Path $source ('tessdata/' + $model.file)) -Destination $tessdata -Force
+    }
+}
+
 function Write-PackageArchive([string]$Package, [string]$ZipPath, [string[]]$Folders) {
     $shipping = @(Get-ChildItem -LiteralPath $Package -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' })
     $items = @((Get-ChildItem -LiteralPath $Package -File).FullName)

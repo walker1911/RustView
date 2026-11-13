@@ -6,13 +6,23 @@
 
 **打开压缩包，接着看。**
 
-面向 **Windows x64** 的 Rust 看图项目。把相机 RAW、GIF/WebP 动画、Photoshop 合成图和 ZIP／RAR／7z 里的照片，放进熟悉的键盘翻图、Picasa 式胶片带与平滑缩放流程。
+面向 **Windows x64** 的 Rust 看图项目。用熟悉的快捷键、Picasa 式胶片带和平滑缩放浏览相机 RAW、GIF/WebP 动画、Photoshop 合成图及 ZIP／RAR／7z 里的照片。看图时也能直接读二维码、复制图片里的文字。
 
-[下载 v0.6.7](https://github.com/walker1911/RustView/releases/tag/v0.6.7) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
+[下载 v0.6.8](https://github.com/walker1911/RustView/releases/tag/v0.6.8) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
 
-![RustView v0.6.7 清爽看图，照片和胶片带可见，菜单默认收起](assets/readme/viewer.png)
+## v0.6.8 新功能
 
-**v0.6.7** 默认以清爽模式打开单张照片。将鼠标移到窗口顶边，或拖动标题栏，菜单、文件路径和状态栏就会浮现。显隐时，照片和底部缩略图都留在原位。在照片上移动鼠标，还会唤出半透明浮动工具栏，可翻图、缩小、放大、看原始尺寸或顺时针旋转。[菜单浮现实拍](assets/readme/viewer-controls.png) · [v0.6.7 更新说明](docs/RELEASE-v0.6.7.md)
+**直接读图里的二维码。** 停留在当前图上，识别到二维码时会出现一个小按钮。点开即可查看、复制内容，也可选择打开 HTTP(S) 链接。较小的码可以右键选择「框选二维码…」再扫一次。[二维码实拍](assets/readme/qr-recognition.png)
+
+**离线复制图片里的文字。** 右键选择「识别整图文字（OCR）」或「框选文字（OCR）…」，在结果中选取或复制文字。简体中文、英文及中英混排都在本机识别，模型随完整离线包提供。[框选识别实拍](assets/readme/ocr-selection.png) · [v0.6.8 更新说明](docs/RELEASE-v0.6.8.md)
+
+![RustView 显示可选取的简体中文与英文 OCR 结果](assets/readme/ocr-result.png)
+
+## 清爽看图
+
+![RustView 清爽看图，照片和胶片带可见，菜单默认收起](assets/readme/viewer.png)
+
+将鼠标移到窗口顶边，或拖动标题栏，菜单、文件路径和状态栏就会浮现。显隐时，照片和底部缩略图都留在原位。在照片上移动鼠标，还会唤出半透明浮动工具栏，可翻图、缩小、放大、看原始尺寸或顺时针旋转。[菜单浮现实拍](assets/readme/viewer-controls.png)
 
 背景默认使用石墨灰。选择 **「视图 → 看图背景 → 照片柔焦」** 后，照片周围的留白会换成取自当前照片的低饱和模糊背景。下次打开时会记住选择。[照片柔焦实拍](assets/readme/photo-soft-focus.png)
 
@@ -28,6 +38,7 @@
 | **最近打开** | 从文件菜单重新打开最近的图片、文件夹或压缩包，最多显示 20 项。历史保存在本地目录库。 |
 | **连续翻图** | 左右键切换，上下键缩放。按住左右键可连续预览本地 JPEG 和符合条件的 RAW。平直胶片带平滑跟随，当前图居中并显示文件名和 `1/84` 序号。 |
 | **看 Photoshop 文档** | 直接读取本地及 ZIP／RAR／7z 内 PSD/PSB 保存的合成图，支持超过 512 MiB 的大源文件。 |
+| **识别二维码和图片文字** | 后台扫描当前图片的二维码，按需对整图或选区执行离线 OCR。 |
 | **接纳现代格式** | 常见图片、LibRaw 支持的相机 RAW、苹果 ProRAW DNG，以及由内置引擎读取的 HEIC/HEIF、AVIF、JPEG XL。 |
 | **平滑缩放与比较** | 保持鼠标指向位置缩放，拖动平移，按可见区域上传细节；最多四图独立或联动查看。 |
 | **完整动画** | GIF/WebP 按帧时序、透明合成与循环信息播放；支持整段动画导出。 |
@@ -71,8 +82,8 @@ v0.4.0 对[本地及ZIP／RAR／7z内的PSD/PSB](docs/PSD.md)提供源文件例�
 
 ## 下载与运行
 
-1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.7/RustView-0.6.7-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.6.7/RustView-0.6.7-win-x64-offline.zip.sha256)
-2. 完整解压，双击 `RustView.exe` 或 `Start-RustView.cmd`。图片引擎和运行库已经包含，首次启动也无需联网或安装依赖。
+1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.8/RustView-0.6.8-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.6.8/RustView-0.6.8-win-x64-offline.zip.sha256)
+2. 完整解压，双击 `RustView.exe` 或 `Start-RustView.cmd`。图像引擎、运行库、OCR 引擎和简中及英文模型均随包提供，首次启动就能离线看图和识别文字。
 3. 打开或拖入文件夹、图片、ZIP／RAR／7z。请保留完整目录。
 
 日常看图只需下载离线 ZIP。重编随包引擎所需的源码归档见源码说明。[离线版说明](OFFLINE.md) · [原生引擎源码](docs/NATIVE-SOURCES.md)
@@ -98,12 +109,13 @@ v0.4.0 对[本地及ZIP／RAR／7z内的PSD/PSB](docs/PSD.md)提供源文件例�
 
 ## 从源码构建
 
-需要 Windows x64、Rust MSVC 工具链、包含 Windows SDK 的 C++ Build Tools，以及 PowerShell 7。测试、打包前先获取固定版本的原生引擎：
+需要 Windows x64、Rust MSVC 工具链、包含 Windows SDK 的 C++ Build Tools、CMake、Ninja 和 PowerShell 7。测试、打包前先准备固定版本的图像引擎和 OCR 程序。
 
 ```powershell
 git clone https://github.com/walker1911/RustView.git
 cd RustView
 pwsh -File .\tools\fetch-native.ps1
+pwsh -File .\tools\build-ocr.ps1
 cargo build --release --locked
 cargo test --locked -- --test-threads=2
 pwsh -File .\tools\build.ps1 -Offline
@@ -113,7 +125,7 @@ pwsh -File .\tools\build.ps1 -Offline
 
 ## 验证到哪一步
 
-发行检查覆盖静态图与压缩包、GIF/WebP 动画、PSD/PSB 合成图、缩略图和大型加密 RAR 的取消清理。v0.6.7 在 Windows 桌面验证了菜单显隐、拖动窗口、照片与胶片带位置稳定，以及重启后记住背景选择。[v0.6.7 更新说明](docs/RELEASE-v0.6.7.md) · [验证结果与范围](docs/VALIDATION.md)
+发行检查覆盖静态图与压缩包、GIF/WebP 动画、PSD/PSB 合成图、缩略图和大型加密 RAR 的取消清理。v0.6.8 在 Windows 桌面验证了自动扫码、整图和框选 OCR，以及识别中关窗。浏览对照包括万张 JPEG 图库、相机 RAW、加密 RAR 和 7z 内的 521 MiB PSD，AES ZIP 另用解码进程验证。[v0.6.8 更新说明与实测数据](docs/RELEASE-v0.6.8.md) · [验证结果与范围](docs/VALIDATION.md)
 
 真实相机样本包括 Nikon Z6、Sony a7 III、Canon EOS R、iPhone 12 Pro ProRAW 和 HEIC。原生窗口、显示和打印测试的范围见验证记录。反馈时请提供版本、格式或相机型号、预期行为和最小复现样本。[报告问题](https://github.com/walker1911/RustView/issues)
 

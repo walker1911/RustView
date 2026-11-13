@@ -21,9 +21,12 @@ try {
     # Never pick up downloaded engines from a previously prepared end-user folder.
     $native = Join-Path $package 'native'
     if (Test-Path -LiteralPath $native) {
+        $ocrFiles = @('tesseract.exe','SOURCE.txt','Tesseract-LICENSE.txt','Leptonica-LICENSE.txt','Tessdata-LICENSE.txt') |
+            ForEach-Object { 'Tesseract/' + $_ }
+        $ocrFiles += @($manifest.ocr.models | ForEach-Object { 'Tesseract/tessdata/' + $_.file })
         Get-ChildItem -LiteralPath $native -File -Recurse | ForEach-Object {
             $relative = $_.FullName.Substring($native.TrimEnd('\','/').Length).TrimStart('\','/').Replace('\','/')
-            if ($relative -ne 'manifest.json' -and $manifest.templates -notcontains $relative) { throw 'The bootstrap output already contains generated native files. Choose a fresh -OutputRoot.' }
+            if ($relative -ne 'manifest.json' -and $manifest.templates -notcontains $relative -and $ocrFiles -notcontains $relative) { throw 'The bootstrap output already contains downloaded image engines. Choose a fresh -OutputRoot.' }
         }
     }
     Copy-Item -LiteralPath (Find-ReleaseExe $projectRoot) -Destination (Join-Path $package 'RustView.exe') -Force
@@ -42,6 +45,7 @@ try {
     [void][IO.Directory]::CreateDirectory((Join-Path $package 'tools'))
     foreach ($file in @('fetch-native.ps1','prepare-and-start.ps1')) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination (Join-Path $package ('tools/' + $file)) -Force }
     Copy-VcRuntime $package $RuntimeDirectory
+    Copy-OcrRuntime $projectRoot $package $manifest.ocr
     Copy-WindowsIntegration $package
     $launcher = '@echo off' + "`r`n" + 'powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\prepare-and-start.ps1"' + "`r`n"
     [IO.File]::WriteAllText((Join-Path $package 'Start-RustView.cmd'), $launcher, [Text.Encoding]::ASCII)

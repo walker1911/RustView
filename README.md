@@ -6,13 +6,23 @@
 
 **Open the archive. Keep the flow.**
 
-An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, Photoshop composites, and pictures inside compressed archives.
+An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, Photoshop composites, and pictures inside compressed archives. Read QR codes and copy text from pictures while staying in the viewer.
 
-[Download v0.6.7](https://github.com/walker1911/RustView/releases/tag/v0.6.7) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+[Download v0.6.8](https://github.com/walker1911/RustView/releases/tag/v0.6.8) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
 
-![RustView v0.6.7 with the photo and filmstrip visible and the menus tucked away](assets/readme/viewer.png)
+## New in v0.6.8
 
-**v0.6.7** opens a single photo in quiet view. Move the pointer to the top edge or drag the window by its title bar to reveal the menus, file path, and status. The photo and filmstrip stay in place as the controls fade in and out. Move the pointer over the photo to bring up a separate translucent toolbar with previous and next, zoom out and in, actual size, and clockwise rotation. [Menus revealed](assets/readme/viewer-controls.png) · [v0.6.7 release notes](docs/RELEASE-v0.6.7.md)
+**Read a QR code in the current picture.** Pause on an image and a small **二维码** (QR code) button appears if RustView finds a code. Click it to view or copy the content, or choose to open an HTTP(S) link. For a small code, right-click the image and choose **框选二维码…** (Select a QR area) to scan the selected region. [QR screenshot](assets/readme/qr-recognition.png)
+
+**Copy text from a picture offline.** Right-click and choose **识别整图文字（OCR）** (Recognize text in the whole image) or **框选文字（OCR）…** (Select a text area), then copy the text from the result. The bundled engine recognizes Simplified Chinese, English, and mixed text on your PC. [Selection screenshot](assets/readme/ocr-selection.png) · [v0.6.8 release notes](docs/RELEASE-v0.6.8.md)
+
+![RustView showing selectable Simplified Chinese and English OCR results](assets/readme/ocr-result.png)
+
+## Quiet view
+
+![RustView with the photo and filmstrip visible and the menus tucked away](assets/readme/viewer.png)
+
+Move the pointer to the top edge or drag the window by its title bar to reveal the menus, file path, and status. The photo and filmstrip stay in place as the controls fade in and out. Move the pointer over the photo to bring up a separate translucent toolbar with previous and next, zoom out and in, actual size, and clockwise rotation. [Menus revealed](assets/readme/viewer-controls.png)
 
 Graphite is the default background. Under **视图 → 看图背景 → 照片柔焦** (View → Background → Photo Soft Focus), the space around the photo takes on a subdued blur drawn from the image. RustView remembers the choice across launches. [Photo Soft Focus screenshot](assets/readme/photo-soft-focus.png)
 
@@ -27,6 +37,7 @@ Graphite is the default background. Under **视图 → 看图背景 → 照片�
 | **Keep browsing** | Left/right changes images and up/down zooms. Hold an arrow key for quick previews of local JPEGs and eligible RAWs. A flat, animated filmstrip keeps the selected photo centered, with a filename and `1/84` counter. |
 | **View modern formats** | Common images, LibRaw-supported RAW and ProRAW DNG, plus HEIC/HEIF, AVIF, and JPEG XL. |
 | **Open Photoshop documents** | View saved PSD/PSB composites locally or inside ZIP/RAR/7z, including sources larger than 512 MiB. |
+| **Read QR codes and image text** | Scan the current image in the background, or request offline OCR for the whole image or a selected area. |
 | **Zoom and compare** | Pointer-anchored zoom, panning, visible detail tiles, and up to four linked or independent comparison views. |
 | **Play and export animation** | Stream GIF/WebP with timing, disposal, and loop handling; export complete animations. |
 | **Work from the source** | RAW adjustments, crop, resize, color, sharpening, text/watermarks, real 16-bit PNG/TIFF, processing records, and presets. |
@@ -65,8 +76,8 @@ v0.4.0 permits [local and ZIP/RAR/7z-contained PSD/PSB](docs/PSD.md) sources up 
 
 ## Download and use
 
-1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.7/RustView-0.6.7-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.6.7/RustView-0.6.7-win-x64-offline.zip.sha256)
-2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. The package includes the image engines and runtime libraries for offline use from first launch.
+1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.8/RustView-0.6.8-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.6.8/RustView-0.6.8-win-x64-offline.zip.sha256)
+2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. The package includes the image engines, runtime libraries, and Simplified Chinese and English OCR models. Viewing and OCR work offline from the first launch.
 3. Open or drag in a folder, picture, or archive. Keep the complete extracted folder.
 
 The offline ZIP is the only download needed for viewing. The source guide lists the archives for rebuilding the bundled engines. [Offline guide](OFFLINE.md) · [Native sources](docs/NATIVE-SOURCES.md)
@@ -92,12 +103,13 @@ Mode-aware bindings distinguish numpad keys and support customization with recog
 
 ## Build, test, contribute
 
-Build on Windows x64 with Rust MSVC, C++ Build Tools/Windows SDK, and PowerShell 7. Fetch the pinned engines first:
+Build on Windows x64 with Rust MSVC, C++ Build Tools and Windows SDK, CMake, Ninja, and PowerShell 7. Prepare the pinned image engines and OCR helper first.
 
 ```powershell
 git clone https://github.com/walker1911/RustView.git
 cd RustView
 pwsh -File .\tools\fetch-native.ps1
+pwsh -File .\tools\build-ocr.ps1
 cargo build --release --locked
 cargo test --locked -- --test-threads=2
 pwsh -File .\tools\build.ps1 -Offline
@@ -105,7 +117,7 @@ pwsh -File .\tools\build.ps1 -Offline
 
 See [BUILDING.md](BUILDING.md) for checksums and validation steps.
 
-Release checks cover static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnails, and large encrypted-RAR cancellation. Windows desktop checks for v0.6.7 cover menu reveal and fade, window dragging, stable photo and filmstrip placement, and background persistence. [v0.6.7 release notes](docs/RELEASE-v0.6.7.md) · [Validation results and scope](docs/VALIDATION.md)
+Release checks cover static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnails, and large encrypted-RAR cancellation. For v0.6.8, Windows desktop checks covered automatic QR detection, whole-image and selected-area OCR, and closing while OCR was running. Paired browsing tests included 10,000 JPEGs, camera RAW files, and encrypted RAR and 7z archives with a 521 MiB PSD. AES ZIP was also tested through the decode worker. [v0.6.8 release notes and timings](docs/RELEASE-v0.6.8.md) · [Validation results and scope](docs/VALIDATION.md)
 
 Real-camera samples include Nikon Z6, Sony a7 III, Canon EOS R, iPhone 12 Pro ProRAW and HEIC. See the validation record for the scope of native-window, display, and print checks.
 
@@ -115,4 +127,4 @@ Real-camera samples include Nikon Z6, Sony a7 III, Canon EOS R, iPhone 12 Pro Pr
 
 RustView's scope excludes split and self-extracting archives, RAR writing, and imports of ACDSee's private database and development records. Unconfirmed legacy commands stay inactive. Slideshows, calendars, disc burning, online services, and audio/video playback are outside the project scope. [Compatibility limits](docs/COMPATIBILITY.md)
 
-RustView is independent of ACD Systems. Application code is [MIT licensed](LICENSE); reused egui/wgpu, image, LibRaw, 7-Zip, ImageMagick, and ExifTool components retain their licenses. [Third-party notices](THIRD-PARTY-NOTICES.md).
+RustView is independent of ACD Systems. Application code is [MIT licensed](LICENSE). Reused components, including the Tesseract OCR engine and its models, retain their licenses. [Third-party notices](THIRD-PARTY-NOTICES.md)

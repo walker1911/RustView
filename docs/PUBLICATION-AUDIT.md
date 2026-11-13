@@ -31,14 +31,15 @@ The basic RAR attribution additionally includes the named copyright lines from i
 
 ## Native engine inventory
 
-Keep source/provenance notices, licenses, and RustView's own image-only `policy.xml` in source control. Obtain runtime binaries directly from the pinned official downloads through the dependency setup script.
+Keep source/provenance notices, licenses, and RustView's own image-only `policy.xml` in source control. The dependency setup script obtains the image, archive and metadata runtime binaries from pinned official downloads. The OCR build script builds the helper from pinned official sources and verifies the language model downloads.
 
 - 7-Zip: `native/7zip/License.txt`, `SOURCE.txt`. The matching source archive is explicitly identified, including its SHA-256.
 - LibRaw: `COPYRIGHT`, `LICENSE.CDDL`, `LICENSE.LGPL`, `SOURCE.txt`, `UPSTREAM-README.md`, plus the synthetic test fixture above. The original official Windows ZIP contains the corresponding C/C++ sources as well as runtime binaries; it is not an application MIT asset.
 - ImageMagick: `LICENSE.txt`, complete `NOTICE.txt`, `SOURCE.txt`, and the project policy. The portable executable's NOTICE identifies multiple separately licensed dependencies, including libde265 1.1.3 / libheif 1.23.7 under LGPLv3, and contains exact upstream source commits. Preserve the complete NOTICE, not only the ImageMagick license.
 - ExifTool: `SOURCE.txt`; the official runtime download must retain `exiftool_files`, its licenses, Perl modules, and runtime notices.
+- Tesseract, Leptonica and tessdata_fast: `native/Tesseract/SOURCE.txt` and the upstream license texts. `native/manifest.json` records the source and model hashes. The Windows OCR helper and the English and Simplified Chinese models are assembled during packaging.
 
-The source repository and bootstrap ZIP use official-download dependency setup. The additional complete offline ZIP includes the native binaries and original notices; download links for matching source and Windows rebuild materials are recorded in [NATIVE-SOURCES.md](NATIVE-SOURCES.md). Redistributors must preserve the applicable source/build/relink materials and must not describe the whole bundle as MIT-licensed. Running an external native engine does not change RustView's own source license.
+The bootstrap ZIP ships the OCR helper and language models and prepares the other native runtimes through official-download setup. The complete offline ZIP includes all of these runtimes and their original notices. Download links for matching source and Windows rebuild materials are recorded in [NATIVE-SOURCES.md](NATIVE-SOURCES.md). Preserve the applicable source, build and relink materials when redistributing the bundle. RustView's application code and each bundled engine retain their respective licenses.
 
 ## Files outside the source allowlist
 

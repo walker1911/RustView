@@ -1,12 +1,13 @@
 # Building RustView / 构建 RustView
 
-The **v0.6.7** Windows x64 release provides a complete offline ZIP. The source guide lists the matching native source archives. [Native sources](docs/NATIVE-SOURCES.md)
+The **v0.6.8** Windows x64 release provides a complete offline ZIP with the OCR engine and Simplified Chinese and English models. The source guide lists the matching native source archives. [Native sources](docs/NATIVE-SOURCES.md)
 
-**v0.6.7**提供 Windows x64 完整离线包，解压即可运行。[原生引擎源码](docs/NATIVE-SOURCES.md)
+**v0.6.8** 提供 Windows x64 完整离线包，含 OCR 引擎和简体中文、英文模型，解压即可运行。[原生引擎源码](docs/NATIVE-SOURCES.md)
 
 ## Windows x64 prerequisites
 
 - Rust stable with the `x86_64-pc-windows-msvc` target and Visual Studio C++ Build Tools / Windows SDK. The development release was tested with Rust 1.99.1.
+- CMake 3.22 or newer and Ninja for building the portable OCR helper.
 - Windows PowerShell 5.1 or PowerShell 7. The scripts unpack engines into the project folder. They do not install system-wide software or change system PATH, execution policy or registry settings.
 - An Internet connection for Cargo dependencies and the first native-engine preparation. Once prepared, normal image browsing works offline.
 
@@ -18,6 +19,7 @@ From the repository root:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\fetch-native.ps1
+.\tools\build-ocr.ps1
 cargo build --release --locked --target x86_64-pc-windows-msvc
 cargo test --locked -- --test-threads=2
 ```
@@ -32,6 +34,8 @@ For a diagnostic or offline cache check:
 
 This checks all cached archive digests, the core runtime digests and required support files. Normal preparation also compares generated runtime/support files with the extracted archive; differing existing files are refused, not silently replaced. The policy, provenance and license templates come from the source checkout, so ordinary Git line-ending conversion does not cause a false archive mismatch. For isolated validation, `-DestinationRoot .\test-output\native-check` prepares a separate native tree; `-CacheDirectory` can reuse an existing verified cache.
 
+`build-ocr.ps1` verifies pinned Tesseract and Leptonica sources and the English and Simplified Chinese language models before building. The Windows x64 helper and models are included in both packages. They run on demand and need no compiler, system OCR language packs, or Internet connection at runtime. See [OCR sources and licenses](native/Tesseract/SOURCE.txt).
+
 Tests use small generated images and licensed libarchive fixtures. Fixture passwords in `tests/fixtures/README.md` are public test constants. The two public-camera tests are opt-in and need separately downloaded samples; they are not required for an ordinary checkout. See [validation](docs/VALIDATION.md) for version-specific results and the GUI checks that have not been completed.
 
 ## Public bootstrap package
@@ -40,11 +44,11 @@ Tests use small generated images and licensed libarchive fixtures. Fixture passw
 .\tools\package-public.ps1
 ```
 
-The script writes `dist/RustView-0.6.7-win-x64-bootstrap.zip` and its `.sha256`. `-SkipBuild` packages the most recent existing Windows x64 release executable. `-OutputRoot .\test-output\public-package` keeps a validation package separate from existing releases.
+The script writes `dist/RustView-0.6.8-win-x64-bootstrap.zip` and its `.sha256`. `-SkipBuild` packages the most recent existing Windows x64 release executable. `-OutputRoot .\test-output\public-package` keeps a validation package separate from existing releases.
 
 Extract the ZIP, then double-click **Start-RustView.cmd**. On the first launch a visible PowerShell process downloads and verifies the official native engines. After preparation, the viewer starts; later launches work offline. Preparation failure is displayed and can be retried. App-local Microsoft VC++ runtime DLLs are included with Microsoft attribution; no VC installer is run. Keep the complete extracted folder.
 
-The bootstrap ZIP does **not** redistribute native engine binaries. It includes RustView, the two preparation scripts, pinned native metadata, policy, upstream license notices and project documentation. The separately available complete offline ZIP includes the engines instead. Their third-party dependencies are not uniformly MIT licensed.
+The bootstrap ZIP includes the portable OCR helper and models, RustView, the two preparation scripts, pinned native metadata, policy, upstream license notices and project documentation. The separately available complete offline ZIP also includes the four preassembled image and archive engines. Their third-party dependencies are not uniformly MIT licensed.
 
 ## Complete offline package
 
@@ -54,11 +58,11 @@ After native preparation:
 .\tools\build.ps1 -Offline
 ```
 
-The script writes `dist/RustView-0.6.7-win-x64-offline.zip` and its `.sha256`. Extract the complete ZIP and launch `RustView.exe` or `Start-RustView.cmd` to browse offline. The package includes all four native engines, their support files, app-local Microsoft VC++ libraries, Rust and font license notices, matching 7-Zip source, and LibRaw's official source and binary archive. [Offline guide](OFFLINE.md)
+The script writes `dist/RustView-0.6.8-win-x64-offline.zip` and its `.sha256`. Extract the complete ZIP and launch `RustView.exe` or `Start-RustView.cmd` to browse offline. The package includes all four native image and archive engines, the OCR helper and models, app-local Microsoft VC++ libraries, Rust and font license notices, matching 7-Zip source, and LibRaw's official source and binary archive. [Offline guide](OFFLINE.md)
 
 Download the remaining corresponding source and Windows rebuild materials from the links in [docs/NATIVE-SOURCES.md](docs/NATIVE-SOURCES.md). They are not needed for normal offline viewing. When redistributing the complete offline package, also provide those source materials and preserve the notices, including the static dependencies listed in ImageMagick's `NOTICE.txt`. A source download and the tools required to rebuild an engine are separate from the runtime requirements for viewing photos.
 
-Running `tools/build.ps1` without `-Offline` produces `RustView-0.6.7-win-x64.zip`. `-SkipBuild` reuses an existing x64 release executable. Use `-OutputRoot` to put validation packages in a separate folder.
+Running `tools/build.ps1` without `-Offline` produces `RustView-0.6.8-win-x64.zip`. `-SkipBuild` reuses an existing x64 release executable. Use `-OutputRoot` to put validation packages in a separate folder.
 
 Both packaging scripts locate MSVC x64 redistributables through Visual Studio's `vswhere` or `VCToolsRedistDir`. If that workload is absent, pass `-RuntimeDirectory` pointing to a permitted `Microsoft.VC143.CRT` directory. Available upstream redist license text is copied alongside Microsoft attribution. No personal installation path is written into the package.
 
@@ -70,7 +74,7 @@ The versions, immutable URLs and archive/core digests are in `native/manifest.js
 
 ## 中文说明
 
-准备 Windows x64 的 Rust MSVC 工具链、Visual Studio C++ Build Tools 和 Windows SDK，然后在仓库根目录执行上面的三个准备／构建／测试命令。脚本兼容 Windows PowerShell 5.1 与 PowerShell 7；下载只在首次准备时需要联网，不安装软件，不修改系统 PATH、注册表或全局执行策略。
+准备 Windows x64 的 Rust MSVC 工具链、Visual Studio C++ Build Tools、Windows SDK、CMake 和 Ninja，然后在仓库根目录执行上面的准备、构建和测试命令。离线 OCR 程序与简中、英文模型会随包提供。脚本兼容 Windows PowerShell 5.1 与 PowerShell 7，首次准备时需要联网，软件和系统设置由用户管理。
 
 构建脚本支持**完整离线包**和 **bootstrap 薄包**。离线包完整解压后双击 `RustView.exe` 或 `Start-RustView.cmd`，首次启动也无需联网；薄包首次运行启动器时联网下载并校验依赖，之后离线看图。两种版本都需保留完整目录，不要仅复制单个 EXE。
 

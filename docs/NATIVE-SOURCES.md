@@ -2,7 +2,7 @@
 
 The complete offline ZIP includes all native runtime dependencies. Source archives are provided for inspection, modification and rebuilding; **you do not need to download them to view photos offline**. RustView's original code is MIT licensed. Each native engine and its bundled libraries keep their own licenses and notices.
 
-The matching ImageMagick and ExifTool source archives for v0.6.7 are available with their checksums on the v0.4.0 release. Preserve this guide, the original notices and the matching source materials when redistributing the complete offline package. You can replace the native libraries with compatible builds and run the viewer through the offline launcher. [RustView v0.4.0 source attachments](https://github.com/walker1911/RustView/releases/tag/v0.4.0)
+The matching ImageMagick and ExifTool source archives for v0.6.8 are available with their checksums on the v0.4.0 release. Preserve this guide, the original notices and the matching source materials when redistributing the complete offline package. You can replace the native libraries with compatible builds and run the viewer through the offline launcher. [RustView v0.4.0 source attachments](https://github.com/walker1911/RustView/releases/tag/v0.4.0)
 
 ## Included in the runtime ZIP
 
@@ -11,9 +11,10 @@ The matching ImageMagick and ExifTool source archives for v0.6.7 are available w
 | 7-Zip 26.06 | `sources/7z2606-src.7z`, SHA-256 `e0364d39e8208557d939472c9a12d02ed1c12f45ca402e3b408bcaa63b36dd93`. Includes the original build instructions and notices. |
 | LibRaw 0.22.3 | `native/LibRaw/LibRaw-0.22.3-Win64.zip`, SHA-256 `4e2213a0b10e32199a30b9114a61376cdb40f94df861262b4a6dca659701276b`. The official archive contains the source and Windows projects as well as the binaries. |
 | ExifTool and Perl modules | The unchanged program and modules are retained in `native/ExifTool/exiftool_files`, including original licenses and `Licenses_Strawberry_Perl.zip`. Additional source attachments are described below. |
+| Tesseract 5.5.4, Leptonica 1.87.0, tessdata_fast 4.1.0 | Runtime and models in `native/Tesseract`. See the [source and license references](../native/Tesseract/SOURCE.txt) and [pinned archive/model hashes](../native/manifest.json). Rebuild with `tools/build-ocr.ps1` from the source checkout. |
 | Rust dependencies / fonts | Full notices and package/source inventory in `licenses/RUST-DEPENDENCIES.txt` and `.json`, plus the Rust toolchain attribution document. Exact application source is public on GitHub. |
 
-7-Zip, ImageMagick and ExifTool are separate processes; LibRaw is loaded from `native/LibRaw/libraw.dll`. Close RustView and back up an engine before replacing it with an ABI/CLI-compatible x64 build. Retain ImageMagick's image-only `policy.xml`. The bootstrap launcher checks upstream hashes; use the offline launcher or `RustView.exe` directly with a reviewed replacement.
+7-Zip, ImageMagick, ExifTool and Tesseract run in separate processes. LibRaw is loaded from `native/LibRaw/libraw.dll`. Close RustView and back up an engine before replacing it with an ABI/CLI-compatible x64 build. Retain ImageMagick's image-only `policy.xml`. The bootstrap launcher checks upstream hashes; use the offline launcher or `RustView.exe` directly with a reviewed replacement.
 
 ## ImageMagick and static codec libraries
 
@@ -49,6 +50,8 @@ After reviewing the build, close RustView and back up/replace `native/ExifTool/e
 
 ## 中文说明
 
-完整离线包已经包含全部运行依赖，**普通看图无需另外下载源码**。7-Zip 对应源码和 LibRaw 官方源码／二进制归档随运行包提供。v0.6.7 所用 ImageMagick 及其静态库的完整 Windows 源码、ExifTool／GMP／XS 补充源码与校验文件可从上方的 v0.4.0 Release 附件下载。ImageMagick 的 38 个组件版本与随包声明逐一核验一致。ExifTool 源码 ZIP 沿用原 `0.3.0` 文件名。各引擎和库保留各自的许可。
+完整离线包已经包含全部运行依赖，**普通看图无需另外下载源码**。7-Zip 对应源码和 LibRaw 官方源码／二进制归档随运行包提供。v0.6.8 所用 ImageMagick 及其静态库的完整 Windows 源码、ExifTool／GMP／XS 补充源码与校验文件可从上方的 v0.4.0 Release 附件下载。ImageMagick 的 38 个组件版本与随包声明逐一核验一致。ExifTool 源码 ZIP 沿用原 `0.3.0` 文件名。各引擎和库保留各自的许可。
 
 可以修改这些源码、重新编译并替换兼容的原生引擎；离线启动器直接执行主程序，不阻止兼容替换。重编所需的 C++ 工具链与看图所需运行库是两回事；完整离线包在首次启动时也无需下载运行依赖。
+
+离线 OCR 使用随包提供的 Tesseract、Leptonica 与简中、英文模型。源码、校验信息和重编命令见 [OCR 源码说明](../native/Tesseract/SOURCE.txt)。

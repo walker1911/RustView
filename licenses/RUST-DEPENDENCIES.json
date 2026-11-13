@@ -1,14 +1,14 @@
 {
-  "application": "rust-viewer 0.3.0",
+  "application": "rust-viewer 0.6.8",
   "target": "x86_64-pc-windows-msvc",
-  "cargo_lock_sha256": "3ab39f3859db042e18884c74929ca6254ca16edff0ebb735fe32de96128c4aa9",
+  "cargo_lock_sha256": "558d1860c40c99b5b1c5e67b08fe8534bf804d298c6aa55d025c7104febb2328",
   "selection_command": "cargo metadata --offline --locked --filter-platform x86_64-pc-windows-msvc --format-version 1",
-  "package_count": 210,
-  "document_count": 421,
+  "package_count": 213,
+  "document_count": 427,
   "role_counts": {
-    "build/proc-macro": 38,
+    "build/proc-macro": 39,
     "build/proc-macro, runtime": 3,
-    "runtime": 169
+    "runtime": 171
   },
   "development_only_packages": 0,
   "missing_license_texts": [],
@@ -1021,6 +1021,40 @@
           "path": "upstream/LICENSE-MIT",
           "source": "https://github.com/emilk/egui/blob/1669e52a7ccfc3489c1b0999b9ed48894a0b3887/LICENSE-MIT",
           "sha256": "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
+      "name": "encoding_rs",
+      "version": "0.8.35",
+      "license": "(Apache-2.0 OR MIT) AND BSD-3-Clause",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/hsivonen/encoding_rs",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "75030f3c4f45dafd7586dd6780965a8c7e8e285a5ecb86713e63a79c5b2766f3",
+      "authors": [
+        "Henri Sivonen <hsivonen@hsivonen.fi>"
+      ],
+      "documents": [
+        {
+          "path": "LICENSE-APACHE",
+          "source": "crate archive",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "source": "crate archive",
+          "sha256": "3fa4ca83dcc9237839b1bdeb2e6d16bdfb5ec0c5ce42b24694d8bbf0dcbef72c",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-WHATWG",
+          "source": "crate archive",
+          "sha256": "838118388fe5c2e7f1dbbaeed13e1c7f3ebf88be91319c7c1d77c18e987d1a50",
           "kind": "license-document"
         }
       ]
@@ -2765,6 +2799,34 @@
       ]
     },
     {
+      "name": "num-derive",
+      "version": "0.4.2",
+      "license": "MIT OR Apache-2.0",
+      "roles": [
+        "build/proc-macro"
+      ],
+      "repository": "https://github.com/rust-num/num-derive",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "ed3955f1a9c7c0c15e092f9c887db08b1fc683305fdf6eb6684f22555355e202",
+      "authors": [
+        "The Rust Project Developers"
+      ],
+      "documents": [
+        {
+          "path": "LICENSE-APACHE",
+          "source": "crate archive",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "source": "crate archive",
+          "sha256": "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
       "name": "num-traits",
       "version": "0.2.19",
       "license": "MIT OR Apache-2.0",
@@ -3247,6 +3309,28 @@
           "path": "LICENSE-MIT",
           "source": "crate archive",
           "sha256": "058f01fe181608d027fcde7e528fc03ea3cf90f30903c407644b0a9bbc54f500",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
+      "name": "quircs",
+      "version": "0.10.3",
+      "license": "MIT",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/dignifiedquire/quircs",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "d71dee9e56835add6f9c26227e6c690b19eda9414f5affc666c3ec833ba140dc",
+      "authors": [
+        "dignifiedquire <me@dignifiedquire.com>"
+      ],
+      "documents": [
+        {
+          "path": "LICENSE",
+          "source": "crate archive",
+          "sha256": "166760d656f6bfc29dfc76a7f763e529bde0ed22dde2b20cf6b6c4b14a138a9a",
           "kind": "license-document"
         }
       ]

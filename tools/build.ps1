@@ -50,6 +50,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/NATIVE-SOURCES.md') -Destination (Join-Path $package 'sources/README.md') -Force
     }
     Copy-VcRuntime $package $RuntimeDirectory
+    Copy-OcrRuntime $projectRoot $package $manifest.ocr
     Copy-WindowsIntegration $package
     $launcher = '@echo off' + "`r`n" + 'start "" "%~dp0RustView.exe" %*' + "`r`n"
     [IO.File]::WriteAllText((Join-Path $package 'Start-RustView.cmd'), $launcher, [Text.Encoding]::ASCII)

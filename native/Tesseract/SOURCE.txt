@@ -1,0 +1,14 @@
+Tesseract 5.5.4 and Leptonica 1.87.0 are built from the official release sources
+as a static Windows x64 executable. RustView sends a grayscale PGM over stdin
+and receives text over stdout. The build disables network access via libcurl,
+training tools, legacy OCR, and OpenMP. It uses Leptonica's PNM input support
+without external image codecs.
+
+Tesseract source: https://github.com/tesseract-ocr/tesseract/releases/tag/5.5.4
+Leptonica source: https://github.com/DanBloomberg/leptonica/releases/tag/1.87.0
+English and Simplified Chinese models: https://github.com/tesseract-ocr/tessdata_fast/tree/4.1.0
+Source and model SHA-256 values: ../manifest.json
+Rebuild from a RustView source checkout: tools/build-ocr.ps1
+
+Tesseract and tessdata_fast are Apache-2.0. Leptonica uses its BSD-style
+license. The accompanying files preserve the upstream license texts.

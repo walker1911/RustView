@@ -31,6 +31,7 @@ mod presentation;
 mod print_ui;
 mod quiet_backdrop;
 mod quiet_chrome;
+mod recognition;
 mod recent_ui;
 mod settings_ui;
 mod startup;
@@ -190,6 +191,7 @@ pub struct Viewer {
     floating_toolbar: floating_toolbar::State,
     quiet_chrome: quiet_chrome::State,
     quiet_backdrop: quiet_backdrop::State,
+    recognition: recognition::State,
     photo_soft_focus: bool,
     #[cfg(windows)]
     native_keys: Option<crate::native_keys::NativeKeys>,
@@ -248,6 +250,7 @@ impl Viewer {
             floating_toolbar: floating_toolbar::State::default(),
             quiet_chrome: quiet_chrome::State::default(),
             quiet_backdrop: quiet_backdrop::State::default(),
+            recognition: recognition::State::default(),
             photo_soft_focus: false,
             #[cfg(windows)]
             native_keys: None,
@@ -422,6 +425,7 @@ impl Viewer {
         self.flush_recent_open(true);
         self.save_archive_resume(true);
         self.closing = true;
+        self.recognition.reset();
         self.directory_scan.cancel();
         self.serial += 1;
         self.pending = None;
@@ -437,6 +441,7 @@ impl Viewer {
     }
 
     fn cancel_current_read(&mut self) {
+        self.recognition.reset();
         self.cancel_recent_open();
         self.serial += 1;
         self.pending = None;
@@ -456,8 +461,9 @@ impl Viewer {
         if !self.closing { return false; }
         self.poll(ctx);
         let covers_finished = self.poll_cancelled_coverflow(ctx);
+        let recognition_finished = self.recognition.drained();
         if self.running.is_none() && self.pending.is_none() && self.extra.retiring.is_none()
-            && covers_finished && self.directory_scan.is_idle()
+            && covers_finished && recognition_finished && self.directory_scan.is_idle()
             && self.extra.writing.is_none() && self.extra.pending_write.is_none() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         } else {
@@ -501,6 +507,7 @@ impl Viewer {
             self.error = Some(self.status.clone());
             return;
         }
+        self.recognition.reset();
         self.directory_scan.cancel();
         self.recent_ui.open = false;
         if !directory && !archive {
@@ -640,6 +647,7 @@ impl Viewer {
         let Some(request) = self.make_load(index, full_raw) else {
             return;
         };
+        self.recognition.reset();
         self.selected = Some(index);
         self.full_raw = full_raw;
         self.browser = false;
@@ -1610,7 +1618,8 @@ impl Viewer {
             self.scale = fit;
             self.target_scale = fit;
         }
-        if response.hovered() && !self.password_dialog {
+        let selecting_for_recognition = self.recognition.selecting();
+        if response.hovered() && !self.password_dialog && !selecting_for_recognition {
             let scroll = ctx.input(|i| i.raw_scroll_delta.y);
             if scroll != 0.0 {
                 if let Some(mouse) = response.hover_pos() {
@@ -1622,15 +1631,15 @@ impl Viewer {
                 }
             }
         }
-        if response.dragged() && self.extra.tool == 2371 {
+        if !selecting_for_recognition && response.dragged() && self.extra.tool == 2371 {
             self.pan += response.drag_delta();
             self.fit = false;
             self.zoom_anchor = None;
         }
-        if response.double_clicked() {
+        if !selecting_for_recognition && response.double_clicked() {
             self.reset_fit();
         }
-        if self.extra.tool == 2372 {
+        if !selecting_for_recognition && self.extra.tool == 2372 {
             if response.drag_started() {
                 self.extra.selection_origin = response.interact_pointer_pos();
             }
@@ -1642,7 +1651,7 @@ impl Viewer {
                 }
             }
         }
-        if self.extra.tool == 2373 && response.clicked() {
+        if !selecting_for_recognition && self.extra.tool == 2373 && response.clicked() {
             self.zoom_by(if ctx.input(|i| i.modifiers.shift) {
                 0.5
             } else {
@@ -1929,6 +1938,7 @@ impl Viewer {
             }
             self.recent_image_drawn(index, ctx);
         }
+        self.recognition_image(&response, &painter, &image, viewport, center, dimensions);
     }
 
     fn dialogs(&mut self, ctx: &egui::Context) {
@@ -2084,7 +2094,8 @@ impl eframe::App for Viewer {
         if self.extra.settings_ui.open {
             let _ = self.custom_native_action(&native_events, 2);
         }
-        if shortcuts_enabled(
+        let recognition_cancelled = self.recognition.handle_escape(ctx);
+        if !recognition_cancelled && shortcuts_enabled(
             ctx,
             self.password_dialog
                 || self.archive_jump.open
@@ -2094,7 +2105,8 @@ impl eframe::App for Viewer {
                 || self.extra.settings_ui.open
                 || self.extra.print_ui.open
                 || self.help
-                || self.quiet_chrome.menu_open,
+                || self.quiet_chrome.menu_open
+                || self.recognition.menu_open,
         ) && (!text_field_focused(ctx)
             || self.extra.edit_dialog.is_some()
                 && ctx.input(|i| {
@@ -2215,7 +2227,8 @@ impl eframe::App for Viewer {
         self.dialogs(ctx);
         self.command_dialogs(ctx);
         self.draw_inspectors(ctx);
-        self.draw_floating_toolbar(ctx, chrome_visible);
+        self.draw_recognition(ctx);
+        self.draw_floating_toolbar(ctx, chrome_visible || self.recognition.selecting());
         self.update_window_title(ctx);
     }
 }
@@ -2234,6 +2247,7 @@ impl Viewer {
 }
 impl Drop for Viewer {
     fn drop(&mut self) {
+        self.recognition.reset();
         self.save_archive_resume(true);
         if let Some(r) = &self.running {
             r.cancel.store(true, Ordering::Relaxed);
