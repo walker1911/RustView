@@ -38,8 +38,15 @@ impl Viewer {
             .is_some_and(|path| self.source.as_ref() == Some(path))
     }
 
-    pub(super) fn initial_entry_selection(&self, explicit: Option<String>) -> Option<usize> {
+    pub(super) fn initial_entry_selection(
+        &self,
+        explicit: Option<String>,
+        from_start: bool,
+    ) -> Option<usize> {
         let name = explicit.or_else(|| {
+            if from_start {
+                return None;
+            }
             let archive = self.archive_resume.archive.as_ref()?;
             self.extra
                 .catalog
@@ -155,13 +162,169 @@ mod tests {
         let mut viewer = Viewer::empty();
         viewer.extra.catalog = Some(Catalog::open(&database).unwrap());
         viewer.install_source(archive, None, entries);
-        assert_eq!(viewer.initial_entry_selection(None), Some(2));
+        assert_eq!(viewer.initial_entry_selection(None, false), Some(2));
         assert_eq!(
-            viewer.initial_entry_selection(Some("甲/相同.png".into())),
+            viewer.initial_entry_selection(Some("甲/相同.png".into()), false),
             Some(1)
         );
         assert!(viewer.password.is_none());
         viewer.entries.pop();
-        assert_eq!(viewer.initial_entry_selection(None), Some(0));
+        assert_eq!(viewer.initial_entry_selection(None, false), Some(0));
+    }
+
+    #[test]
+    fn opening_from_start_keeps_the_saved_position_until_the_first_image_is_drawn() {
+        let directory = tempfile::tempdir().unwrap();
+        for extension in ["zip", "rar", "7z"] {
+            let archive = directory.path().join(format!("album.{extension}"));
+            std::fs::write(&archive, b"test archive identity").unwrap();
+            let mut catalog = Catalog::open(&directory.path().join("catalog.sqlite")).unwrap();
+            catalog
+                .remember_archive_resume(&archive, "10.png", SystemTime::now())
+                .unwrap();
+            let entries = ["1.png", "10.png"]
+                .map(|name| Entry {
+                    name: name.into(),
+                    size: 1,
+                    directory: false,
+                    archive: false,
+                    modified: None,
+                })
+                .to_vec();
+            let mut viewer = Viewer::empty();
+            viewer.extra.catalog = Some(catalog);
+            viewer.install_source(archive.clone(), None, entries.clone());
+            assert_eq!(viewer.initial_entry_selection(None, true), Some(0));
+
+            // A cancelled load or a close before the first frame must leave resume alone.
+            viewer.install_source(archive, None, entries);
+            assert_eq!(viewer.initial_entry_selection(None, false), Some(1));
+            viewer.browser = false;
+            viewer.archive_image_drawn(0, &egui::Context::default());
+            viewer.save_archive_resume(true);
+            assert_eq!(viewer.initial_entry_selection(None, false), Some(0));
+        }
+    }
+
+    #[test]
+    fn opening_from_start_survives_the_password_dialog_for_an_encrypted_archive() {
+        use super::super::{Event, Operation, Request, Running};
+        use std::sync::{atomic::AtomicBool, mpsc, Arc};
+
+        let directory = tempfile::tempdir().unwrap();
+        let archive = directory.path().join("album.7z");
+        let image = include_bytes!("../../tests/fixtures/image.png");
+        for name in ["1.png", "2.png"] {
+            std::fs::write(directory.path().join(name), image).unwrap();
+        }
+        let mut pack = std::process::Command::new(crate::archive::engine_path().unwrap());
+        pack.current_dir(directory.path()).args([
+            "a",
+            "-mhe=on",
+            "-pfixture-password",
+            "album.7z",
+            "1.png",
+            "2.png",
+        ]);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            pack.creation_flags(0x0800_0000);
+        }
+        let output = pack.output().unwrap();
+        assert!(output.status.success(), "{:?}", output);
+
+        let mut catalog = Catalog::open(&directory.path().join("catalog.sqlite")).unwrap();
+        catalog
+            .remember_archive_resume(&archive, "2.png", SystemTime::now())
+            .unwrap();
+        let ctx = egui::Context::default();
+        let mut viewer = Viewer::empty();
+        viewer.extra.catalog = Some(catalog);
+        viewer.open_path_with_start(archive.clone(), true);
+
+        // Deliver actual archive listing replies through the viewer's normal retry flow.
+        let complete_listing = |viewer: &mut Viewer| {
+            let task = viewer.pending.take().unwrap();
+            let Request::List { path, password } = &task.request else {
+                panic!("expected archive listing")
+            };
+            let reply = match crate::archive::list(path, password.as_deref()) {
+                Ok(entries) => worker::Reply {
+                    entries: Some(
+                        entries
+                            .into_iter()
+                            .map(|entry| Entry {
+                                name: entry.name,
+                                size: entry.size,
+                                directory: false,
+                                archive: false,
+                                modified: entry.modified,
+                            })
+                            .collect(),
+                    ),
+                    ..Default::default()
+                },
+                Err(error) => worker::archive_error(error),
+            };
+            let (sender, receiver) = mpsc::sync_channel(1);
+            sender
+                .send(Event {
+                    id: task.id,
+                    request: task.request,
+                    operation: task.operation,
+                    result: Ok(worker::Output {
+                        reply,
+                        rgba: Vec::new(),
+                        preview: Vec::new(),
+                    }),
+                })
+                .ok()
+                .unwrap();
+            viewer.running = Some(Running {
+                id: task.id,
+                cancel: Arc::new(AtomicBool::new(false)),
+                receiver,
+                preview: None,
+                preload: None,
+                promoted: false,
+            });
+            // The unit test process cannot launch itself as an image worker.
+            viewer.closing = true;
+            let _ = ctx.run(egui::RawInput::default(), |ctx| viewer.poll(ctx));
+            viewer.closing = false;
+        };
+        complete_listing(&mut viewer);
+        for password in ["wrong-password", "fixture-password"] {
+            assert!(viewer.password_dialog);
+            assert!(matches!(
+                &viewer.retry.as_ref().unwrap().1,
+                Operation::List {
+                    from_start: true,
+                    ..
+                }
+            ));
+            viewer.password_input = password.into();
+            let input = egui::RawInput {
+                events: vec![egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+                ..Default::default()
+            };
+            let _ = ctx.run(input, |ctx| viewer.dialogs(ctx));
+            complete_listing(&mut viewer);
+        }
+        assert!(!viewer.password_dialog);
+        assert_eq!(
+            viewer
+                .selected
+                .map(|index| viewer.entries[index].name.as_str()),
+            Some("1.png")
+        );
+        assert_eq!(viewer.initial_entry_selection(None, false), Some(1));
     }
 }

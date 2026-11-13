@@ -190,6 +190,7 @@ mod tests {
                 select: None,
                 password: None,
                 management: true,
+                from_start: false,
             },
         });
         viewer.schedule_edit_preview();
@@ -492,6 +493,9 @@ impl Viewer {
                 self.extra.workspace.mark_saved(&self.extra.edits);
                 self.extra.edited = false;
                 self.cache.clear();
+                if let Some(index) = self.selected {
+                    self.invalidate_coverflow_preview(index);
+                }
                 self.render_edits();
                 self.status = "已保存无损编辑记录；原始像素未改写".into();
             }

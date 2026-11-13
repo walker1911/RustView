@@ -8,11 +8,11 @@
 
 面向 **Windows x64** 的 Rust 看图项目。把相机 RAW、GIF/WebP 动画、Photoshop 合成图和 ZIP／RAR／7z 里的照片，放进熟悉的键盘翻图、Picasa 式胶片带与平滑缩放流程。
 
-[下载 v0.6.4](https://github.com/walker1911/RustView/releases/tag/v0.6.4) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
+[下载 v0.6.5](https://github.com/walker1911/RustView/releases/tag/v0.6.5) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
 
 ![RustView Windows 查看界面，采用石墨配色和 Picasa 式胶片带](assets/readme/viewer.png)
 
-**v0.6.4** 缩短了双击图片启动时的首图等待。通过 **文件 → 最近打开…**，可重新打开近期的图片、文件夹或压缩包。重开压缩包时可接着看上次那张。[v0.6.4 更新说明](docs/RELEASE-v0.6.4.md) · [压缩包续看与跳页](docs/RELEASE-v0.6.0.md)
+**v0.6.5** 支持按住方向键快速预览符合条件的本地 RAW。在 **文件 → 最近打开…** 中，点击压缩包可续看，点击 **从头打开** 可回到包内第一张图。[v0.6.5 更新说明](docs/RELEASE-v0.6.5.md) · [压缩包续看与跳页](docs/RELEASE-v0.6.0.md)
 
 ## 从照片出发
 
@@ -22,7 +22,7 @@
 |---|---|
 | **直接看包内图片** | 按需读取 ZIP／RAR／7z 里的图片，需要时输入密码。可续看到上次显示的位置，也可按文件名、路径或序号跳页。 |
 | **最近打开** | 从文件菜单重新打开最近的图片、文件夹或压缩包，最多显示 20 项。历史保存在本地目录库。 |
-| **连续翻图** | 左右键切换，上下键缩放。按住左右键可连续预览本地 JPEG。平直胶片带平滑跟随，当前图居中并显示文件名和 `1/84` 序号。 |
+| **连续翻图** | 左右键切换，上下键缩放。按住左右键可连续预览本地 JPEG 和符合条件的 RAW。平直胶片带平滑跟随，当前图居中并显示文件名和 `1/84` 序号。 |
 | **看 Photoshop 文档** | 直接读取本地及 ZIP／RAR／7z 内 PSD/PSB 保存的合成图，支持超过 512 MiB 的大源文件。 |
 | **接纳现代格式** | 常见图片、LibRaw 支持的相机 RAW、苹果 ProRAW DNG，以及由内置引擎读取的 HEIC/HEIF、AVIF、JPEG XL。 |
 | **平滑缩放与比较** | 保持鼠标指向位置缩放，拖动平移，按可见区域上传细节；最多四图独立或联动查看。 |
@@ -67,7 +67,7 @@ v0.4.0 对[本地及ZIP／RAR／7z内的PSD/PSB](docs/PSD.md)提供源文件例�
 
 ## 下载与运行
 
-1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.4/RustView-0.6.4-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.6.4/RustView-0.6.4-win-x64-offline.zip.sha256)
+1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.5/RustView-0.6.5-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.6.5/RustView-0.6.5-win-x64-offline.zip.sha256)
 2. 完整解压，双击 `RustView.exe` 或 `Start-RustView.cmd`。图片引擎和运行库已经包含，首次启动也无需联网或安装依赖。
 3. 打开或拖入文件夹、图片、ZIP／RAR／7z。请保留完整目录。
 

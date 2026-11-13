@@ -156,19 +156,31 @@ impl Viewer {
                         let label = format!("{name}  ·  {kind}");
                         if ui
                             .add(egui::Button::new(label).truncate())
-                            .on_hover_text(path)
+                            .on_hover_text(&path)
                             .clicked()
                         {
-                            target = Some((recent.path.clone(), recent.kind));
+                            target = Some((recent.path.clone(), recent.kind, false));
                         }
-                        if let Some(entry) = &recent.entry {
-                            ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(format!("上次看到 {entry}")).small(),
-                                )
-                                .truncate(),
-                            )
-                            .on_hover_text(entry);
+                        if recent.kind == RecentKind::Archive {
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .add(egui::Button::new("从头打开").small())
+                                    .on_hover_text(format!("从第一张图片打开 {name}"))
+                                    .clicked()
+                                {
+                                    target = Some((recent.path.clone(), recent.kind, true));
+                                }
+                                if let Some(entry) = &recent.entry {
+                                    ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(format!("上次看到 {entry}"))
+                                                .small(),
+                                        )
+                                        .truncate(),
+                                    )
+                                    .on_hover_text(entry);
+                                }
+                            });
                         }
                     }
                 });
@@ -178,14 +190,14 @@ impl Viewer {
         if close || modal.should_close() {
             self.recent_ui.open = false;
         }
-        if let Some((path, kind)) = modal.inner {
+        if let Some((path, kind, from_start)) = modal.inner {
             let available = match kind {
                 RecentKind::Folder => path.is_dir(),
                 RecentKind::Image | RecentKind::Archive => path.is_file(),
             };
             if available {
                 self.recent_ui.open = false;
-                self.open_path(path);
+                self.open_path_with_start(path, from_start);
             } else {
                 self.recent_ui.error = Some(format!("找不到 {}", display_path(&path)));
             }

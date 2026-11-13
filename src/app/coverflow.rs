@@ -173,6 +173,8 @@ impl State {
         if let Some(result) = result {
             let task = self.running.take().unwrap();
             if task.epoch != self.epoch || task.cancel.load(Ordering::Relaxed) { return; }
+            // A completed foreground load may already have supplied this cover.
+            if self.previews.contains_key(&task.index) { return; }
             if let Ok(output) = result {
                 let width = output.reply.width as usize;
                 let height = output.reply.height as usize;
@@ -329,6 +331,18 @@ impl Viewer {
         self.extra.coverflow.failed.retain(|i| *i != index);
     }
 
+    pub(super) fn invalidate_coverflow_preview(&mut self, index: usize) {
+        let state = &mut self.extra.coverflow;
+        if let Some(task) = state.running.as_ref().filter(|task| task.index == index) {
+            task.cancel.store(true, Ordering::Relaxed);
+        }
+        state.textures.remove(&index);
+        state.previews.remove(&index);
+        state.recent.retain(|i| *i != index);
+        state.failed.retain(|i| *i != index);
+        self.extra.thumbnails.remove(&index);
+    }
+
     pub(super) fn prioritize_coverflow_preview(&mut self, index: usize) {
         self.extra.coverflow.suspended = false;
         if let Some(task) = &self.extra.coverflow.running {
@@ -369,13 +383,16 @@ impl Viewer {
                 return None;
             }
             let target = self.extra.presentation.target_index()?;
-            if self.deferred_image.is_some() && self.extra.presentation.has_target_preview(target) {
+            let target_resolved = self.extra.presentation.has_target_preview(target)
+                || self.extra.coverflow.previews.contains_key(&target)
+                || self.extra.coverflow.failed.contains(&target);
+            if self.deferred_image.is_some() && target_resolved {
                 let position = self.extra.coverflow.position(Some(target))?;
                 let next = if self.nav_forward { position + 1 } else { position.checked_sub(1)? };
                 let candidate = *self.extra.coverflow.sequence.get(next)?;
                 if !self.extra.coverflow.previews.contains_key(&candidate)
                     && !self.extra.coverflow.failed.contains(&candidate)
-                    && self.make_load(candidate, false).as_ref().is_some_and(worker::is_local_jpeg_load)
+                    && self.make_load(candidate, false).as_ref().is_some_and(worker::is_local_quick_preview_load)
                 {
                     return Some(candidate);
                 }
@@ -433,14 +450,16 @@ impl Viewer {
         let (sender, receiver) = mpsc::sync_channel(1);
         let context = ctx.clone();
         std::thread::spawn(move || {
-            let preview = if thread_cancel.load(Ordering::Relaxed) {
-                None
+            let result = if thread_cancel.load(Ordering::Relaxed) {
+                Err("已取消".into())
+            } else if worker::local_raw_load(&source).is_some() {
+                // Speculative RAW work only uses the embedded preview; the
+                // selected full load is separate and never uses this result.
+                worker::execute(Request::RawPreview { source: Box::new(source) }, thread_cancel)
+            } else if let Some(output) = worker::scaled_jpeg_thumbnail(&source) {
+                Ok(output)
             } else {
-                worker::scaled_jpeg_thumbnail(&source)
-            };
-            let result = match preview {
-                Some(output) if !thread_cancel.load(Ordering::Relaxed) => Ok(output),
-                _ => worker::execute(Request::Thumbnail { source: Box::new(source) }, thread_cancel),
+                worker::execute(Request::Thumbnail { source: Box::new(source) }, thread_cancel)
             };
             let _ = sender.send(result);
             context.request_repaint();
@@ -608,6 +627,45 @@ mod tests {
         viewer.extra.presentation.ready(0);
         assert_eq!(viewer.next_coverflow_thumbnail(), Some(1));
         assert!(viewer.make_load(0, false).is_some());
+    }
+
+    #[test]
+    fn held_raw_preview_prioritizes_the_target_then_the_directional_neighbor() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut viewer = super::super::browser_ui::tests::viewer(vec![
+            entry("a.NEF"), entry("b.ARW"), entry("c.CR3"),
+        ]);
+        viewer.source = Some(dir.path().to_owned());
+        viewer.extra.visible = vec![0, 1, 2];
+        viewer.ensure_browse_sequence();
+        viewer.load_index_with_arrow(1, true, Some(egui::Key::ArrowRight));
+        assert!(viewer.deferred_image.is_some() && viewer.pending.is_none());
+        assert_eq!(viewer.next_coverflow_thumbnail(), Some(1));
+        viewer.extra.coverflow.failed.push_back(1); // This RAW has no embedded JPEG.
+        assert_eq!(viewer.next_coverflow_thumbnail(), Some(2));
+        viewer.nav_forward = false;
+        assert_eq!(viewer.next_coverflow_thumbnail(), Some(0));
+        assert!(viewer.current.is_none() && viewer.cache.entries.is_empty());
+    }
+
+    #[test]
+    fn late_speculative_raw_cover_cannot_replace_a_ready_preview() {
+        let ctx = egui::Context::default();
+        let mut viewer = super::super::browser_ui::tests::viewer(vec![entry("a.NEF")]);
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let cancel = Arc::new(AtomicBool::new(false));
+        viewer.extra.coverflow.running = Some(ThumbnailTask { epoch: 0, index: 0, cancel, receiver });
+        let texture = ctx.load_texture("foreground", egui::ColorImage::new([1, 1], Color32::WHITE),
+            egui::TextureOptions::LINEAR);
+        let ready = super::super::presentation::PreviewPixels::sample(1, 1, &[255; 4], 1, 1).unwrap();
+        viewer.remember_coverflow_preview(0, ready, texture.clone());
+        sender.send(Ok(worker::Output {
+            reply: worker::Reply { width: 1, height: 1, ..Default::default() },
+            rgba: vec![0, 0, 0, 255], preview: Vec::new(),
+        })).unwrap();
+        viewer.extra.coverflow.poll(&ctx);
+        assert_eq!(viewer.extra.coverflow.textures[&0].id(), texture.id());
+        assert_eq!(&*viewer.extra.coverflow.previews[&0].rgba, &[255; 4]);
     }
 
     #[test]

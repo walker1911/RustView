@@ -138,6 +138,7 @@ enum Operation {
         select: Option<String>,
         password: Option<String>,
         management: bool,
+        from_start: bool,
     },
     Load {
         index: usize,
@@ -455,6 +456,10 @@ impl Viewer {
     }
 
     fn open_path(&mut self, path: PathBuf) {
+        self.open_path_with_start(path, false);
+    }
+
+    fn open_path_with_start(&mut self, path: PathBuf, from_start: bool) {
         if self.extra.edited
             && !rfd::MessageDialog::new()
                 .set_title("尚未保存编辑")
@@ -511,6 +516,7 @@ impl Viewer {
                 select: None,
                 password: None,
                 management: directory,
+                from_start: archive && from_start,
             },
         );
     }
@@ -627,7 +633,7 @@ impl Viewer {
         self.browser = false;
         self.extra.presentation.begin_target(index, self.entries[index].name.clone());
         self.prioritize_coverflow_preview(index);
-        if let Some(arrow) = arrow.filter(|_| worker::is_local_jpeg_load(&request)) {
+        if let Some(arrow) = arrow.filter(|_| worker::is_local_quick_preview_load(&request)) {
             self.serial += 1;
             self.pending = None;
             if let Some(active) = &self.running {
@@ -929,12 +935,13 @@ impl Viewer {
                                     select,
                                     password,
                                     management,
+                                    from_start,
                                 } => {
                                     self.reset_comparison();
                                     self.reset_coverflow();
                                     self.install_source(path, password, output.reply.entries.unwrap_or_default());
                                     self.recent_source_listed(ctx);
-                                    let selected = self.initial_entry_selection(select);
+                                    let selected = self.initial_entry_selection(select, from_start);
                                     self.browser = management;
                                     if let Some(index) = selected {
                                         self.load_index(index, false);
@@ -1087,7 +1094,11 @@ impl Viewer {
     fn navigate_with_arrow(&mut self, forward: bool, end: bool, arrow: Option<egui::Key>) {
         if let Some(index) = self.navigation_target(forward, end) {
             self.nav_forward = forward;
-            self.load_index_with_arrow(index, false, arrow);
+            let full_raw = arrow.is_some()
+                && self.full_raw
+                && self.source.as_ref().is_some_and(|source| source.is_dir())
+                && crate::imaging::is_raw(&self.entries[index].name);
+            self.load_index_with_arrow(index, full_raw, arrow);
         }
     }
 
@@ -1187,6 +1198,7 @@ impl Viewer {
                             select,
                             password,
                             management: self.browser,
+                            from_start: false,
                         },
                     );
                 }
@@ -2487,7 +2499,7 @@ mod tests {
             viewer.properties = true; // Closing must not dispatch a fresh metadata request.
             let request = Request::List { path: "test.zip".into(), password: None };
             let operation = Operation::List { path: "test.zip".into(), select: None,
-                password: None, management: false };
+                password: None, management: false, from_start: false };
             let (sender, receiver) = mpsc::sync_channel(1);
             let cancel = Arc::new(AtomicBool::new(false));
             viewer.running = Some(Running { id: 1, cancel: cancel.clone(), receiver,
@@ -2835,6 +2847,43 @@ mod tests {
                 Operation::Load { index: 2, preload: false, .. }));
             assert_eq!(viewer.extra.presentation.target_index(), Some(2));
         });
+    }
+
+    #[test]
+    fn held_local_raw_navigation_keeps_the_selected_decode_mode_until_release() {
+        let folder = tempfile::tempdir().unwrap();
+        let entries = ["first.nef", "second.arw", "third.cr3"].into_iter().map(|name| Entry {
+            name: name.into(), size: 1, directory: false, archive: false, modified: None,
+        }).collect::<Vec<_>>();
+        let arrow = egui::Key::ArrowRight;
+        for full_raw in [false, true] {
+            let mut viewer = browser_ui::tests::viewer(entries.clone());
+            viewer.source = Some(folder.path().to_owned());
+            viewer.selected = Some(0);
+            viewer.full_raw = full_raw;
+            let ctx = egui::Context::default();
+            let input = |pressed| egui::RawInput {
+                focused: true,
+                events: vec![egui::Event::Key {
+                    key: arrow, physical_key: Some(arrow), modifiers: egui::Modifiers::NONE,
+                    pressed, repeat: false,
+                }],
+                ..Default::default()
+            };
+            let _ = ctx.run(input(true), |ctx| {
+                viewer.navigate_with_arrow(true, false, Some(arrow));
+                viewer.navigate_with_arrow(true, false, Some(arrow));
+                assert_eq!(viewer.deferred_image.as_ref().map(|target| (target.index, target.full_raw)), Some((2, full_raw)));
+                assert!(!viewer.finish_deferred_image(ctx));
+                assert!(viewer.pending.is_none());
+            });
+            let _ = ctx.run(input(false), |ctx| {
+                assert!(viewer.finish_deferred_image(ctx));
+                let task = viewer.pending.as_ref().unwrap();
+                assert!(matches!(task.operation, Operation::Load { index: 2, full_raw: mode, preload: false } if mode == full_raw));
+                assert!(matches!(&task.request, Request::Load { path, entry: None, full_raw: mode, .. } if path.ends_with("third.cr3") && *mode == full_raw));
+            });
+        }
     }
     #[test]
     fn visible_bounds_respect_rotation() {

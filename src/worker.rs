@@ -61,6 +61,9 @@ pub enum Request {
     Thumbnail {
         source: Box<Request>,
     },
+    RawPreview {
+        source: Box<Request>,
+    },
     Edit {
         source: Box<Request>,
         edits: Vec<crate::editing::Edit>,
@@ -86,6 +89,7 @@ impl Request {
             | Self::Unedited { source }
             | Self::ColorPreview { source, .. }
             | Self::Thumbnail { source }
+            | Self::RawPreview { source }
             | Self::Preview { source, .. }
             | Self::Edit { source, .. }
             | Self::MetadataRead { source }
@@ -401,8 +405,23 @@ fn local_jpeg_load(request: &Request) -> Option<(&Path, bool)> {
     Some((path, managed))
 }
 
-pub(crate) fn is_local_jpeg_load(request: &Request) -> bool {
+fn is_local_jpeg_load(request: &Request) -> bool {
     local_jpeg_load(request).is_some()
+}
+
+pub(crate) fn local_raw_load(request: &Request) -> Option<&Path> {
+    let source = match request {
+        Request::ColorPreview { source, .. } => source.as_ref(),
+        _ => request,
+    };
+    let Request::Load { path, entry: None, .. } = source else {
+        return None;
+    };
+    crate::imaging::is_raw(&path.to_string_lossy()).then_some(path)
+}
+
+pub(crate) fn is_local_quick_preview_load(request: &Request) -> bool {
+    is_local_jpeg_load(request) || local_raw_load(request).is_some()
 }
 
 fn scaled_jpeg(request: &Request, side: u32) -> Option<crate::imaging::JpegPreview> {
@@ -781,6 +800,24 @@ fn handle_request(request: Request, output: &Path, publish_preview: bool) -> Rep
                 ..Default::default()
             })
         }
+        Request::RawPreview { source } => {
+            let result = (|| -> Result<Reply, String> {
+                let path = local_raw_load(&source).ok_or("仅支持本地 RAW 的内嵌预览")?;
+                if source_record(&source).is_some() {
+                    return Err("有保存的编辑记录，等待正常读取".into());
+                }
+                let preview = crate::imaging::decode_raw_preview(
+                    path, THUMBNAIL_SIDE, 32_000_000, 128 * 1024 * 1024,
+                ).ok_or("RAW 没有可用的内嵌预览")?;
+                let image = preview.image;
+                let mut reply = write_image(output, image.width, image.height, image.rgba, image.note)?;
+                reply.source_width = preview.source_width;
+                reply.source_height = preview.source_height;
+                reply.page_total = 1;
+                Ok(reply)
+            })();
+            result.unwrap_or_else(|error| Reply { error: Some(error), ..Default::default() })
+        }
         Request::Thumbnail { source } => {
             let ((d, index, total), record) = match decode_recorded_source(&source, output) {
                 Ok(d) => d,
@@ -1078,6 +1115,7 @@ impl Drop for Job {
 fn resource_limits(request: &Request) -> (usize, Duration) {
     match request {
         Request::Thumbnail { .. } => (THUMBNAIL_MEMORY, Duration::from_secs(30)),
+        Request::RawPreview { .. } => (THUMBNAIL_MEMORY, Duration::from_secs(5)),
         Request::MetadataRead { .. } | Request::MetadataWrite { .. } => {
             (METADATA_MEMORY, Duration::from_secs(120))
         }
@@ -1232,7 +1270,7 @@ fn execute_in_directory(
     }
     let reply: Reply = serde_json::from_slice(&fs::read(reply_file).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
-    let thumbnail = matches!(&request, Request::Thumbnail { .. });
+    let thumbnail = matches!(&request, Request::Thumbnail { .. } | Request::RawPreview { .. });
     let thumbnail_bytes = THUMBNAIL_SIDE as usize * THUMBNAIL_SIDE as usize * 4;
     if thumbnail && (reply.width > THUMBNAIL_SIDE || reply.height > THUMBNAIL_SIDE) {
         return Err("缩略图结果超过 128×128 上限".into());
@@ -1455,6 +1493,40 @@ mod tests {
         let limit = THUMBNAIL_SIDE as usize * THUMBNAIL_SIDE as usize * 4;
         let error = read_pixels(missing, THUMBNAIL_SIDE + 1, THUMBNAIL_SIDE, limit, &AtomicBool::new(false)).unwrap_err();
         assert_eq!(error, "图片输出超过预算或数据长度错误");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn raw_preview_never_falls_back_to_a_full_decode_or_archive_extraction() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("no-embedded-jpeg.DNG");
+        fs::write(&path, include_bytes!("../native/LibRaw/testdata/synthetic.dng")).unwrap();
+        for full_raw in [false, true] {
+            let source = Request::ColorPreview {
+                source: Box::new(Request::Load { path: path.clone(), entry: None, password: None, full_raw }),
+                managed: false,
+            };
+            assert!(is_local_quick_preview_load(&source));
+            let request = Request::RawPreview { source: Box::new(source) };
+            assert_eq!(resource_limits(&request), (THUMBNAIL_MEMORY, Duration::from_secs(5)));
+            let reply = handle(request, directory.path());
+            assert_eq!(reply.error.as_deref(), Some("RAW 没有可用的内嵌预览"));
+            assert!(!directory.path().join("pixels.rgba").exists());
+        }
+
+        let archived = Request::Load {
+            path: directory.path().join("missing.zip"), entry: Some("photo.DNG".into()),
+            password: None, full_raw: false,
+        };
+        assert!(!is_local_quick_preview_load(&archived));
+        let reply = handle(Request::RawPreview { source: Box::new(archived) }, directory.path());
+        assert_eq!(reply.error.as_deref(), Some("仅支持本地 RAW 的内嵌预览"));
+        assert!(!directory.path().join("input.DNG").exists());
+
+        let source = Box::new(Request::Load { path, entry: None, password: None, full_raw: false });
+        let reply = handle(Request::Thumbnail { source }, directory.path());
+        assert!(reply.error.is_none(), "{:?}", reply.error);
+        assert_eq!((reply.width, reply.height), (32, 24));
     }
 
     #[test]

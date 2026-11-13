@@ -46,6 +46,29 @@ pub(crate) fn decode_jpeg_preview(
     }
 }
 
+/// Decode only the JPEG embedded in a RAW file. Run inside a supervised worker:
+/// LibRaw may allocate its own thumbnail buffers before returning their size.
+pub(crate) fn decode_raw_preview(
+    input: &Path,
+    max_side: u32,
+    max_pixels: u64,
+    max_output_bytes: usize,
+) -> Option<JpegPreview> {
+    #[cfg(windows)]
+    {
+        if max_side == 0 || !is_raw(&input.to_string_lossy()) {
+            return None;
+        }
+        checked_input_size(input).ok()?;
+        raw::decode_preview(input, max_side, max_pixels, max_output_bytes)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (input, max_side, max_pixels, max_output_bytes);
+        None
+    }
+}
+
 fn extension(name: &str) -> String {
     Path::new(name)
         .extension()
@@ -354,7 +377,7 @@ mod jpeg_preview {
             CLSID_WICImagingFactory, CLSID_WICJpegDecoder,
             GUID_WICPixelFormat24bppBGR as BGR24, GUID_WICPixelFormat8bppGray as GRAY8,
             IWICBitmapDecoder, IWICBitmapFrameDecode,
-            IWICBitmapSourceTransform, IWICImagingFactory, IWICJpegFrameDecode,
+            IWICBitmapSourceTransform, IWICImagingFactory, IWICJpegFrameDecode, IWICStream,
             WICBitmapTransformRotate0, WICColorContextExifColorSpace as EXIF_COLOR_SPACE,
             WICColorContextProfile as ICC_PROFILE,
             WICDecodeMetadataCacheOnDemand, WICJpegFrameHeader, WICJpegScanTypeInterleaved,
@@ -365,7 +388,7 @@ mod jpeg_preview {
         },
     };
 
-    const MAX_COMPRESSED_BYTES: u64 = 32 * 1024 * 1024;
+    pub(super) const MAX_COMPRESSED_BYTES: u64 = 32 * 1024 * 1024;
     const MAX_SCALED_RGBA_BYTES: usize = 16 * 1024 * 1024;
 
     struct Apartment;
@@ -443,7 +466,7 @@ mod jpeg_preview {
         Some(None)
     }
 
-    fn fit(width: u32, height: u32, max_side: u32) -> (u32, u32) {
+    pub(super) fn fit(width: u32, height: u32, max_side: u32) -> (u32, u32) {
         let longest = u64::from(width.max(height));
         let side = longest.min(u64::from(max_side));
         let scale = |length| (u64::from(length) * side / longest).max(1) as u32;
@@ -462,23 +485,49 @@ mod jpeg_preview {
             return None;
         }
 
+        decode_stream(max_side, max_pixels, max_output_bytes, managed, |stream| {
+            let path: Vec<u16> = input.as_os_str().encode_wide().chain(Some(0)).collect();
+            unsafe { stream.InitializeFromFilename(PCWSTR(path.as_ptr()), GENERIC_READ.0).ok()? };
+            let mut stat = STATSTG::default();
+            unsafe { stream.Stat(&mut stat, STATFLAG_NONAME).ok()? };
+            (stat.cbSize == input_size).then_some(())
+        })
+    }
+
+    pub(super) fn decode_bytes(
+        bytes: &[u8],
+        max_side: u32,
+        max_pixels: u64,
+        max_output_bytes: usize,
+    ) -> Option<JpegPreview> {
+        if bytes.is_empty() || bytes.len() as u64 > MAX_COMPRESSED_BYTES {
+            return None;
+        }
+        // No stream escapes decode_stream, so the borrowed thumbnail remains
+        // alive until the read-only JPEG decoder releases every stream reference.
+        decode_stream(max_side, max_pixels, max_output_bytes, true, |stream| {
+            unsafe { stream.InitializeFromMemory(bytes).ok() }
+        })
+    }
+
+    fn decode_stream(
+        max_side: u32,
+        max_pixels: u64,
+        max_output_bytes: usize,
+        managed: bool,
+        initialize: impl FnOnce(&IWICStream) -> Option<()>,
+    ) -> Option<JpegPreview> {
         unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok().ok()? };
         let _apartment = Apartment;
         let factory: IWICImagingFactory = unsafe {
             CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER).ok()?
         };
+        let stream = unsafe { factory.CreateStream().ok()? };
+        initialize(&stream)?;
         // Open the specific inbox JPEG decoder. Extension alone never selects a codec.
         let decoder: IWICBitmapDecoder = unsafe {
             CoCreateInstance(&CLSID_WICJpegDecoder, None, CLSCTX_INPROC_SERVER).ok()?
         };
-        let path: Vec<u16> = input.as_os_str().encode_wide().chain(Some(0)).collect();
-        let stream = unsafe { factory.CreateStream().ok()? };
-        unsafe { stream.InitializeFromFilename(PCWSTR(path.as_ptr()), GENERIC_READ.0).ok()? };
-        let mut stat = STATSTG::default();
-        unsafe { stream.Stat(&mut stat, STATFLAG_NONAME).ok()? };
-        if stat.cbSize != input_size {
-            return None;
-        }
         unsafe { decoder.Initialize(&stream, WICDecodeMetadataCacheOnDemand).ok()? };
         let frame = unsafe { decoder.GetFrame(0).ok()? };
         let mut header = WICJpegFrameHeader::default();
@@ -625,6 +674,7 @@ mod raw {
     type SetInt = unsafe extern "C" fn(Handle, c_int);
     type MakeImage = unsafe extern "C" fn(Handle, *mut c_int) -> *mut ProcessedImage;
     type ClearImage = unsafe extern "C" fn(*mut ProcessedImage);
+    const LIBRAW_IMAGE_JPEG: c_int = 1;
     const LIBRAW_IMAGE_BITMAP: c_int = 2;
 
     // LibRaw 0.22.x libraw_types.h; the flexible byte array starts at offset 16.
@@ -760,6 +810,28 @@ mod raw {
         handle: Handle,
     }
 
+    impl<'a> Session<'a> {
+        fn open(api: &'a Api, input: &Path) -> Result<Self, String> {
+            let handle = unsafe { (api.init)(0) };
+            if handle.is_null() {
+                return Err("RAW 引擎初始化失败，内存可能不足".into());
+            }
+            let session = Self { api, handle };
+            let path: Vec<u16> = input.as_os_str().encode_wide().chain(Some(0)).collect();
+            api.check(unsafe { (api.open)(handle, path.as_ptr()) }, "打开 RAW 失败")?;
+            Ok(session)
+        }
+
+        fn thumbnail(&self) -> Option<Image<'a>> {
+            if unsafe { (self.api.unpack_thumb)(self.handle) } != 0 {
+                return None;
+            }
+            let mut code = 0;
+            let pointer = unsafe { (self.api.make_thumb)(self.handle, &mut code) };
+            (!pointer.is_null()).then(|| Image { api: self.api, pointer })
+        }
+    }
+
     impl Drop for Session<'_> {
         fn drop(&mut self) {
             unsafe { (self.api.close)(self.handle) }
@@ -778,21 +850,26 @@ mod raw {
     }
 
     impl Image<'_> {
-        fn decode(&self, max_pixels: u64, max_output_bytes: usize) -> Result<DecodedImage, String> {
+        fn bytes(&self, limit: usize) -> Result<&[u8], String> {
             let image = unsafe { &*self.pointer };
             let length = image.data_size as usize;
-            if length == 0 || length > max_output_bytes {
+            if length == 0 || length > limit {
                 return Err("RAW 结果或预览超过单张内存预算，或没有有效数据".into());
             }
-            let bytes = unsafe {
+            Ok(unsafe {
                 // The producer owns data_size bytes immediately after the fixed C header.
                 std::slice::from_raw_parts(
                     std::ptr::addr_of!((*self.pointer).data).cast::<u8>(),
                     length,
                 )
-            };
+            })
+        }
+
+        fn decode(&self, max_pixels: u64, max_output_bytes: usize) -> Result<DecodedImage, String> {
+            let image = unsafe { &*self.pointer };
+            let bytes = self.bytes(max_output_bytes)?;
             match image.kind {
-                1 => decode_reader(
+                LIBRAW_IMAGE_JPEG => decode_reader(
                     ImageReader::new(Cursor::new(bytes))
                         .with_guessed_format()
                         .map_err(|error| error.to_string())?,
@@ -811,7 +888,7 @@ mod raw {
                         ));
                     }
                     let source_length = output_length / 4 * channels;
-                    if source_length != length {
+                    if source_length != bytes.len() {
                         return Err("RAW 位图长度与尺寸不一致".into());
                     }
                     let mut rgba = Vec::new();
@@ -960,6 +1037,58 @@ mod raw {
         })
     }
 
+    pub(super) fn decode_preview(
+        input: &Path,
+        max_side: u32,
+        max_pixels: u64,
+        max_output_bytes: usize,
+    ) -> Option<JpegPreview> {
+        let api = Api::load().ok()?;
+        let session = Session::open(&api, input).ok()?;
+        let thumbnail = session.thumbnail()?;
+        if unsafe { (*thumbnail.pointer).kind } != LIBRAW_IMAGE_JPEG {
+            return None;
+        }
+        let bytes = thumbnail
+            .bytes((jpeg_preview::MAX_COMPRESSED_BYTES as usize).min(max_output_bytes))
+            .ok()?;
+        let note = "RAW 内嵌 JPEG 预览";
+        if let Some(mut preview) =
+            jpeg_preview::decode_bytes(bytes, max_side, max_pixels, max_output_bytes)
+        {
+            preview.image.note = note.into();
+            return Some(preview);
+        }
+
+        // Small or unsupported scaled JPEGs can still use the existing JPEG
+        // decoder. Bound its decoded buffer separately from the full RAW path.
+        const MAX_FALLBACK_RGBA_BYTES: usize = 16 * 1024 * 1024;
+        let image = decode_reader(
+            ImageReader::with_format(Cursor::new(bytes), ImageFormat::Jpeg),
+            max_pixels,
+            max_output_bytes.min(MAX_FALLBACK_RGBA_BYTES),
+        )
+        .ok()?;
+        let (source_width, source_height) = (image.width, image.height);
+        let (width, height) = jpeg_preview::fit(source_width, source_height, max_side);
+        let rgba = if (width, height) == (source_width, source_height) {
+            image.rgba
+        } else {
+            let image = image::RgbaImage::from_raw(source_width, source_height, image.rgba)?;
+            image::imageops::thumbnail(&image, width, height).into_raw()
+        };
+        Some(JpegPreview {
+            image: DecodedImage {
+                width,
+                height,
+                rgba,
+                note: note.into(),
+            },
+            source_width,
+            source_height,
+        })
+    }
+
     pub fn decode(
         input: &Path,
         max_pixels: u64,
@@ -967,29 +1096,15 @@ mod raw {
         full: bool,
     ) -> Result<DecodedImage, String> {
         let api = Api::load()?;
-        let handle = unsafe { (api.init)(0) };
-        if handle.is_null() {
-            return Err("RAW 引擎初始化失败，内存可能不足".into());
-        }
-        let session = Session { api: &api, handle };
-        let path: Vec<u16> = input.as_os_str().encode_wide().chain(Some(0)).collect();
-        api.check(
-            unsafe { (api.open)(session.handle, path.as_ptr()) },
-            "打开 RAW 失败",
-        )?;
+        let session = Session::open(&api, input)?;
         let mut bitmap_preview_without_orientation = false;
-        if !full && unsafe { (api.unpack_thumb)(session.handle) } == 0 {
-            let mut code = 0;
-            let pointer = unsafe { (api.make_thumb)(session.handle, &mut code) };
-            if !pointer.is_null() {
-                let image = Image { api: &api, pointer };
-                // This C API returns no orientation for bitmap thumbnails; full rendering applies it.
-                if unsafe { (*pointer).kind } == LIBRAW_IMAGE_BITMAP {
-                    bitmap_preview_without_orientation = true;
-                } else if let Ok(mut decoded) = image.decode(max_pixels, max_output_bytes) {
-                    decoded.note = format!("RAW 内嵌预览（可切换完整解码） · {}", decoded.note);
-                    return Ok(decoded);
-                }
+        if let Some(image) = (!full).then(|| session.thumbnail()).flatten() {
+            // This C API returns no orientation for bitmap thumbnails; full rendering applies it.
+            if unsafe { (*image.pointer).kind } == LIBRAW_IMAGE_BITMAP {
+                bitmap_preview_without_orientation = true;
+            } else if let Ok(mut decoded) = image.decode(max_pixels, max_output_bytes) {
+                decoded.note = format!("RAW 内嵌预览（可切换完整解码） · {}", decoded.note);
+                return Ok(decoded);
             }
         }
         let width = unsafe { (api.width)(session.handle) };
@@ -1238,6 +1353,7 @@ mod tests {
             include_bytes!("../native/LibRaw/testdata/synthetic.dng"),
         )
         .unwrap();
+        assert!(decode_raw_preview(&path, 64, 1000, 8192).is_none());
         for full in [false, true] {
             let decoded = decode(&path, 1000, 8192, full).unwrap();
             assert_eq!((decoded.width, decoded.height), (32, 24));
@@ -1247,5 +1363,31 @@ mod tests {
         let error = decode(&path, 100, 8192, true).err().unwrap();
         assert!(error.contains("像素限制"), "{error}");
         std::fs::rename(&path, directory.path().join("moved.dng")).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "requires the optional public camera samples"]
+    fn raw_embedded_preview_matches_normal_orientation_and_geometry() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("test-output/modern-raw-samples");
+        for name in [
+            "Nikon-Z6.NEF",
+            "Sony-a7III.ARW",
+            "Canon-EOS-R.CR3",
+            "Apple-iPhone-12-Pro.DNG",
+        ] {
+            let path = root.join(name);
+            let normal = decode(&path, 32_000_000, 128 * 1024 * 1024, false).unwrap();
+            let thumbnail = decode_raw_preview(&path, 128, 32_000_000, 128 * 1024 * 1024)
+                .unwrap_or_else(|| panic!("embedded JPEG preview missing: {name}"));
+            assert_eq!(
+                (thumbnail.source_width, thumbnail.source_height),
+                (normal.width, normal.height),
+                "{name}"
+            );
+            let (width, height) = (thumbnail.image.width, thumbnail.image.height);
+            assert!(width <= 128 && height <= 128, "{name}");
+            assert_eq!(thumbnail.image.rgba.len(), (width * height * 4) as usize, "{name}");
+        }
     }
 }

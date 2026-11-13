@@ -925,6 +925,7 @@ impl Viewer {
             11151 | 2862 => {
                 self.extra.color_managed = !self.extra.color_managed;
                 self.cache.clear();
+                self.reset_coverflow();
                 if let Some(i) = self.selected {
                     self.load_index(i, self.full_raw);
                 }
