@@ -19,6 +19,7 @@ pub const THUMBNAIL_MEMORY: usize = 512 * 1024 * 1024;
 pub const THUMBNAIL_SIDE: u32 = 128;
 pub const MAX_ENTRIES: usize = 100_000;
 pub(crate) const CONTINUITY_SIDE: u32 = 64;
+pub(crate) const CONTINUITY_MIN_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "operation")]
@@ -129,9 +130,22 @@ pub struct Reply {
     pub height: u32,
     pub preview_width: u32,
     pub preview_height: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pyramid: Option<PyramidInfo>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub embedded_psd_preview: bool,
     pub note: String,
     pub error: Option<String>,
     pub password_required: bool,
+}
+
+fn is_false(value: &bool) -> bool { !*value }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PyramidInfo {
+    pub levels: Vec<crate::pyramid::Level>,
+    pub orientation: u8,
+    pub stamp: (u64, Option<std::time::SystemTime>),
 }
 
 pub struct Output {
@@ -367,7 +381,7 @@ fn write_source(
     publish_preview: bool,
 ) -> Result<Reply, String> {
     let (image, index, total) = decoded;
-    if publish_preview {
+    if publish_preview && image.rgba.len() > CONTINUITY_MIN_BYTES {
         if let Some(preview) = ContinuityPreview::sample(image.width, image.height, &image.rgba, image.width, image.height) {
             // The small frame is visible while the same worker writes the full
             // pixels and overview. No second decode or archive extraction.
@@ -377,6 +391,88 @@ fn write_source(
     let mut reply = write_image(output, image.width, image.height, image.rgba, image.note)?;
     reply.page_index = index;
     reply.page_total = total;
+    Ok(reply)
+}
+
+fn photoshop_view(
+    request: &Request,
+    output: &Path,
+    publish_preview: bool,
+    thumbnail: bool,
+) -> Option<Result<Reply, Reply>> {
+    let mut source = request;
+    let mut managed = true;
+    loop {
+        match source {
+            Request::ColorPreview { source: inner, managed: color } => {
+                source = inner;
+                managed &= *color;
+            }
+            Request::Unedited { source: inner } | Request::Page { source: inner, .. } => source = inner,
+            _ => break,
+        }
+    }
+    let Request::Load { path, entry, .. } = source else { return None };
+    let name = entry.as_deref().or_else(|| path.to_str())?;
+    if !crate::imaging::is_photoshop(name) { return None; }
+    Some((|| {
+        let path = prepare_image(request, output)?;
+        let error_reply = |error| Reply { error: Some(error), ..Default::default() };
+        crate::imaging::checked_input_size(&path).map_err(error_reply)?;
+        let info = match crate::psd_composite::inspect(&path) {
+            Ok(info) => info,
+            Err(_) => {
+                let decode = if managed { crate::imaging::decode } else { crate::imaging::decode_unmanaged };
+                let image = decode(&path, 200_000_000, MAX_IMAGE_BYTES, false).map_err(error_reply)?;
+                return write_photoshop_view(output, image, None, publish_preview, thumbnail).map_err(error_reply);
+            }
+        };
+        let mut preview = None;
+        let mut preview_published = false;
+        if publish_preview && info.has_real_merged {
+            preview = crate::psd_view::thumbnail(&info, managed);
+            let (width, height) = oriented_size(info.width, info.height, info.orientation);
+            preview_published = preview.as_ref().and_then(|image| ContinuityPreview::sample(
+                image.width, image.height, &image.rgba, width, height,
+            )).is_some_and(|preview| preview.publish(output).is_ok());
+        }
+        let (mut image, embedded) = match crate::precision::decode_photoshop(
+            &path, &info, 200_000_000, MAX_IMAGE_BYTES, managed,
+        ) {
+            Ok(image) => (image, None),
+            Err(error) => {
+                let mut preview = preview.or_else(|| crate::psd_view::thumbnail(&info, managed))
+                    .ok_or_else(|| error_reply(error))?;
+                if info.has_real_merged {
+                    preview.note.push_str(" · 完整合成图读取失败");
+                }
+                (preview, Some((info.width, info.height)))
+            }
+        };
+        if !managed { image.note.push_str("；ICC颜色管理已关闭"); }
+        write_photoshop_view(output, image, embedded, publish_preview && !preview_published, thumbnail)
+            .map_err(error_reply)
+    })())
+}
+
+fn write_photoshop_view(
+    output: &Path,
+    mut image: crate::imaging::DecodedImage,
+    embedded: Option<(u32, u32)>,
+    publish_preview: bool,
+    thumbnail: bool,
+) -> Result<Reply, String> {
+    let (source_width, source_height) = embedded.unwrap_or((image.width, image.height));
+    if thumbnail {
+        let full = image::RgbaImage::from_raw(image.width, image.height, image.rgba).ok_or("PSD 缩略图尺寸无效")?;
+        let smaller = image::DynamicImage::ImageRgba8(full)
+            .thumbnail(image.width.min(THUMBNAIL_SIDE), image.height.min(THUMBNAIL_SIDE)).into_rgba8();
+        (image.width, image.height) = smaller.dimensions();
+        image.rgba = smaller.into_raw();
+    }
+    let mut reply = write_source(output, (image, 0, 1), publish_preview)?;
+    reply.embedded_psd_preview = embedded.is_some();
+    (reply.source_width, reply.source_height) = (source_width, source_height);
     Ok(reply)
 }
 
@@ -409,6 +505,61 @@ fn is_local_jpeg_load(request: &Request) -> bool {
     local_jpeg_load(request).is_some()
 }
 
+pub(crate) fn local_tiff_load(request: &Request) -> Option<(&Path, bool)> {
+    let (source, managed) = match request {
+        Request::ColorPreview { source, managed } => (source.as_ref(), *managed),
+        _ => (request, true),
+    };
+    let Request::Load { path, entry: None, .. } = source else { return None };
+    let suffix = path.extension()?.to_str()?;
+    (suffix.eq_ignore_ascii_case("tif") || suffix.eq_ignore_ascii_case("tiff"))
+        .then_some((path, managed))
+}
+
+fn read_pyramid(request: &Request) -> Result<Option<(crate::pyramid::Overview, PyramidInfo)>, String> {
+    let Some((path, managed)) = local_tiff_load(request) else { return Ok(None) };
+    let mut source = match crate::pyramid::Source::open(path) {
+        Ok(Some(source)) => source,
+        Ok(None) => return Ok(None),
+        // Ordinary TIFF decoding remains available for valid TIFF layouts this
+        // specialized large-image decoder doesn't recognize or support.
+        Err(_) if crate::imaging::checked_input_size(path).is_ok() => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    source.set_color_managed(managed);
+    let stamp = source.stamp()?;
+    let full = source.levels[0];
+    if stamp.0 <= MAX_INPUT_BYTES
+        && u64::from(full.width) * u64::from(full.height) <= (MAX_IMAGE_BYTES / 4) as u64
+    {
+        return Ok(None);
+    }
+    let overview = source.overview()?;
+    if source.stamp()? != stamp {
+        return Err("读取 TIFF 全景时文件已更改，请重新打开".into());
+    }
+    Ok(Some((overview, PyramidInfo {
+        levels: source.levels,
+        orientation: source.orientation.to_exif(),
+        stamp,
+    })))
+}
+
+fn pyramid_overview(request: &Request, output: &Path) -> Result<Option<Reply>, String> {
+    let Some((overview, info)) = read_pyramid(request)? else { return Ok(None) };
+    fs::write(output.join("preview.rgba"), &overview.rgba).map_err(|error| error.to_string())?;
+    Ok(Some(Reply {
+        source_width: info.levels[0].width,
+        source_height: info.levels[0].height,
+        preview_width: overview.width,
+        preview_height: overview.height,
+        page_total: 1,
+        note: format!("金字塔 TIFF · {} 级分辨率 · 按需读取", info.levels.len()),
+        pyramid: Some(info),
+        ..Default::default()
+    }))
+}
+
 pub(crate) fn local_raw_load(request: &Request) -> Option<&Path> {
     let source = match request {
         Request::ColorPreview { source, .. } => source.as_ref(),
@@ -420,22 +571,76 @@ pub(crate) fn local_raw_load(request: &Request) -> Option<&Path> {
     crate::imaging::is_raw(&path.to_string_lossy()).then_some(path)
 }
 
+pub(crate) fn local_photoshop_load(request: &Request) -> Option<(&Path, bool)> {
+    let (source, managed) = match request {
+        Request::ColorPreview { source, managed } => (source.as_ref(), *managed),
+        _ => (request, true),
+    };
+    let Request::Load { path, entry: None, .. } = source else {
+        return None;
+    };
+    crate::imaging::is_photoshop(&path.to_string_lossy()).then_some((path, managed))
+}
+
+pub(crate) fn quick_local_photoshop_preview(
+    request: &Request,
+    cancel: &AtomicBool,
+) -> Option<Output> {
+    let (path, managed) = local_photoshop_load(request)?;
+    if cancel.load(Ordering::Relaxed) || source_record(request).is_some() {
+        return None;
+    }
+    let thumbnail = crate::psd_composite::embedded_thumbnail(path, cancel)?;
+    if cancel.load(Ordering::Relaxed) {
+        return None;
+    }
+    let image = crate::psd_view::decode_thumbnail(&thumbnail.jpeg, thumbnail.orientation, managed, 512)?;
+    let (source_width, source_height) = if !thumbnail.has_real_merged {
+        image.dimensions()
+    } else {
+        oriented_size(thumbnail.width, thumbnail.height, thumbnail.orientation)
+    };
+    let width = image.width().min(THUMBNAIL_SIDE);
+    let height = image.height().min(THUMBNAIL_SIDE);
+    let image = image::DynamicImage::ImageRgba8(image).thumbnail(width, height).into_rgba8();
+    if cancel.load(Ordering::Relaxed) {
+        return None;
+    }
+    Some(Output {
+        reply: Reply {
+            width: image.width(),
+            height: image.height(),
+            source_width,
+            source_height,
+            page_total: 1,
+            embedded_psd_preview: !thumbnail.has_real_merged,
+            ..Default::default()
+        },
+        rgba: image.into_raw(),
+        preview: Vec::new(),
+    })
+}
+
+fn oriented_size(width: u32, height: u32, orientation: image::metadata::Orientation) -> (u32, u32) {
+    if matches!(orientation.to_exif(), 5..=8) { (height, width) } else { (width, height) }
+}
+
 pub(crate) fn is_local_quick_preview_load(request: &Request) -> bool {
     is_local_jpeg_load(request) || local_raw_load(request).is_some()
 }
 
-fn scaled_jpeg(request: &Request, side: u32) -> Option<crate::imaging::JpegPreview> {
+fn scaled_jpeg(request: &Request, side: u32, min_pixels: u64) -> Option<crate::imaging::JpegPreview> {
     let (path, managed) = local_jpeg_load(request)?;
     // The fast lane never expands a large source in the UI process. Larger or
     // unsupported images use the existing supervised decoding path.
-    crate::imaging::decode_jpeg_preview(path, side, 32_000_000, MAX_IMAGE_BYTES, managed)
+    crate::imaging::decode_jpeg_preview(path, side, min_pixels, 32_000_000, MAX_IMAGE_BYTES, managed)
 }
 
 pub(crate) fn scaled_jpeg_thumbnail(request: &Request) -> Option<Output> {
     if !is_local_jpeg_load(request) || source_record(request).is_some() {
         return None;
     }
-    let preview = scaled_jpeg(request, THUMBNAIL_SIDE)?;
+    let preview = scaled_jpeg(request, THUMBNAIL_SIDE, 0)?;
     Some(Output {
         reply: Reply {
             width: preview.image.width,
@@ -819,7 +1024,41 @@ fn handle_request(request: Request, output: &Path, publish_preview: bool) -> Rep
             result.unwrap_or_else(|error| Reply { error: Some(error), ..Default::default() })
         }
         Request::Thumbnail { source } => {
-            let ((d, index, total), record) = match decode_recorded_source(&source, output) {
+            match read_pyramid(&source) {
+                Ok(Some((overview, info))) => {
+                    let result = (|| -> Result<Reply, String> {
+                        let overview = image::RgbaImage::from_raw(overview.width, overview.height, overview.rgba)
+                            .ok_or("TIFF 缩略图尺寸无效")?;
+                        let orientation = image::metadata::Orientation::from_exif(info.orientation)
+                            .unwrap_or(image::metadata::Orientation::NoTransforms);
+                        let full = &info.levels[0];
+                        let mut image = image::DynamicImage::ImageRgba8(overview);
+                        image.apply_orientation(orientation);
+                        let thumbnail = image.thumbnail(THUMBNAIL_SIDE, THUMBNAIL_SIDE).into_rgba8();
+                        let mut result = write_image(output, thumbnail.width(), thumbnail.height(),
+                            thumbnail.into_raw(), "金字塔 TIFF 缩略图".into())?;
+                        let swap = matches!(orientation, image::metadata::Orientation::Rotate90
+                            | image::metadata::Orientation::Rotate270
+                            | image::metadata::Orientation::Rotate90FlipH
+                            | image::metadata::Orientation::Rotate270FlipH);
+                        (result.source_width, result.source_height) = if swap {
+                            (full.height, full.width)
+                        } else { (full.width, full.height) };
+                        result.page_total = 1;
+                        Ok(result)
+                    })();
+                    return result.unwrap_or_else(|error| Reply { error: Some(error), ..Default::default() });
+                }
+                Ok(None) => {}
+                Err(error) => return Reply { error: Some(error), ..Default::default() },
+            }
+            let record = source_record(&source);
+            if record.is_none() {
+                if let Some(result) = photoshop_view(&source, output, false, true) {
+                    return result.unwrap_or_else(|reply| reply);
+                }
+            }
+            let ((d, index, total), record) = match decode_source_with_record(&source, output, record) {
                 Ok(d) => d,
                 Err(r) => return r,
             };
@@ -978,9 +1217,19 @@ fn handle_request(request: Request, output: &Path, publish_preview: bool) -> Rep
         | Request::Page { .. }
         | Request::ColorPreview { .. }
         | Request::Unedited { .. } => {
+            match pyramid_overview(&request, output) {
+                Ok(Some(reply)) => return reply,
+                Ok(None) => {}
+                Err(error) => return Reply { error: Some(error), ..Default::default() },
+            }
             let record = source_record(&request);
+            if record.is_none() {
+                if let Some(result) = photoshop_view(&request, output, publish_preview, false) {
+                    return result.unwrap_or_else(|reply| reply);
+                }
+            }
             let early_preview = publish_preview && record.is_none()
-                && scaled_jpeg(&request, CONTINUITY_SIDE)
+                && scaled_jpeg(&request, CONTINUITY_SIDE, (CONTINUITY_MIN_BYTES / 4) as u64 + 1)
                     .and_then(|preview| ContinuityPreview::sample(
                         preview.image.width, preview.image.height, &preview.image.rgba,
                         preview.source_width, preview.source_height,
@@ -1061,7 +1310,7 @@ pub(crate) struct Job(windows_sys::Win32::Foundation::HANDLE);
 
 #[cfg(windows)]
 impl Job {
-    fn terminate(&self) {
+    pub(crate) fn terminate(&self) {
         unsafe { windows_sys::Win32::System::JobObjects::TerminateJobObject(self.0, 1); }
     }
 
@@ -1430,6 +1679,60 @@ mod tests {
         fs::write(&path, vec![0; 16 + 64 * 64 * 4 + 1]).unwrap();
         assert!(ContinuityPreview::read(&path).is_none());
     }
+
+    #[test]
+    fn small_completed_images_do_not_publish_a_mosaic() {
+        let directory = tempfile::tempdir().unwrap();
+        for (width, height, expect_preview) in [(128, 64, false), (2049, 1024, true)] {
+            let image = crate::imaging::DecodedImage {
+                width,
+                height,
+                rgba: vec![255; width as usize * height as usize * 4],
+                note: String::new(),
+            };
+            let reply = write_source(directory.path(), (image, 0, 1), true).unwrap();
+            assert_eq!((reply.width, reply.height), (width, height));
+            let preview = ContinuityPreview::read(&directory.path().join("continuity.rgba"));
+            assert_eq!(preview.is_some(), expect_preview);
+        }
+    }
+
+    #[test]
+    fn photoshop_neighbor_preview_uses_only_the_embedded_jpeg() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("preview.PSD");
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut jpeg)
+            .encode(&[200, 80, 10].repeat(160 * 80), 160, 80, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        let mut data = Vec::new();
+        for field in [1_u32, 160, 80, 480, 38_400, jpeg.len() as u32] {
+            data.extend(field.to_be_bytes());
+        }
+        data.extend([0, 24, 0, 1]);
+        data.extend(jpeg);
+        let mut resources = b"8BIM\x04\x0c\0\0".to_vec();
+        resources.extend((data.len() as u32).to_be_bytes());
+        resources.extend(&data);
+        if data.len() % 2 != 0 { resources.push(0); }
+        resources.extend(b"8BIM\x04\x21\0\0\0\0\0\x05\0\0\0\x01\0\0");
+        let mut psd = b"8BPS\0\x01\0\0\0\0\0\0\0\x03".to_vec();
+        psd.extend(1000_u32.to_be_bytes());
+        psd.extend(2000_u32.to_be_bytes());
+        psd.extend(b"\0\x08\0\x03\0\0\0\0");
+        psd.extend((resources.len() as u32).to_be_bytes());
+        psd.extend(&resources);
+        // The file has no layer section or full canvas pixel data to decode.
+        fs::write(&path, psd).unwrap();
+        let request = Request::Load { path, entry: None, password: None, full_raw: false };
+        let preview = quick_local_photoshop_preview(&request, &AtomicBool::new(false)).unwrap();
+        assert!(preview.reply.embedded_psd_preview);
+        assert_eq!((preview.reply.width, preview.reply.height), (128, 64));
+        assert_eq!((preview.reply.source_width, preview.reply.source_height), (160, 80));
+        assert!(preview.rgba.chunks_exact(4).all(|pixel| pixel[0] > 195 && pixel[2] < 16));
+        assert!(quick_local_photoshop_preview(&request, &AtomicBool::new(true)).is_none());
+    }
+
     #[test]
     fn large_local_photoshop_source_is_not_rejected_as_rgba_memory() {
         let directory = tempfile::tempdir().unwrap();

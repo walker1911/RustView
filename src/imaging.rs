@@ -23,6 +23,7 @@ pub(crate) struct JpegPreview {
 pub(crate) fn decode_jpeg_preview(
     input: &Path,
     max_side: u32,
+    min_pixels: u64,
     max_pixels: u64,
     max_output_bytes: usize,
     managed: bool,
@@ -37,11 +38,11 @@ pub(crate) fn decode_jpeg_preview(
         {
             return None;
         }
-        jpeg_preview::decode(input, max_side, max_pixels, max_output_bytes, managed)
+        jpeg_preview::decode(input, max_side, min_pixels, max_pixels, max_output_bytes, managed)
     }
     #[cfg(not(windows))]
     {
-        let _ = (input, max_side, max_pixels, max_output_bytes, managed);
+        let _ = (input, max_side, min_pixels, max_pixels, max_output_bytes, managed);
         None
     }
 }
@@ -233,6 +234,12 @@ fn decode_options(
     if is_raw(&input.to_string_lossy()) {
         return decode_raw(input, max_pixels, max_output_bytes, raw_full);
     }
+    if is_photoshop(&input.to_string_lossy()) {
+        return match crate::psd_composite::inspect(input) {
+            Ok(info) => crate::precision::decode_photoshop(input, &info, max_pixels, max_output_bytes, managed),
+            Err(_) => crate::precision::decode_fallback(input, max_pixels, max_output_bytes, managed),
+        };
+    }
     let file = File::open(input).map_err(|error| format!("无法打开图像：{error}"))?;
     let mut reader = ImageReader::new(BufReader::new(file))
         .with_guessed_format()
@@ -320,6 +327,15 @@ fn decode_reader_options<R: BufRead + Seek>(
 }
 
 pub(crate) fn apply_icc(bytes: &[u8], rgba: &mut [u8]) -> Result<(), String> {
+    apply_icc_to(bytes, rgba, &ColorProfile::new_srgb(), TransformOptions::default())
+}
+
+pub(crate) fn apply_icc_to(
+    bytes: &[u8],
+    rgba: &mut [u8],
+    target: &ColorProfile,
+    options: TransformOptions,
+) -> Result<(), String> {
     if bytes.len() > 4 * 1024 * 1024 {
         return Err("色彩配置超过 4 MiB".into());
     }
@@ -332,9 +348,9 @@ pub(crate) fn apply_icc(bytes: &[u8], rgba: &mut [u8]) -> Result<(), String> {
     let transform = source
         .create_transform_8bit(
             source_layout,
-            &ColorProfile::new_srgb(),
+            target,
             Layout::Rgba,
-            TransformOptions::default(),
+            options,
         )
         .map_err(|error| error.to_string())?;
     // A fixed scratch buffer avoids allocating another full-resolution bitmap.
@@ -476,6 +492,7 @@ mod jpeg_preview {
     pub(super) fn decode(
         input: &Path,
         max_side: u32,
+        min_pixels: u64,
         max_pixels: u64,
         max_output_bytes: usize,
         managed: bool,
@@ -485,7 +502,7 @@ mod jpeg_preview {
             return None;
         }
 
-        decode_stream(max_side, max_pixels, max_output_bytes, managed, |stream| {
+        decode_stream(max_side, min_pixels, max_pixels, max_output_bytes, managed, |stream| {
             let path: Vec<u16> = input.as_os_str().encode_wide().chain(Some(0)).collect();
             unsafe { stream.InitializeFromFilename(PCWSTR(path.as_ptr()), GENERIC_READ.0).ok()? };
             let mut stat = STATSTG::default();
@@ -505,13 +522,14 @@ mod jpeg_preview {
         }
         // No stream escapes decode_stream, so the borrowed thumbnail remains
         // alive until the read-only JPEG decoder releases every stream reference.
-        decode_stream(max_side, max_pixels, max_output_bytes, true, |stream| {
+        decode_stream(max_side, 0, max_pixels, max_output_bytes, true, |stream| {
             unsafe { stream.InitializeFromMemory(bytes).ok() }
         })
     }
 
     fn decode_stream(
         max_side: u32,
+        min_pixels: u64,
         max_pixels: u64,
         max_output_bytes: usize,
         managed: bool,
@@ -538,6 +556,9 @@ mod jpeg_preview {
             return None;
         }
         let (source_width, source_height) = (header.Width, header.Height);
+        if u64::from(source_width) * u64::from(source_height) < min_pixels {
+            return None;
+        }
         output_size(source_width, source_height, max_pixels, max_output_bytes).ok()?;
         let transform = frame.cast::<IWICBitmapSourceTransform>().ok()?;
         let (mut width, mut height) = fit(source_width, source_height, max_side);
@@ -1258,7 +1279,7 @@ mod tests {
         let rgb = [24, 140, 218].repeat(width * height);
         image::save_buffer_with_format(&path, &rgb, width as u32, height as u32,
             image::ExtendedColorType::Rgb8, ImageFormat::Jpeg).unwrap();
-        let preview = decode_jpeg_preview(&path, 64, 2_000_000, 8 * 1024 * 1024, true).unwrap();
+        let preview = decode_jpeg_preview(&path, 64, 0, 2_000_000, 8 * 1024 * 1024, true).unwrap();
         assert_eq!((preview.source_width, preview.source_height), (1281, 641));
         assert_eq!((preview.image.width, preview.image.height), (64, 32));
         assert_eq!(preview.image.rgba.len(), 64 * 32 * 4);
@@ -1266,9 +1287,10 @@ mod tests {
             pixel[3] == 255 && pixel[..3].iter().zip([24, 140, 218])
                 .all(|(&actual, expected)| actual.abs_diff(expected) <= 4)
         }));
-        assert!(decode_jpeg_preview(&path, 64, 2_000_000, 1000, true).is_none());
-        assert!(decode_jpeg_preview(&path, 64, 1000, 8 * 1024 * 1024, true).is_none());
-        assert!(decode_jpeg_preview(&path, 2048, 2_000_000, 8 * 1024 * 1024, true).is_none());
+        assert!(decode_jpeg_preview(&path, 64, 0, 2_000_000, 1000, true).is_none());
+        assert!(decode_jpeg_preview(&path, 64, 0, 1000, 8 * 1024 * 1024, true).is_none());
+        assert!(decode_jpeg_preview(&path, 2048, 0, 2_000_000, 8 * 1024 * 1024, true).is_none());
+        assert!(decode_jpeg_preview(&path, 64, 2_000_000, 2_000_000, 8 * 1024 * 1024, true).is_none());
     }
 
     #[cfg(windows)]
@@ -1294,7 +1316,7 @@ mod tests {
 
         for managed in [true, false] {
             let full = decode_options(&path, 2_000_000, 8 * 1024 * 1024, false, managed).unwrap();
-            let preview = decode_jpeg_preview(&path, 128, 2_000_000, 8 * 1024 * 1024, managed).unwrap();
+            let preview = decode_jpeg_preview(&path, 128, 0, 2_000_000, 8 * 1024 * 1024, managed).unwrap();
             assert_eq!((preview.source_width, preview.source_height), (640, 1280));
             assert_eq!((preview.image.width, preview.image.height), (64, 128));
             for x in [8, 56] {

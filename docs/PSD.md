@@ -4,7 +4,7 @@
 
 RustView 可以直接浏览 `.psd` 和 `.psb`，包括 ZIP／RAR／7z 内的文档。与普通图片一样，可翻图、平滑缩放、生成底部预览；加密压缩包沿用现有密码提示。完整离线包使用随附的 ImageMagick Q16-HDRI x64，不需要 Photoshop 或新下载的插件。
 
-查看的是保存的**文档合成图**，图层不变成动画帧或多页。解码和尺寸探测都指定 scene `[0]`：在文档有保存合成图时，捆绑版本的成熟 PSD coder 自动跳过图层像素。导出或恢复编辑记录也使用合成图；即使旧记录保留了“全部动画帧”设置，PSD/PSB 仍只处理一张。
+查看的是保存的**文档合成图**。RustView 按文件索引跳过图层数据，直接读取 RGB8 的 RAW／RLE 合成图。ZIP（包括预测编码）合成图在受限工作进程里逐行解压，再由随附引擎处理颜色、透明度和位深。导出或恢复编辑记录也只处理一张合成图。
 
 已用公开的合成小样验证：RGB8、RLE/PackBits、RGBA 透明合成、RGB16、CMYK8、嵌入 sRGB ICC，以及带独立图层的 PSD／PSB。正常查看使用现有 ICC→sRGB 链路，屏幕预览为 RGBA8；读取 16 位输入不表示显示器预览是 16 位。带有效 ICC 的 CMYK 依照该配置转换；没有配置的 CMYK 使用引擎的默认转换，不能据此保证印刷色准。
 
@@ -20,7 +20,7 @@ RGBA 缓冲仍为512 MiB；普通解码子进程树2 GiB，缩略图子进程树
 
 其他格式仍有512 MiB输入上限；属性面板的元数据读取及部分文件复制操作也保留各自512 MiB上限。PSD/PSB图像源的例外不放宽这些独立预算。
 
-建议在 Photoshop 保存时启用“最大兼容性”，使文档包含可见合成图。缺少有效合成图时，原生引擎可能尝试重建图层，复杂调整层、混合效果或特殊编码不保证与 Photoshop 完全相同；损坏或不支持的文档可能被拒绝。这里没有自行重写 Photoshop 的渲染器。
+缺少有效合成图时，简单文档可在预算内尝试合成。复杂文档若有 Photoshop 内嵌 JPEG，查看模式会明确标为「PSD 内嵌预览」，只显示该缩略图。需要完整清晰度时，请在 Photoshop 的「文件处理」中启用「最大兼容性」并另存副本。
 
 回归样本及来源记录在源代码的 `tests/fixtures/psd/README.md`（运行包不附测试夹具）。单元测试断言实际像素、透明度、首图选择、内存预算拒绝、禁止写 PSD，以及单帧导出；源码工具 `tools/psd_smoke.py` 走实际受限子进程，覆盖本地文件、缩略图、压缩包列举、加密7z及合成图导出。
 
@@ -42,7 +42,7 @@ RGBA 缓冲仍为512 MiB；普通解码子进程树2 GiB，缩略图子进程树
 
 RustView opens PSD and PSB documents directly, including entries inside ZIP, RAR and 7z archives. It reuses the bundled offline ImageMagick Q16-HDRI x64 engine and existing navigation, zoom, thumbnail and archive-password flows.
 
-The viewer selects the document's composite, never treating Photoshop layers as animation frames or pages. Both metadata probing and decoding request scene `[0]`; the bundled decoder skips layer pixels when a saved composite exists. Export and restored edit previews also remain a single composite, including when an old recipe requests all animation frames.
+RustView seeks past the layer data and reads the saved composite. RGB8 raw and PackBits composites have a direct path. ZIP composites, including predicted ZIP, are decompressed row by row in a bounded worker and passed to the bundled engine for color, alpha and depth handling. Exports and restored edits use a single composite.
 
 Synthetic regression images cover raw and RLE RGB, composite alpha, 16-bit RGB, CMYK, embedded sRGB ICC and layered PSD/PSB. Viewing converts through the existing ICC-to-sRGB path to an RGBA8 display preview. Untagged CMYK uses the engine's default conversion and does not establish print-color accuracy.
 
@@ -52,7 +52,7 @@ The v0.4.0 prerelease accepts local PSD/PSB sources and PSD/PSB entries in ZIP/R
 
 The 512 MiB RGBA budget, 2 GiB main worker, 512 MiB thumbnail worker, native 128 MiB memory/1 GiB disk cache and timeouts remain in place. Very large composites can still be rejected. Before extracting a large entry, its temporary volume must have room for that entry plus a 2 GiB reserve; free space is checked again every 16 MiB. Success, errors and normal cancellation clean the task's temporary files. There is no persistent cache of complete extracted PSDs, and background filmstrip work avoids duplicate large extractions. Solid archives may require sequential decompression. Other image formats, metadata reads and some file-copy operations retain their separate 512 MiB limits.
 
-Enable Photoshop's maximum-compatibility composite when saving. Documents without a valid stored composite can require native layer reconstruction; exact Photoshop rendering of complex effects and unusual encodings is not guaranteed.
+For a complex document with no usable full composite, the viewer can display its embedded Photoshop JPEG and label it as a preview. Simple documents may still be reconstructed within the resource budget. For full-resolution viewing, enable Photoshop's Maximize PSD and PSB File Compatibility setting and save a copy.
 
 Large encrypted RAR5 is now covered separately using official RAR-generated data-only and header-and-data encryption, including two physical ciphertext containers above 512 MiB. The 76 supervisor/worker cases check passwords, full composite pixels, exports, cancellation, observed process termination and temporary cleanup. Eight same-Viewer headless cases additionally exercise navigation at 10/250 ms, late-result isolation, pixel identity, continuous presentation, cache limits and close during partial extraction. Native-window password/keyboard/exit acceptance is separate; it does not establish screenshot-based visual quality. Exit now cancels and drains existing resources before closing, with mutually exclusive Close/CancelClose frames. The RAR fixture writer and generated archives are test-only and are not distributed with RustView.
 

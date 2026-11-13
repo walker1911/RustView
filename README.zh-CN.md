@@ -8,15 +8,15 @@
 
 面向 **Windows x64** 的 Rust 看图项目。用熟悉的快捷键、Picasa 式胶片带和平滑缩放浏览相机 RAW、GIF/WebP 动画、Photoshop 合成图及 ZIP／RAR／7z 里的照片。看图时也能直接读二维码、复制图片里的文字。
 
-[下载 v0.6.8](https://github.com/walker1911/RustView/releases/tag/v0.6.8) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
+[下载 v0.6.9](https://github.com/walker1911/RustView/releases/tag/v0.6.9) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
 
-## v0.6.8 新功能
+## v0.6.9 新功能
 
-**直接读图里的二维码。** 停留在当前图上，识别到二维码时会出现一个小按钮。点开即可查看、复制内容，也可选择打开 HTTP(S) 链接。较小的码可以右键选择「框选二维码…」再扫一次。[二维码实拍](assets/readme/qr-recognition.png)
+**直接在图片上选字。** 在静态图上停留片刻，RustView 会在后台离线识字。鼠标移到文字上出现文本光标后，可拖选一段或多行，再按 `Ctrl+C`。包内提供简体中文和英文模型，右键仍可调用整图、框选识别。[OCR 结果实拍](assets/readme/ocr-result.png)
 
-**离线复制图片里的文字。** 右键选择「识别整图文字（OCR）」或「框选文字（OCR）…」，在结果中选取或复制文字。简体中文、英文及中英混排都在本机识别，模型随完整离线包提供。[框选识别实拍](assets/readme/ocr-selection.png) · [v0.6.8 更新说明](docs/RELEASE-v0.6.8.md)
+**缩放超大 TIFF。** 打开符合条件的本地金字塔 TIFF 或 BigTIFF，先看内嵌全景，再随着缩放和平移按需读取视野内的细节分块。超出常规预算的文件进入只读查看模式。[TIFF 支持范围](docs/COMPATIBILITY.md)
 
-![RustView 显示可选取的简体中文与英文 OCR 结果](assets/readme/ocr-result.png)
+**改进 PSD 预览和翻图。** PSD/PSB 可读取 ZIP 压缩的合成图，包括带预测编码的文件。复杂文档缺少可用的合成图时，如有内嵌 JPEG，可显示带标记的预览。点按翻图时，小 JPEG 可直接显示清晰图；遇到较大的本地 PSD/PSB，读取期间可先显示目标图自己的内嵌预览。[v0.6.9 更新说明](docs/RELEASE-v0.6.9.md)
 
 ## 清爽看图
 
@@ -36,9 +36,10 @@
 |---|---|
 | **直接看包内图片** | 按需读取 ZIP／RAR／7z 里的图片，需要时输入密码。可续看到上次显示的位置，也可按文件名、路径或序号跳页。 |
 | **最近打开** | 从文件菜单重新打开最近的图片、文件夹或压缩包，最多显示 20 项。历史保存在本地目录库。 |
-| **连续翻图** | 左右键切换，上下键缩放。按住左右键可连续预览本地 JPEG 和符合条件的 RAW。平直胶片带平滑跟随，当前图居中并显示文件名和 `1/84` 序号。 |
-| **看 Photoshop 文档** | 直接读取本地及 ZIP／RAR／7z 内 PSD/PSB 保存的合成图，支持超过 512 MiB 的大源文件。 |
-| **识别二维码和图片文字** | 后台扫描当前图片的二维码，按需对整图或选区执行离线 OCR。 |
+| **连续翻图** | 左右键切换，上下键缩放。点按读取完整图，按住左右键可快速预览未缓存的本地 JPEG 和符合条件的 RAW。平直胶片带平滑跟随，当前图居中并显示文件名和 `1/84` 序号。 |
+| **看 Photoshop 文档** | 直接读取本地及 ZIP／RAR／7z 内 PSD/PSB 保存的合成图，支持超过 512 MiB 的大源文件。合成图不可用时可显示带标记的内嵌预览。 |
+| **浏览超大 TIFF** | 对符合条件的本地金字塔 TIFF／BigTIFF，先显示全景，放大后按需读取细节分块。 |
+| **识别二维码和图片文字** | 后台扫码并自动识字，可在图上拖选文字，也可手动识别整图或选区。[二维码说明](docs/RELEASE-v0.6.8.md) |
 | **接纳现代格式** | 常见图片、LibRaw 支持的相机 RAW、苹果 ProRAW DNG，以及由内置引擎读取的 HEIC/HEIF、AVIF、JPEG XL。 |
 | **平滑缩放与比较** | 保持鼠标指向位置缩放，拖动平移，按可见区域上传细节；最多四图独立或联动查看。 |
 | **完整动画** | GIF/WebP 按帧时序、透明合成与循环信息播放；支持整段动画导出。 |
@@ -51,7 +52,7 @@
 
 在单图查看中将鼠标移到窗口顶边，再点 **「跳页…」**，可以输入文件名的一部分、完整包内路径或从 1 开始的当前浏览序号。文件名重复时，可按包内路径选择。在 **「文件 → 最近打开…」** 中，点击压缩包可续看，也可点 **「从头打开」** 回到包内第一张图。重新打开加密包时会再次询问密码。[压缩包续看与跳页](docs/RELEASE-v0.6.0.md)
 
-快速翻图时，可复用已经在读取的目标任务。目标预览就绪前保留上一张的清晰预览，并同时标出目标文件和暂时显示的文件。直接打开单张图片时，先读取该图片，再扫描同目录。以静态图启动程序时，受限解码进程还可与图形初始化并行。[浏览说明](docs/PICASA-BROWSING.md)
+快速翻图时，可复用已经在读取的目标任务。命中缓存的图片直接显示。目标有可用像素前，保留上一张的清晰概览，并同时标出目标文件和暂时显示的文件。直接打开单张图片时，先读取该图片，再扫描同目录。以静态图启动程序时，受限解码进程还可与图形初始化并行。[浏览说明](docs/PICASA-BROWSING.md)
 
 处理步骤保存为记录，常用参数保存为预设。导出会重新读取源数据计算，界面中的 RGBA8 显示预览不作为 RAW／高位输出的来源。
 
@@ -68,6 +69,8 @@
 | 当前文件夹或压缩包的最近静态图片缓存 | 0–2048 MiB，可在选项中调整 |
 | GPU 细节分块 | 256 MiB |
 | 图像工作进程树 | 2 GiB |
+| 大 TIFF 细节工作进程树 | 512 MiB |
+| OCR 工作进程树 | 256 MiB |
 | 普通格式输入／静态 RGBA 输出 | 各 512 MiB |
 | 验证后的本地及包内 PSD/PSB 源文件 | 64 GiB；像素预算继续生效 |
 | 动画驻留 | 当前帧＋一个预读帧 |
@@ -82,8 +85,8 @@ v0.4.0 对[本地及ZIP／RAR／7z内的PSD/PSB](docs/PSD.md)提供源文件例�
 
 ## 下载与运行
 
-1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.8/RustView-0.6.8-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.6.8/RustView-0.6.8-win-x64-offline.zip.sha256)
-2. 完整解压，双击 `RustView.exe` 或 `Start-RustView.cmd`。图像引擎、运行库、OCR 引擎和简中及英文模型均随包提供，首次启动就能离线看图和识别文字。
+1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.9/RustView-0.6.9-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.6.9/RustView-0.6.9-win-x64-offline.zip.sha256)
+2. 完整解压，双击 `RustView.exe` 或 `Start-RustView.cmd`。图像引擎、运行库、Tesseract 和简体中文及英文模型均随包提供，首次启动即可离线看图和识别文字。
 3. 打开或拖入文件夹、图片、ZIP／RAR／7z。请保留完整目录。
 
 日常看图只需下载离线 ZIP。重编随包引擎所需的源码归档见源码说明。[离线版说明](OFFLINE.md) · [原生引擎源码](docs/NATIVE-SOURCES.md)
@@ -125,7 +128,7 @@ pwsh -File .\tools\build.ps1 -Offline
 
 ## 验证到哪一步
 
-发行检查覆盖静态图与压缩包、GIF/WebP 动画、PSD/PSB 合成图、缩略图和大型加密 RAR 的取消清理。v0.6.8 在 Windows 桌面验证了自动扫码、整图和框选 OCR，以及识别中关窗。浏览对照包括万张 JPEG 图库、相机 RAW、加密 RAR 和 7z 内的 521 MiB PSD，AES ZIP 另用解码进程验证。[v0.6.8 更新说明与实测数据](docs/RELEASE-v0.6.8.md) · [验证结果与范围](docs/VALIDATION.md)
+发行检查覆盖静态图与压缩包、GIF/WebP 动画、PSD/PSB 合成图、缩略图和大型加密 RAR 的取消清理。v0.6.9 的开发版在 Windows 桌面验证了图上选字、点按与长按翻图，以及一份 108,199 × 81,503 BigTIFF 的平移和缩放。[v0.6.9 更新说明与实测数据](docs/RELEASE-v0.6.9.md) · [验证结果与范围](docs/VALIDATION.md)
 
 真实相机样本包括 Nikon Z6、Sony a7 III、Canon EOS R、iPhone 12 Pro ProRAW 和 HEIC。原生窗口、显示和打印测试的范围见验证记录。反馈时请提供版本、格式或相机型号、预期行为和最小复现样本。[报告问题](https://github.com/walker1911/RustView/issues)
 

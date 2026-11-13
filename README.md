@@ -8,15 +8,15 @@
 
 An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, Photoshop composites, and pictures inside compressed archives. Read QR codes and copy text from pictures while staying in the viewer.
 
-[Download v0.6.8](https://github.com/walker1911/RustView/releases/tag/v0.6.8) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+[Download v0.6.9](https://github.com/walker1911/RustView/releases/tag/v0.6.9) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
 
-## New in v0.6.8
+## New in v0.6.9
 
-**Read a QR code in the current picture.** Pause on an image and a small **二维码** (QR code) button appears if RustView finds a code. Click it to view or copy the content, or choose to open an HTTP(S) link. For a small code, right-click the image and choose **框选二维码…** (Select a QR area) to scan the selected region. [QR screenshot](assets/readme/qr-recognition.png)
+**Select text directly on the image.** Pause on a still image to let offline OCR prepare the text. When the text cursor appears, drag across words or lines and press `Ctrl+C`. Simplified Chinese and English models come with the viewer. Whole-image and selected-area OCR are still available from the right-click menu. [OCR result screenshot](assets/readme/ocr-result.png)
 
-**Copy text from a picture offline.** Right-click and choose **识别整图文字（OCR）** (Recognize text in the whole image) or **框选文字（OCR）…** (Select a text area), then copy the text from the result. The bundled engine recognizes Simplified Chinese, English, and mixed text on your PC. [Selection screenshot](assets/readme/ocr-selection.png) · [v0.6.8 release notes](docs/RELEASE-v0.6.8.md)
+**Zoom into huge local TIFFs.** Open a supported tiled pyramidal TIFF or BigTIFF and start with its embedded overview. Zoom and pan to load only the detail tiles you can see. Very large files open in read-only viewing mode. [Supported TIFF layouts](docs/COMPATIBILITY.md)
 
-![RustView showing selectable Simplified Chinese and English OCR results](assets/readme/ocr-result.png)
+**Better Photoshop previews and smoother browsing.** PSD/PSB reads now handle ZIP-compressed composites, including ZIP prediction. If a complex document has no usable composite, RustView can show its embedded JPEG with a preview label. A tap can show a small JPEG directly at full quality. When browsing large local PSD/PSB files, the viewer can show the selected document's own embedded preview while it loads the composite. [v0.6.9 release notes](docs/RELEASE-v0.6.9.md)
 
 ## Quiet view
 
@@ -34,10 +34,11 @@ Graphite is the default background. Under **视图 → 看图背景 → 照片�
 |---|---|
 | **Browse archives** | Read ZIP / RAR / 7z images on demand with password prompts, resume from the last image shown, and jump by filename, path, or number. |
 | **Reopen recent items** | Return to up to 20 recently opened images, folders, or archives from the File menu. History stays in the local catalog. |
-| **Keep browsing** | Left/right changes images and up/down zooms. Hold an arrow key for quick previews of local JPEGs and eligible RAWs. A flat, animated filmstrip keeps the selected photo centered, with a filename and `1/84` counter. |
+| **Keep browsing** | Left/right changes images and up/down zooms. Tap to load the full image or hold an arrow key for quick previews of uncached local JPEGs and eligible RAWs. A flat, animated filmstrip keeps the selected photo centered, with a filename and `1/84` counter. |
 | **View modern formats** | Common images, LibRaw-supported RAW and ProRAW DNG, plus HEIC/HEIF, AVIF, and JPEG XL. |
-| **Open Photoshop documents** | View saved PSD/PSB composites locally or inside ZIP/RAR/7z, including sources larger than 512 MiB. |
-| **Read QR codes and image text** | Scan the current image in the background, or request offline OCR for the whole image or a selected area. |
+| **Open Photoshop documents** | View saved PSD/PSB composites locally or inside ZIP/RAR/7z, including sources larger than 512 MiB. Use a labeled embedded preview if the full composite is unavailable and the document includes a usable thumbnail. |
+| **Browse huge TIFFs** | View supported local tiled pyramidal TIFF/BigTIFF files using their overview and on-demand detail tiles. |
+| **Read QR codes and image text** | Scan the current image for QR codes, drag to select automatically recognized text, or request whole-image and selected-area OCR. [QR support](docs/RELEASE-v0.6.8.md) |
 | **Zoom and compare** | Pointer-anchored zoom, panning, visible detail tiles, and up to four linked or independent comparison views. |
 | **Play and export animation** | Stream GIF/WebP with timing, disposal, and loop handling; export complete animations. |
 | **Work from the source** | RAW adjustments, crop, resize, color, sharpening, text/watermarks, real 16-bit PNG/TIFF, processing records, and presets. |
@@ -49,7 +50,7 @@ Graphite is the default background. Under **视图 → 看图背景 → 照片�
 
 In single-image view, move the pointer to the top edge and click **跳页…** (Jump to image). Enter part of a filename, the full path inside the archive, or a number starting at 1 in the current browsing order. When filenames repeat, use the path to select the intended entry. In **文件 → 最近打开…** (File → Recent), select an archive to resume or use **从头打开** (Open from start) to begin at its first image. Encrypted archives prompt for the password again when reopened. [Archive resume and jump](docs/RELEASE-v0.6.0.md)
 
-During rapid navigation, RustView can reuse a matching read in progress. While the target preview loads, the previous image's clear overview stays visible with a label identifying both images. Opening an individual image starts the read before directory scanning. For a static image opened at launch, the supervised read can also overlap graphics initialization. [Browsing behavior](docs/PICASA-BROWSING.md)
+During rapid navigation, RustView can reuse a matching read in progress. Cached images display directly. The previous image's clear overview stays visible, with both images identified, until the target has pixels to show. Opening an individual image starts the read before directory scanning. For a static image opened at launch, the supervised read can also overlap graphics initialization. [Browsing behavior](docs/PICASA-BROWSING.md)
 
 ZIP and 7z updates create a backup. RAR is read-only. RAW metadata uses XMP sidecars.
 
@@ -62,6 +63,8 @@ Decoding uses a separate, memory-limited Windows process tree. Failed records ca
 | Recent still-image cache for the current folder or archive | 0–2048 MiB, adjustable in Options |
 | GPU detail tiles | 256 MiB |
 | Image worker process tree | 2 GiB |
+| Large TIFF detail worker process tree | 512 MiB |
+| OCR process tree | 256 MiB |
 | Ordinary input / static RGBA output | 512 MiB each |
 | Validated PSD/PSB source, local or archived | 64 GiB; pixel budgets still apply |
 | Animation | Current frame + one prefetched frame |
@@ -76,8 +79,8 @@ v0.4.0 permits [local and ZIP/RAR/7z-contained PSD/PSB](docs/PSD.md) sources up 
 
 ## Download and use
 
-1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.8/RustView-0.6.8-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.6.8/RustView-0.6.8-win-x64-offline.zip.sha256)
-2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. The package includes the image engines, runtime libraries, and Simplified Chinese and English OCR models. Viewing and OCR work offline from the first launch.
+1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.9/RustView-0.6.9-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.6.9/RustView-0.6.9-win-x64-offline.zip.sha256)
+2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. The package includes the image engines, runtime libraries, and Tesseract with Simplified Chinese and English models. Viewing and OCR work offline from the first launch.
 3. Open or drag in a folder, picture, or archive. Keep the complete extracted folder.
 
 The offline ZIP is the only download needed for viewing. The source guide lists the archives for rebuilding the bundled engines. [Offline guide](OFFLINE.md) · [Native sources](docs/NATIVE-SOURCES.md)
@@ -117,7 +120,7 @@ pwsh -File .\tools\build.ps1 -Offline
 
 See [BUILDING.md](BUILDING.md) for checksums and validation steps.
 
-Release checks cover static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnails, and large encrypted-RAR cancellation. For v0.6.8, Windows desktop checks covered automatic QR detection, whole-image and selected-area OCR, and closing while OCR was running. Paired browsing tests included 10,000 JPEGs, camera RAW files, and encrypted RAR and 7z archives with a 521 MiB PSD. AES ZIP was also tested through the decode worker. [v0.6.8 release notes and timings](docs/RELEASE-v0.6.8.md) · [Validation results and scope](docs/VALIDATION.md)
+Release checks cover static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnails, and large encrypted-RAR cancellation. The v0.6.9 development builds were checked on the Windows desktop for text selection, click-versus-hold browsing, and panning and zooming a 108,199 × 81,503 BigTIFF. [v0.6.9 release notes and measurements](docs/RELEASE-v0.6.9.md) · [Validation results and scope](docs/VALIDATION.md)
 
 Real-camera samples include Nikon Z6, Sony a7 III, Canon EOS R, iPhone 12 Pro ProRAW and HEIC. See the validation record for the scope of native-window, display, and print checks.
 

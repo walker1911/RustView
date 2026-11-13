@@ -87,7 +87,7 @@ fn key_action(key: Key, modifiers: u8, browser: bool) -> Option<Action> {
     }
 }
 
-fn clipboard_modifiers(input: &InputState, keys: &[Key]) -> (Option<Key>, Modifiers) {
+pub(super) fn clipboard_modifiers(input: &InputState, keys: &[Key]) -> (Option<Key>, Modifiers) {
     // egui-winit consumes the clipboard key press. Its key release still carries
     // event-time modifiers, even if Ctrl/Shift are released before this frame ends.
     input

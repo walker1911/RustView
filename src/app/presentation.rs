@@ -1,7 +1,9 @@
 use super::{rotate, theme, Pixels};
-use crate::worker::{ContinuityPreview, CONTINUITY_SIDE as PREVIEW_SIDE};
+use crate::worker::{ContinuityPreview, CONTINUITY_MIN_BYTES, CONTINUITY_SIDE as PREVIEW_SIDE};
 use egui::{Color32, Context, Mesh, Painter, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
 use std::{sync::Arc, time::{Duration, Instant}};
+
+const PREVIEW_GRACE: Duration = Duration::from_millis(70);
 
 #[derive(Clone)]
 pub(super) struct PreviewPixels {
@@ -10,11 +12,21 @@ pub(super) struct PreviewPixels {
     pub rgba: Arc<[u8]>,
     pub source_width: u32,
     pub source_height: u32,
+    embedded_psd: bool,
 }
 
 impl PreviewPixels {
     pub fn sample(width: u32, height: u32, rgba: &[u8], source_width: u32, source_height: u32) -> Option<Self> {
         ContinuityPreview::sample(width, height, rgba, source_width, source_height).map(Self::from)
+    }
+
+    pub(super) fn with_embedded_psd(mut self, embedded: bool) -> Self {
+        self.embedded_psd = embedded;
+        self
+    }
+
+    fn placement(&self) -> Placement {
+        Placement { max_fit: if self.embedded_psd { 3.0 } else { 1.0 }, ..Placement::default() }
     }
 
     fn upload(&self, ctx: &Context) -> TextureHandle {
@@ -26,7 +38,7 @@ impl PreviewPixels {
 impl From<ContinuityPreview> for PreviewPixels {
     fn from(preview: ContinuityPreview) -> Self {
         Self { width: preview.width, height: preview.height, rgba: preview.rgba.into(),
-            source_width: preview.source_width, source_height: preview.source_height }
+            source_width: preview.source_width, source_height: preview.source_height, embedded_psd: false }
     }
 }
 
@@ -38,11 +50,12 @@ pub(super) struct Placement {
     pub flip_x: bool,
     pub flip_y: bool,
     pub fit: bool,
+    pub max_fit: f32,
 }
 
 impl Default for Placement {
     fn default() -> Self {
-        Self { scale: 1.0, pan: Vec2::ZERO, rotation: 0, flip_x: false, flip_y: false, fit: true }
+        Self { scale: 1.0, pan: Vec2::ZERO, rotation: 0, flip_x: false, flip_y: false, fit: true, max_fit: 1.0 }
     }
 }
 
@@ -60,6 +73,8 @@ struct Target {
     index: usize,
     name: String,
     started: Instant,
+    immediate: bool,
+    local_psd: bool,
     preview: Option<TargetPreview>,
 }
 
@@ -86,7 +101,29 @@ impl State {
     }
 
     pub fn begin_target(&mut self, index: usize, name: String) {
-        self.target = Some(Target { index, name, started: Instant::now(), preview: None });
+        self.target = Some(Target { index, name, started: Instant::now(), immediate: false, local_psd: false, preview: None });
+    }
+
+    pub fn allow_immediate_preview(&mut self) {
+        if let Some(target) = &mut self.target { target.immediate = true; }
+    }
+
+    pub fn prefer_local_psd_preview(&mut self) {
+        if let Some(target) = &mut self.target { target.local_psd = true; }
+    }
+
+    fn preview_delay(&self) -> Option<Duration> {
+        let target = self.target.as_ref()?;
+        let pixels = &target.preview.as_ref()?.pixels;
+        if target.immediate || self.frame.is_none() {
+            return Some(Duration::ZERO);
+        }
+        let large = u64::from(pixels.source_width) * u64::from(pixels.source_height)
+            > (CONTINUITY_MIN_BYTES / 4) as u64;
+        if target.local_psd && large {
+            return Some(Duration::ZERO);
+        }
+        (large || pixels.embedded_psd).then(|| PREVIEW_GRACE.saturating_sub(target.started.elapsed()))
     }
 
     pub fn ready(&mut self, index: usize) {
@@ -112,8 +149,9 @@ impl State {
     }
 
     pub(super) fn frame_bounds(&self, viewport: Rect, pixels_per_point: f32) -> Rect {
-        let frame = self.target.as_ref().and_then(|target| target.preview.as_ref())
-            .map(|preview| ([preview.pixels.source_width, preview.pixels.source_height], Placement::default()))
+        let frame = self.target.as_ref().filter(|_| self.preview_delay().is_some_and(|delay| delay.is_zero()))
+            .and_then(|target| target.preview.as_ref())
+            .map(|preview| ([preview.pixels.source_width, preview.pixels.source_height], preview.pixels.placement()))
             .or_else(|| self.frame.as_ref().map(|frame| (frame.dimensions, frame.placement)));
         frame.map_or(Rect::NOTHING, |(dimensions, placement)| {
             Rect::from_points(&frame_corners(viewport, dimensions, placement, pixels_per_point)).intersect(viewport)
@@ -165,14 +203,21 @@ impl State {
     }
 
     pub fn draw(&mut self, painter: &Painter, viewport: Rect, ctx: &Context, show_label: bool) -> bool {
+        let preview_delay = self.preview_delay();
         let target = self.target.as_mut();
         let preview = target.and_then(|target| {
-            target.preview.as_mut().map(|preview| (&target.name, preview))
+            let preview = target.preview.as_mut()?;
+            let preview_delay = preview_delay?;
+            if !preview_delay.is_zero() {
+                ctx.request_repaint_after(preview_delay);
+                return None;
+            }
+            Some((&target.name, preview))
         });
         let (texture, dimensions, placement, label) = if let Some((name, preview)) = preview {
             let texture = preview.texture.get_or_insert_with(|| preview.pixels.upload(ctx)).id();
             (texture, [preview.pixels.source_width, preview.pixels.source_height],
-                Placement::default(), Some(format!("目标：{name} · 低清预览")))
+                preview.pixels.placement(), Some(format!("目标：{name} · 低清预览")))
         } else if let Some(frame) = &self.frame {
             let label = self.target.as_ref().map(|target| {
                 format!("目标：{} · 暂显示 {}", target.name, frame.name)
@@ -214,7 +259,7 @@ fn frame_corners(viewport: Rect, dimensions: [u32; 2], placement: Placement, pix
     let [width, height] = dimensions.map(|size| size as f32);
     let dimensions = if placement.rotation % 2 == 0 { Vec2::new(width, height) } else { Vec2::new(height, width) };
     let scale = if placement.fit {
-        (viewport.width() / dimensions.x).min(viewport.height() / dimensions.y).min(1.0 / pixels_per_point)
+        (viewport.width() / dimensions.x).min(viewport.height() / dimensions.y).min(placement.max_fit / pixels_per_point)
     } else { placement.scale };
     [Vec2::new(-width, -height), Vec2::new(width, -height), Vec2::new(width, height), Vec2::new(-width, height)]
         .map(|point| {
@@ -331,6 +376,7 @@ mod tests {
         let mut state = State::default();
         let _ = capture(&mut state, &ctx, 0);
         state.begin_target(1, "transparent.png".into());
+        state.allow_immediate_preview();
         let tiny = PreviewPixels::sample(2, 1, &[255, 0, 0, 0, 0, 255, 0, 255], 6000, 4000).unwrap();
         state.stage_preview(2, tiny.clone());
         assert_eq!(state.frame.as_ref().unwrap().index, 0);
@@ -376,12 +422,14 @@ mod tests {
         let blue = PreviewPixels::sample(1, 1, &[0, 0, 255, 255], 512, 256).unwrap();
 
         state.begin_target(1, "green.png".into());
+        state.allow_immediate_preview();
         assert_eq!(draw(&mut state).0, previous);
         state.stage_preview(1, green.clone());
         let green_texture = draw(&mut state).0;
         assert_ne!(green_texture, previous);
 
         state.begin_target(2, "blue.png".into());
+        state.allow_immediate_preview();
         state.stage_preview(1, green.clone()); // The superseded worker returned late.
         assert_eq!(draw(&mut state).0, previous);
         assert!(state.texture_for(1).is_none());
@@ -399,9 +447,40 @@ mod tests {
         assert!(state.texture_for(2).is_none());
         state.begin_source();
         state.begin_target(0, "different.png".into());
+        state.allow_immediate_preview();
         assert!(state.texture_for(0).is_none());
         assert_eq!(draw(&mut state).0, previous);
         state.stage_preview(0, green);
         assert_ne!(draw(&mut state).0, previous);
+    }
+
+    #[test]
+    fn fast_target_finishes_without_uploading_its_staged_preview() {
+        let ctx = Context::default();
+        let mut state = State::default();
+        capture(&mut state, &ctx, 0);
+        state.begin_target(1, "B.png".into());
+        let pixels = PreviewPixels::sample(1, 1, &[0, 255, 0, 255], 80, 80).unwrap();
+        state.stage_preview(1, pixels.clone());
+        let draw = |state: &mut State| {
+            let viewport = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0));
+            let _ = ctx.run(egui::RawInput::default(), |ctx| {
+                assert!(state.draw(&ctx.layer_painter(egui::LayerId::background()), viewport, ctx, true));
+            });
+        };
+        draw(&mut state);
+        assert!(state.texture_for(1).is_none());
+        state.target.as_mut().unwrap().started -= PREVIEW_GRACE;
+        draw(&mut state);
+        assert!(state.texture_for(1).is_none());
+        state.ready(1);
+        assert!(!state.has_target_preview(1));
+
+        state.begin_target(2, "C.png".into());
+        let large = PreviewPixels::sample(1, 1, &[0, 255, 0, 255], 6000, 4000).unwrap();
+        state.stage_preview(2, large);
+        state.target.as_mut().unwrap().started -= PREVIEW_GRACE;
+        draw(&mut state);
+        assert!(state.texture_for(2).is_some());
     }
 }

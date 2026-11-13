@@ -38,6 +38,7 @@ pub(super) struct State {
     previews: HashMap<usize, super::presentation::PreviewPixels>,
     recent: VecDeque<usize>,
     failed: VecDeque<usize>,
+    unavailable_psd_previews: VecDeque<usize>,
     running: Option<ThumbnailTask>,
     wanted: Vec<usize>,
     #[cfg(test)]
@@ -50,7 +51,7 @@ impl Default for State {
             sequence: Vec::new(), positions: Vec::new(), sequence_revision: 0, dirty: true,
             center: None, velocity: 0.0, scene_target: None, last_covers: Vec::new(),
             ghosts: Vec::new(), ghost_age: 0.0, epoch: 0, suspended: false, textures: HashMap::new(), previews: HashMap::new(), recent: VecDeque::new(),
-            failed: VecDeque::new(), running: None, wanted: Vec::new(),
+            failed: VecDeque::new(), unavailable_psd_previews: VecDeque::new(), running: None, wanted: Vec::new(),
             #[cfg(test)]
             sequence_builds: 0,
         }
@@ -142,6 +143,7 @@ impl State {
         self.previews.clear();
         self.recent.clear();
         self.failed.clear();
+        self.unavailable_psd_previews.clear();
         // Retain a cancelled task until its process has actually stopped.
     }
 
@@ -173,6 +175,12 @@ impl State {
         if let Some(result) = result {
             let task = self.running.take().unwrap();
             if task.epoch != self.epoch || task.cancel.load(Ordering::Relaxed) { return; }
+            if matches!(&result, Ok(output) if output.reply.width == 0 && output.reply.error.is_none()) {
+                self.unavailable_psd_previews.retain(|&index| index != task.index);
+                self.unavailable_psd_previews.push_back(task.index);
+                if self.unavailable_psd_previews.len() > MAX_COVERS { self.unavailable_psd_previews.pop_front(); }
+                return;
+            }
             // A completed foreground load may already have supplied this cover.
             if self.previews.contains_key(&task.index) { return; }
             if let Ok(output) = result {
@@ -192,7 +200,7 @@ impl State {
                         output.reply.source_width.max(output.reply.width),
                         output.reply.source_height.max(output.reply.height),
                     ) {
-                        self.previews.insert(task.index, preview);
+                        self.previews.insert(task.index, preview.with_embedded_psd(output.reply.embedded_psd_preview));
                     }
                     return;
                 }
@@ -340,6 +348,7 @@ impl Viewer {
         state.previews.remove(&index);
         state.recent.retain(|i| *i != index);
         state.failed.retain(|i| *i != index);
+        state.unavailable_psd_previews.retain(|i| *i != index);
         self.extra.thumbnails.remove(&index);
     }
 
@@ -363,6 +372,7 @@ impl Viewer {
             && self.extra.presentation.target_index() == self.selected
             && local
             && (self.extra.coverflow.running.as_ref().is_some_and(|task| Some(task.index) == self.selected)
+                || self.selected.is_some_and(|index| self.waiting_for_local_psd_preview(index))
                 || self.extra.animation.is_some()
                     && self.extra.presentation.waiting_elapsed() >= std::time::Duration::from_millis(150));
         self.closing || self.archive_jump.open || self.extra.coverflow.suspended || self.source.is_none() || self.browser || self.extra.compare > 0 || self.extra.edit_dialog.is_some()
@@ -375,14 +385,27 @@ impl Viewer {
             || self.extra.animation.is_some() && self.current_key.map(|key| key.0) != self.selected && !target_due
     }
 
+    fn waiting_for_local_psd_preview(&self, index: usize) -> bool {
+        !self.extra.presentation.has_target_preview(index)
+            && !self.extra.coverflow.previews.contains_key(&index)
+            && !self.extra.coverflow.failed.contains(&index)
+            && !self.extra.coverflow.unavailable_psd_previews.contains(&index)
+            && self.make_load(index, false).as_ref().is_some_and(|request| {
+                worker::local_photoshop_load(request).is_some()
+            })
+    }
+
     fn next_coverflow_thumbnail(&self) -> Option<usize> {
         if self.extra.presentation.is_waiting() {
-            // Static loads publish their own small frame. Starting a second
-            // decoder here would repeat work, including archive extraction.
+            let target = self.extra.presentation.target_index()?;
+            // A local PSD's thumbnail lives before the layers. Let the existing
+            // cover task read it even while a full decode is queued or retiring.
+            if self.error.is_none() && self.waiting_for_local_psd_preview(target) {
+                return Some(target);
+            }
             if self.running.is_some() || self.pending.is_some() || self.error.is_some() {
                 return None;
             }
-            let target = self.extra.presentation.target_index()?;
             let target_resolved = self.extra.presentation.has_target_preview(target)
                 || self.extra.coverflow.previews.contains_key(&target)
                 || self.extra.coverflow.failed.contains(&target);
@@ -444,6 +467,7 @@ impl Viewer {
         self.ensure_overview(ctx);
         let Some(index) = self.next_coverflow_thumbnail() else { return; };
         let Some(source) = self.make_load(index, false) else { return; };
+        let quick_psd_only = self.extra.presentation.target_index() == Some(index);
         let epoch = self.extra.coverflow.epoch;
         let cancel = Arc::new(AtomicBool::new(false));
         let thread_cancel = cancel.clone();
@@ -452,6 +476,15 @@ impl Viewer {
         std::thread::spawn(move || {
             let result = if thread_cancel.load(Ordering::Relaxed) {
                 Err("已取消".into())
+            } else if worker::local_photoshop_load(&source).is_some() {
+                if let Some(preview) = worker::quick_local_photoshop_preview(&source, &thread_cancel) {
+                    Ok(preview)
+                } else if quick_psd_only {
+                    // No matching embedded preview. Keep any later idle filmstrip load eligible.
+                    Ok(worker::Output { reply: worker::Reply::default(), rgba: Vec::new(), preview: Vec::new() })
+                } else {
+                    worker::execute(Request::Thumbnail { source: Box::new(source) }, thread_cancel)
+                }
             } else if worker::local_raw_load(&source).is_some() {
                 // Speculative RAW work only uses the embedded preview; the
                 // selected full load is separate and never uses this result.

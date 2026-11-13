@@ -10,11 +10,16 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod text_selection;
+use text_selection::{Layout, Transform};
+
 const QR_DWELL: Duration = Duration::from_millis(350);
+const TEXT_DWELL: Duration = Duration::from_millis(650);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
     AutoQr,
+    AutoText,
     Qr,
     Ocr,
 }
@@ -31,6 +36,7 @@ struct Input {
 enum Output {
     Qr(Vec<qr::Hit>),
     Ocr(Result<String, String>),
+    Text(Option<Layout>),
 }
 
 struct Task {
@@ -47,12 +53,15 @@ enum Panel {
 #[derive(Default)]
 pub(super) struct State {
     picture: Option<Weak<Pixels>>,
-    auto_at: Option<Instant>,
+    qr_at: Option<Instant>,
+    text_at: Option<Instant>,
     task: Option<Task>,
     pending: Option<Input>,
     selection: Option<(Mode, Option<Pos2>)>,
     hits: Vec<qr::Hit>,
     panel: Option<Panel>,
+    layout: Option<Layout>,
+    copied_until: Option<Instant>,
     pub(super) menu_open: bool,
 }
 
@@ -60,25 +69,44 @@ impl State {
     pub(super) fn reset(&mut self) {
         self.stop();
         self.picture = None;
-        self.auto_at = None;
+        self.qr_at = None;
+        self.text_at = None;
+        self.layout = None;
         self.hits.clear();
         self.panel = None;
         self.menu_open = false;
     }
 
     fn stop(&mut self) {
+        self.defer_auto_text();
         if let Some(task) = &self.task {
             task.cancel.store(true, Ordering::Relaxed);
         }
         self.pending = None;
         self.selection = None;
+        if let Some(layout) = &mut self.layout {
+            layout.clear();
+        }
+        self.copied_until = None;
+    }
+
+    fn defer_auto_text(&mut self) {
+        if let Some(task) = &self.task {
+            if task.mode == Mode::AutoText && !task.cancel.swap(true, Ordering::Relaxed) {
+                self.text_at = Some(Instant::now() + TEXT_DWELL);
+            }
+        }
     }
 
     pub(super) fn selecting(&self) -> bool {
         self.selection.is_some()
     }
 
-    pub(super) fn handle_escape(&mut self, ctx: &Context) -> bool {
+    pub(super) fn dragging_text(&self) -> bool {
+        self.layout.as_ref().is_some_and(Layout::dragging)
+    }
+
+    pub(super) fn handle_keys(&mut self, ctx: &Context) -> bool {
         if (self.selecting() || self.panel.is_some())
             && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
         {
@@ -86,7 +114,52 @@ impl State {
             self.panel = None;
             return true;
         }
-        false
+        if self.panel.is_some()
+            || self.selecting()
+            || self.menu_open
+            || super::text_field_focused(ctx)
+        {
+            return false;
+        }
+        let Some(layout) = &mut self.layout else {
+            return false;
+        };
+        let has_selection = layout.has_selection();
+        if (has_selection || layout.dragging())
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        {
+            layout.clear();
+            self.copied_until = None;
+            return true;
+        }
+        let (all, copy) = ctx.input(|i| {
+            use egui::{Event, Key, Modifiers};
+            let plain_command = |modifiers: Modifiers| modifiers.matches_exact(Modifiers::COMMAND);
+            let pressed = |key| i.events.iter().any(|event| matches!(event,
+                Event::Key { key: k, pressed: true, modifiers, .. } if *k == key && plain_command(*modifiers)));
+            let all = (has_selection || layout.hovered())
+                && pressed(Key::A);
+            let copy = (has_selection || all) && (pressed(Key::C) || {
+                let (key, modifiers) = crate::shortcuts::clipboard_modifiers(i, &[Key::C, Key::Insert]);
+                key != Some(Key::Insert) && (plain_command(modifiers) || modifiers.is_none())
+                    && i.events.iter().any(|event| matches!(event, Event::Copy))
+            });
+            (all, copy)
+        });
+        if all {
+            layout.select_all();
+        }
+        if copy {
+            self.copy_selected(ctx);
+        }
+        all || copy
+    }
+
+    fn copy_selected(&mut self, ctx: &Context) {
+        if self.layout.as_ref().is_some_and(|layout| layout.copy(ctx)) {
+            self.copied_until = Some(Instant::now() + Duration::from_millis(1100));
+            ctx.request_repaint();
+        }
     }
 
     pub(super) fn drained(&mut self) -> bool {
@@ -94,29 +167,33 @@ impl State {
         self.task.is_none()
     }
 
-    fn observe(&mut self, picture: &Arc<Pixels>, auto: bool) {
-        if !self
-            .picture
+    fn is_current(&self, picture: &Arc<Pixels>) -> bool {
+        self.picture
             .as_ref()
             .is_some_and(|old| old.as_ptr() == Arc::as_ptr(picture))
-        {
+    }
+
+    fn observe(&mut self, picture: &Arc<Pixels>, auto: bool) {
+        if !self.is_current(picture) {
             self.reset();
             self.picture = Some(Arc::downgrade(picture));
-            self.auto_at = auto.then(|| Instant::now() + QR_DWELL);
+            let now = Instant::now();
+            self.qr_at = auto.then_some(now + QR_DWELL);
+            self.text_at = auto.then_some(now + TEXT_DWELL);
         }
     }
 
     fn queue(&mut self, input: Input) {
         self.stop();
         if input.mode == Mode::Qr {
-            self.auto_at = None;
+            self.qr_at = None;
             self.hits.clear();
         }
-        self.panel = Some(match input.mode {
-            Mode::Qr => Panel::Qr { scanning: true },
-            Mode::Ocr => Panel::Ocr(None),
-            Mode::AutoQr => unreachable!("only a manual request opens the panel"),
-        });
+        self.panel = match input.mode {
+            Mode::Qr => Some(Panel::Qr { scanning: true }),
+            Mode::Ocr => Some(Panel::Ocr(None)),
+            Mode::AutoQr | Mode::AutoText => unreachable!("only a manual request opens the panel"),
+        };
         self.pending = Some(input);
     }
 
@@ -138,6 +215,7 @@ impl State {
                 }
             }
             Ok(Output::Ocr(text)) => self.panel = Some(Panel::Ocr(Some(text))),
+            Ok(Output::Text(layout)) => self.layout = layout,
             Err(_) if task.mode == Mode::Ocr => {
                 self.panel = Some(Panel::Ocr(Some(Err("文字识别任务异常退出".into()))));
             }
@@ -146,7 +224,7 @@ impl State {
         }
     }
 
-    fn run(&mut self, ctx: &Context, allow_auto: bool) {
+    fn run(&mut self, ctx: &Context, allow_qr: bool, allow_text: bool) {
         self.poll();
         if self.task.is_some() {
             return;
@@ -154,17 +232,28 @@ impl State {
         let input = if let Some(input) = self.pending.take() {
             input
         } else {
-            if !allow_auto || self.selection.is_some() || self.panel.is_some() {
+            if self.selecting() || self.panel.is_some() {
                 return;
             }
-            let Some(deadline) = self.auto_at else { return };
-            if let Some(delay) = deadline.checked_duration_since(Instant::now()) {
+            let next = [
+                (allow_qr, &mut self.qr_at, Mode::AutoQr),
+                (allow_text, &mut self.text_at, Mode::AutoText),
+            ]
+            .into_iter()
+            .filter_map(|(allowed, deadline, mode)| {
+                Some(((*deadline).filter(|_| allowed)?, deadline, mode))
+            })
+            .min_by_key(|(at, _, _)| *at);
+            let Some((at, deadline, mode)) = next else {
+                return;
+            };
+            if let Some(delay) = at.checked_duration_since(Instant::now()) {
                 ctx.request_repaint_after(delay);
                 return;
             }
-            self.auto_at = None;
+            *deadline = None;
             Input {
-                mode: Mode::AutoQr,
+                mode,
                 region: None,
                 rotation: 0,
                 flip_x: false,
@@ -182,7 +271,7 @@ impl State {
         let thread = std::thread::Builder::new().name("rustview-recognition".into());
         match thread.spawn(move || {
             #[cfg(windows)]
-            if mode == Mode::AutoQr {
+            if matches!(mode, Mode::AutoQr | Mode::AutoText) {
                 use windows_sys::Win32::System::Threading::{
                     GetCurrentThread, SetThreadPriority, THREAD_MODE_BACKGROUND_BEGIN,
                 };
@@ -190,16 +279,39 @@ impl State {
                     SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
                 }
             }
-            let pixels = picture
-                .upgrade()
-                .and_then(|picture| gray_sample(&picture, input, &cancel_worker));
+            let pixels = picture.upgrade().and_then(|picture| {
+                let source = egui::vec2(picture.width as f32, picture.height as f32);
+                gray_sample(&picture, input, &cancel_worker).map(|sample| (sample, source))
+            });
             if !cancel_worker.load(Ordering::Relaxed) {
                 let output = match (mode, pixels) {
-                    (Mode::Ocr, Some((w, h, gray))) => {
-                        Output::Ocr(ocr::recognize(w, h, &gray, &cancel_worker))
-                    }
+                    (Mode::Ocr, Some((sample, _))) => Output::Ocr(ocr::recognize(
+                        sample.width,
+                        sample.height,
+                        &sample.gray,
+                        sample.light_on_transparent,
+                        &cancel_worker,
+                    )),
                     (Mode::Ocr, None) => Output::Ocr(Err("选区没有可识别的图像".into())),
-                    (_, Some((w, h, gray))) => Output::Qr(qr::scan(w, h, &gray, &cancel_worker)),
+                    (Mode::AutoText, Some((sample, source))) => Output::Text(
+                        ocr::recognize_layout(
+                            sample.width,
+                            sample.height,
+                            &sample.gray,
+                            sample.light_on_transparent,
+                            &cancel_worker,
+                        )
+                        .ok()
+                        .map(|lines| Layout::new(lines, sample.width, sample.height, source))
+                        .filter(|layout| !layout.is_empty()),
+                    ),
+                    (Mode::AutoText, None) => Output::Text(None),
+                    (_, Some((sample, _))) => Output::Qr(qr::scan(
+                        sample.width,
+                        sample.height,
+                        &sample.gray,
+                        &cancel_worker,
+                    )),
                     (_, None) => Output::Qr(Vec::new()),
                 };
                 let _ = sender.send(output);
@@ -224,8 +336,9 @@ impl State {
 }
 
 impl Viewer {
-    fn recognition_blocked(&self) -> bool {
+    pub(super) fn recognition_blocked(&self) -> bool {
         self.browser
+            || self.pyramid.is_some()
             || self.extra.compare != 0
             || self.extra.edit_dialog.is_some()
             || self.startup_image.is_some()
@@ -243,6 +356,40 @@ impl Viewer {
                 .as_ref()
                 .is_some_and(|task| matches!(task.operation, Operation::List { .. }))
             || self.extra.animated && !self.extra.animation_paused && !self.extra.animation_ended
+    }
+
+    fn text_transform(&self, image: &Pixels, center: Pos2) -> Transform {
+        Transform {
+            center,
+            size: egui::vec2(image.width as f32, image.height as f32),
+            scale: self.scale,
+            rotation: self.rotation,
+            flip_x: self.flip_x,
+            flip_y: self.flip_y,
+        }
+    }
+
+    pub(super) fn interact_image_text(
+        &mut self,
+        response: &egui::Response,
+        image: &Arc<Pixels>,
+        center: Pos2,
+    ) -> bool {
+        if self.recognition.layout.is_none()
+            || self.recognition_blocked()
+            || self.recognition.selecting()
+            || self.recognition.panel.is_some()
+            || self.recognition.menu_open
+            || self.selected != self.current_key.map(|key| key.0)
+            || !self.recognition.is_current(image)
+        {
+            return false;
+        }
+        let transform = self.text_transform(image, center);
+        self.recognition
+            .layout
+            .as_mut()
+            .is_some_and(|layout| layout.interact(response, transform))
     }
 
     pub(super) fn recognition_image(
@@ -274,6 +421,16 @@ impl Viewer {
             .is_some_and(|p| bounds.contains(p));
         if response.context_menu_opened() || response.secondary_clicked() && within_image {
             response.context_menu(|ui| {
+                if self
+                    .recognition
+                    .layout
+                    .as_ref()
+                    .is_some_and(Layout::has_selection)
+                    && ui.button("复制所选文字").clicked()
+                {
+                    self.recognition.copy_selected(ui.ctx());
+                    ui.close_menu();
+                }
                 if ui.button("识别整图文字（OCR）").clicked() {
                     self.recognition.queue(input);
                     ui.close_menu();
@@ -290,6 +447,15 @@ impl Viewer {
             });
         }
         self.recognition.menu_open = response.context_menu_opened();
+        let transform = self.text_transform(image, center);
+        if !self.recognition.menu_open
+            && self.recognition.panel.is_none()
+            && !self.recognition.selecting()
+        {
+            if let Some(layout) = &mut self.recognition.layout {
+                layout.paint(response, painter, transform);
+            }
+        }
         let Some((mode, origin)) = &mut self.recognition.selection else {
             return;
         };
@@ -365,8 +531,41 @@ impl Viewer {
                 .running
                 .as_ref()
                 .is_none_or(|task| task.preload.is_some());
-        self.recognition
-            .run(ctx, quiet && idle && !self.recognition.menu_open);
+        let allow_qr = quiet && idle && !self.recognition.menu_open;
+        let allow_text = allow_qr
+            && self.running.is_none()
+            && self.pending.is_none()
+            && self.deferred_image.is_none()
+            && (self.scale / self.target_scale - 1.0).abs() <= 0.0001
+            && ctx.input(|i| i.raw_scroll_delta == egui::Vec2::ZERO);
+        if !allow_text {
+            self.recognition.defer_auto_text();
+        }
+        self.recognition.run(ctx, allow_qr, allow_text);
+        if let Some(delay) = self
+            .recognition
+            .copied_until
+            .and_then(|until| until.checked_duration_since(Instant::now()))
+        {
+            ctx.request_repaint_after(delay);
+            let painter = ctx.layer_painter(egui::LayerId::new(
+                egui::Order::Middle,
+                egui::Id::new("picture-text-hint"),
+            ));
+            let label = painter.layout_no_wrap(
+                "已复制所选文字".to_owned(),
+                egui::FontId::proportional(13.0),
+                theme::TEXT,
+            );
+            let pos = self.extra.viewport.center_bottom()
+                - egui::vec2(label.size().x * 0.5, label.size().y + 12.0);
+            painter.rect_filled(
+                Rect::from_min_size(pos, label.size()).expand2(egui::vec2(9.0, 5.0)),
+                6.0,
+                egui::Color32::from_black_alpha(155),
+            );
+            painter.galley(pos, label, theme::TEXT);
+        }
         if !self.recognition.hits.is_empty()
             && !self.recognition.selecting()
             && self.recognition.panel.is_none()
@@ -476,7 +675,47 @@ fn selectable_text(ui: &mut egui::Ui, text: &str, height: f32) {
         });
 }
 
-fn gray_sample(image: &Pixels, input: Input, cancel: &AtomicBool) -> Option<(u32, u32, Vec<u8>)> {
+#[derive(Debug, PartialEq, Eq)]
+struct GraySample {
+    width: u32,
+    height: u32,
+    gray: Vec<u8>,
+    light_on_transparent: bool,
+}
+
+fn luma(pixel: &[u8]) -> u32 {
+    (u32::from(pixel[0]) * 77 + u32::from(pixel[1]) * 150 + u32::from(pixel[2]) * 29 + 128) >> 8
+}
+
+fn light_on_transparent(
+    rgba: &[u8],
+    stride: usize,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+) -> bool {
+    let step = width.max(height).div_ceil(128) as usize;
+    let mut pixels = 0;
+    let mut translucent = 0;
+    let mut brightness = 0_u64;
+    let mut weight = 0_u64;
+    for row in (y..y + height).step_by(step) {
+        for col in (x..x + width).step_by(step) {
+            let offset = (row as usize * stride + col as usize) * 4;
+            let pixel = &rgba[offset..offset + 4];
+            let alpha = u64::from(pixel[3]);
+            pixels += 1;
+            translucent += u32::from(alpha <= 224);
+            // Discount semitransparent shadows when estimating the lettering's polarity.
+            brightness += u64::from(luma(pixel)) * alpha * alpha;
+            weight += alpha * alpha;
+        }
+    }
+    translucent * 32 >= pixels && brightness > 127 * weight
+}
+
+fn gray_sample(image: &Pixels, input: Input, cancel: &AtomicBool) -> Option<GraySample> {
     let (source_w, source_h, rgba) = if input.mode == Mode::AutoQr {
         (image.preview_width, image.preview_height, &image.preview)
     } else {
@@ -498,15 +737,20 @@ fn gray_sample(image: &Pixels, input: Input, cancel: &AtomicBool) -> Option<(u32
     if w == 0 || h == 0 {
         return None;
     }
+    let light_on_transparent = matches!(input.mode, Mode::Ocr | Mode::AutoText)
+        && light_on_transparent(rgba, source_w as usize, x0, y0, w, h);
+    // Use a dark matte for light lettering, then send dark-on-light pixels to OCR.
+    let matte = if light_on_transparent { 32 } else { 255 };
 
     let rotation = input.rotation % 4;
     let (oriented_w, oriented_h) = if rotation % 2 == 0 { (w, h) } else { (h, w) };
-    let side = match input.mode {
-        Mode::AutoQr => 1024,
-        Mode::Qr => 2048,
-        Mode::Ocr => 4096,
+    let (side, area) = match input.mode {
+        Mode::AutoQr => (1024, 1024.0 * 1024.0),
+        Mode::AutoText => (1800, 2_000_000.0),
+        Mode::Qr => (2048, 2048.0 * 2048.0),
+        Mode::Ocr => (4096, 12_582_912.0),
     };
-    let area_scale = (12_582_912.0 / (oriented_w as f64 * oriented_h as f64)).sqrt();
+    let area_scale = (area / (oriented_w as f64 * oriented_h as f64)).sqrt();
     let factor = (side as f64 / oriented_w.max(oriented_h) as f64)
         .min(area_scale)
         .min(1.0);
@@ -536,16 +780,22 @@ fn gray_sample(image: &Pixels, input: Input, cancel: &AtomicBool) -> Option<(u32
                 py = h - 1 - py;
             }
             let offset = ((y0 + py) as usize * source_w as usize + (x0 + px) as usize) * 4;
-            let luma = (u32::from(rgba[offset]) * 77
-                + u32::from(rgba[offset + 1]) * 150
-                + u32::from(rgba[offset + 2]) * 29
-                + 128)
-                >> 8;
+            let luma = luma(&rgba[offset..offset + 4]);
             let alpha = u32::from(rgba[offset + 3]);
-            gray.push(((luma * alpha + 255 * (255 - alpha) + 127) / 255) as u8);
+            let value = ((luma * alpha + matte * (255 - alpha) + 127) / 255) as u8;
+            gray.push(if light_on_transparent {
+                255 - value
+            } else {
+                value
+            });
         }
     }
-    Some((width, height, gray))
+    Some(GraySample {
+        width,
+        height,
+        gray,
+        light_on_transparent,
+    })
 }
 
 #[cfg(test)]
@@ -579,7 +829,15 @@ mod tests {
             flip_x: false,
             flip_y: false,
         };
-        assert_eq!(gray_sample(&image, auto, &cancel), Some((1, 1, vec![255])));
+        assert_eq!(
+            gray_sample(&image, auto, &cancel),
+            Some(GraySample {
+                width: 1,
+                height: 1,
+                gray: vec![255],
+                light_on_transparent: false,
+            })
+        );
         let crop = Input {
             mode: Mode::Ocr,
             region: Some(Rect::from_min_max(Pos2::new(1.0, 0.0), Pos2::new(3.0, 2.0))),
@@ -589,10 +847,91 @@ mod tests {
         };
         assert_eq!(
             gray_sample(&image, crop, &cancel),
-            Some((2, 2, vec![60, 30, 50, 20]))
+            Some(GraySample {
+                width: 2,
+                height: 2,
+                gray: vec![60, 30, 50, 20],
+                light_on_transparent: false
+            })
         );
         cancel.store(true, Ordering::Relaxed);
         assert!(gray_sample(&image, crop, &cancel).is_none());
+    }
+
+    #[test]
+    fn ocr_keeps_light_lettering_visible_on_transparency() {
+        let mut image = Arc::try_unwrap(pixels()).ok().unwrap();
+        image.rgba = [
+            [255, 255, 255, 255],
+            [255, 235, 170, 255],
+            [255, 255, 255, 128],
+            [255, 255, 255, 0],
+            [0, 0, 0, 35],
+            [0, 0, 0, 0],
+        ]
+        .concat();
+        let input = Input {
+            mode: Mode::Ocr,
+            region: None,
+            rotation: 0,
+            flip_x: false,
+            flip_y: false,
+        };
+        let cancel = AtomicBool::new(false);
+        let sample = gray_sample(&image, input, &cancel).unwrap();
+        assert!(sample.light_on_transparent);
+        assert_eq!(sample.gray, vec![0, 21, 111, 223, 227, 223]);
+        assert_eq!(
+            gray_sample(
+                &image,
+                Input {
+                    mode: Mode::AutoText,
+                    ..input
+                },
+                &cancel
+            ),
+            Some(sample)
+        );
+        let qr = gray_sample(
+            &image,
+            Input {
+                mode: Mode::Qr,
+                ..input
+            },
+            &cancel,
+        )
+        .unwrap();
+        assert_eq!(qr.gray[0], 255);
+        assert_eq!(qr.gray[3], 255);
+        for pixel in image.rgba.chunks_exact_mut(4) {
+            pixel[..3].fill(0);
+        }
+        let sample = gray_sample(&image, input, &cancel).unwrap();
+        assert!(!sample.light_on_transparent);
+        assert_eq!(sample.gray, vec![0, 0, 127, 255, 220, 255]);
+    }
+
+    #[test]
+    fn automatic_text_samples_full_pixels_with_a_bounded_input() {
+        let mut image = Arc::try_unwrap(pixels()).ok().unwrap();
+        image.width = 2400;
+        image.height = 1800;
+        image.rgba = [100, 100, 100, 255].repeat((image.width * image.height) as usize);
+        let sample = gray_sample(
+            &image,
+            Input {
+                mode: Mode::AutoText,
+                region: None,
+                rotation: 0,
+                flip_x: false,
+                flip_y: false,
+            },
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        assert!(sample.width > 1 && sample.width <= 1800);
+        assert!(sample.gray.len() <= 2_000_000);
+        assert!(sample.gray.iter().all(|&value| value == 100));
     }
 
     #[test]
@@ -616,6 +955,31 @@ mod tests {
             .unwrap();
         assert!(state.drained());
         assert!(state.panel.is_none());
-        assert!(state.auto_at.unwrap() > Instant::now());
+        assert!(state.qr_at.unwrap() > Instant::now());
+        assert!(state.text_at.unwrap() > Instant::now());
+    }
+
+    #[test]
+    fn cancelled_automatic_text_never_replaces_the_current_layout() {
+        let image = pixels();
+        let mut state = State::default();
+        state.observe(&image, true);
+        state.text_at = None;
+        let (sender, reply) = mpsc::sync_channel(1);
+        let cancel = Arc::new(AtomicBool::new(false));
+        state.task = Some(Task {
+            mode: Mode::AutoText,
+            cancel: cancel.clone(),
+            reply,
+        });
+        state.defer_auto_text();
+        assert!(cancel.load(Ordering::Relaxed));
+        let retry = state.text_at.unwrap();
+        state.defer_auto_text();
+        assert_eq!(state.text_at, Some(retry));
+        let old = Layout::new(Vec::new(), 3, 2, egui::vec2(3.0, 2.0));
+        sender.send(Output::Text(Some(old))).ok().unwrap();
+        assert!(state.drained());
+        assert!(state.layout.is_none());
     }
 }

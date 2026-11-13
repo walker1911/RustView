@@ -1,6 +1,6 @@
 [package]
 name = "rust-viewer"
-version = "0.6.8"
+version = "0.6.9"
 edition = "2021"
 description = "A bounded-memory Windows image and archive viewer"
 license = "MIT"
@@ -33,6 +33,7 @@ rusqlite = { version = "=0.41.1", features = ["bundled"] }
 raw-window-handle = "0.6"
 quircs = "=0.10.3"
 encoding_rs = "=0.8.35"
+flate2 = "=1.1.11"
 url = "=2.5.8"
 
 [target.'cfg(windows)'.dependencies]

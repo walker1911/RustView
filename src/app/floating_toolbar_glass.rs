@@ -116,7 +116,7 @@ fn render_backdrop(image: &Pixels, view: &View, visible: Rect) -> (egui::ColorIm
         image.preview.as_slice(),
     );
     let full = (image.width, image.height, image.rgba.as_slice());
-    let (width_px, height_px, rgba) = if view.detail || preview.2.is_empty() {
+    let (width_px, height_px, rgba) = if !full.2.is_empty() && (view.detail || preview.2.is_empty()) {
         full
     } else {
         preview

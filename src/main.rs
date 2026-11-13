@@ -15,7 +15,11 @@ mod metadata;
 mod legacy_settings;
 mod ocr;
 mod pages;
+mod pyramid;
+mod pyramid_worker;
 mod printing;
+mod psd_composite;
+mod psd_view;
 mod precision;
 mod qr;
 mod recipes;
@@ -41,6 +45,10 @@ fn main() -> eframe::Result {
     }
     if std::env::args().nth(1).as_deref() == Some("--worker") {
         worker::worker_main();
+        return Ok(());
+    }
+    if std::env::args().nth(1).as_deref() == Some("--pyramid-tiles") {
+        pyramid_worker::worker_main();
         return Ok(());
     }
     if std::env::args().nth(1).as_deref() == Some("--probe") {

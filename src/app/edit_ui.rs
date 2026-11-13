@@ -3,6 +3,14 @@ use crate::editing::{ColorDepth, Edit};
 
 impl Viewer {
     pub(super) fn open_edit_dialog(&mut self, id: u16) {
+        if self.embedded_psd_preview && self.current_key.map(|key| key.0) == self.selected {
+            self.status = "当前只有 PSD 内嵌预览。请在 Photoshop 启用「最大兼容性」后另存副本".into();
+            return;
+        }
+        if self.pyramid.is_some() && self.current_key.map(|key| key.0) == self.selected {
+            self.status = "分块 TIFF 以查看模式打开，暂不编辑整张图片".into();
+            return;
+        }
         if self.current_key.map(|k| k.0) != self.selected {
             if let Some(index) = self.selected.filter(|i| {
                 self.entries

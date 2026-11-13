@@ -2672,13 +2672,14 @@ dependencies = [
 
 [[package]]
 name = "rust-viewer"
-version = "0.6.8"
+version = "0.6.9"
 dependencies = [
  "arboard",
  "eframe",
  "egui",
  "encoding_rs",
  "find-msvc-tools",
+ "flate2",
  "gif",
  "image",
  "image-webp",

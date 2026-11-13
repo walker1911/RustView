@@ -55,6 +55,8 @@ impl Viewer {
         self.cache.clear();
         self.current = None;
         self.current_key = None;
+        self.pyramid = None;
+        self.embedded_psd_preview = false;
         self.overview = None;
         self.tiles.clear();
         self.tile_bytes = 0;

@@ -29,6 +29,7 @@ mod navigation_probe;
 mod playback;
 mod presentation;
 mod print_ui;
+mod pyramid_view;
 mod quiet_backdrop;
 mod quiet_chrome;
 mod recognition;
@@ -218,6 +219,8 @@ pub struct Viewer {
     cache: ImageCache,
     current: Option<Arc<Pixels>>,
     current_key: Option<(usize, bool)>,
+    pyramid: Option<pyramid_view::View>,
+    embedded_psd_preview: bool,
     full_raw: bool,
     overview: Option<TextureHandle>,
     tiles: HashMap<(u32, u32, u32), Tile>,
@@ -280,6 +283,8 @@ impl Viewer {
             },
             current: None,
             current_key: None,
+            pyramid: None,
+            embedded_psd_preview: false,
             full_raw: false,
             overview: None,
             tiles: HashMap::new(),
@@ -426,6 +431,7 @@ impl Viewer {
         self.save_archive_resume(true);
         self.closing = true;
         self.recognition.reset();
+        if let Some(view) = &self.pyramid { view.close(); }
         self.directory_scan.cancel();
         self.serial += 1;
         self.pending = None;
@@ -464,6 +470,7 @@ impl Viewer {
         let recognition_finished = self.recognition.drained();
         if self.running.is_none() && self.pending.is_none() && self.extra.retiring.is_none()
             && covers_finished && recognition_finished && self.directory_scan.is_idle()
+            && self.pyramid.as_ref().is_none_or(pyramid_view::View::drained)
             && self.extra.writing.is_none() && self.extra.pending_write.is_none() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         } else {
@@ -652,8 +659,15 @@ impl Viewer {
         self.full_raw = full_raw;
         self.browser = false;
         self.extra.presentation.begin_target(index, self.entries[index].name.clone());
+        if arrow.is_some() {
+            self.extra.presentation.allow_immediate_preview();
+        } else if worker::local_photoshop_load(&request).is_some() {
+            self.extra.presentation.prefer_local_psd_preview();
+        }
         self.prioritize_coverflow_preview(index);
-        if let Some(arrow) = arrow.filter(|_| worker::is_local_quick_preview_load(&request)) {
+        if let Some(arrow) = arrow.filter(|_| {
+            worker::is_local_quick_preview_load(&request) && !self.cache.entries.contains_key(&(index, full_raw))
+        }) {
             self.serial += 1;
             self.pending = None;
             if let Some(active) = &self.running {
@@ -661,13 +675,6 @@ impl Viewer {
             }
             self.error = None;
             self.clear_image_for_load(index);
-            if let Some(image) = self.cache.entries.get(&(index, full_raw)) {
-                if let Some(preview) = presentation::PreviewPixels::sample(
-                    image.preview_width, image.preview_height, &image.preview, image.width, image.height,
-                ) {
-                    self.extra.presentation.stage_preview(index, preview);
-                }
-            }
             self.deferred_image = Some(DeferredImage { index, full_raw, request, arrow });
             return;
         }
@@ -714,6 +721,8 @@ impl Viewer {
         self.status = format!("正在读取 {}…", self.entries[index].name);
         self.current = None;
         self.current_key = None;
+        self.pyramid = None;
+        self.embedded_psd_preview = false;
         self.overview = None;
         self.tiles.clear();
         self.tile_bytes = 0;
@@ -734,6 +743,8 @@ impl Viewer {
 
     fn set_current(&mut self, index: usize, full_raw: bool, image: Arc<Pixels>) {
         self.extra.exposure_texture = None;
+        self.pyramid = None;
+        self.embedded_psd_preview = false;
         self.selected = Some(index);
         self.current_key = Some((index, full_raw));
         self.current = Some(image);
@@ -984,9 +995,11 @@ impl Viewer {
                                         self.extra.page_index = output.reply.page_index;
                                         self.extra.page_total = output.reply.page_total.max(1);
                                     }
+                                    let pyramid = output.reply.pyramid;
+                                    let embedded = output.reply.embedded_psd_preview;
                                     let image = Arc::new(Pixels {
-                                        width: output.reply.width,
-                                        height: output.reply.height,
+                                        width: if pyramid.is_some() { output.reply.source_width } else { output.reply.width },
+                                        height: if pyramid.is_some() { output.reply.source_height } else { output.reply.height },
                                         rgba: output.rgba,
                                         preview: output.preview,
                                         preview_width: output.reply.preview_width,
@@ -994,13 +1007,25 @@ impl Viewer {
                                         note: output.reply.note,
                                         record: output.reply.editing_record.map(Arc::new),
                                     });
-                                    if matches!(event.request, Request::Load { .. } | Request::ColorPreview { .. })
+                                    if pyramid.is_none() && !embedded
+                                        && matches!(event.request, Request::Load { .. } | Request::ColorPreview { .. })
                                         && !Self::is_animation_candidate(&event.request)
                                     {
                                         self.cache.insert((index, full_raw), image.clone(), preload);
                                     }
                                     if !preload {
+                                        let view = pyramid.zip(worker::local_tiff_load(&event.request))
+                                            .map(|(info, (path, managed))| pyramid_view::View::new(info, path.to_owned(), managed));
+                                        if view.is_some() || embedded {
+                                            self.extra.pending_edit_id = None;
+                                        }
                                         self.set_current(index, full_raw, image);
+                                        self.embedded_psd_preview = embedded;
+                                        if let Some(view) = view {
+                                            (self.rotation, self.flip_x, self.flip_y) = view.orientation();
+                                            self.status = self.current.as_ref().unwrap().note.clone();
+                                            self.pyramid = Some(view);
+                                        }
                                         self.schedule_preload();
                                     }
                                 }
@@ -1111,14 +1136,14 @@ impl Viewer {
         self.navigate_with_arrow(forward, end, None);
     }
 
-    fn navigate_with_arrow(&mut self, forward: bool, end: bool, arrow: Option<egui::Key>) {
+    fn navigate_with_arrow(&mut self, forward: bool, end: bool, arrow: Option<(egui::Key, bool)>) {
         if let Some(index) = self.navigation_target(forward, end) {
             self.nav_forward = forward;
             let full_raw = arrow.is_some()
                 && self.full_raw
                 && self.source.as_ref().is_some_and(|source| source.is_dir())
                 && crate::imaging::is_raw(&self.entries[index].name);
-            self.load_index_with_arrow(index, full_raw, arrow);
+            self.load_index_with_arrow(index, full_raw, arrow.and_then(|(key, repeat)| repeat.then_some(key)));
         }
     }
 
@@ -1182,6 +1207,7 @@ impl Viewer {
                     } else {
                         self.browser = true;
                         self.stop_animation();
+                        if let Some(view) = &mut self.pyramid { view.cancel(); }
                     }
                     if self.browser && self.extra.selection.is_empty() {
                         if let Some(i) = self.selected {
@@ -1243,6 +1269,8 @@ impl Viewer {
                 self.extra.presentation.clear();
                 self.current = None;
                 self.current_key = None;
+                self.pyramid = None;
+                self.embedded_psd_preview = false;
                 self.selected = None;
                 self.overview = None;
                 self.tiles.clear();
@@ -1268,6 +1296,14 @@ impl Viewer {
                 self.copy_file_selection();
             }
             Action::CopyImage => {
+                if self.embedded_psd_preview {
+                    self.status = "当前只有 PSD 内嵌预览，无法复制原画布像素".into();
+                    return;
+                }
+                if self.pyramid.is_some() {
+                    self.status = "分块 TIFF 以查看模式打开，暂不复制整张像素".into();
+                    return;
+                }
                 if let Some(image) = &self.current {
                     let transformed = if self.rotation != 0 || self.flip_x || self.flip_y {
                         match transformed_rgba(image, self.rotation, self.flip_x, self.flip_y) {
@@ -1612,13 +1648,15 @@ impl Viewer {
             egui::vec2(image.height as f32, image.width as f32)
         };
         if self.fit {
+            let max_fit = if self.embedded_psd_preview { 3.0 } else { 1.0 } / ctx.pixels_per_point();
             let fit = (viewport.width() / dimensions.x)
                 .min(viewport.height() / dimensions.y)
-                .min(1.0 / ctx.pixels_per_point());
+                .min(max_fit);
             self.scale = fit;
             self.target_scale = fit;
         }
         let selecting_for_recognition = self.recognition.selecting();
+        let selecting_text = self.interact_image_text(&response, &image, viewport.center() + self.pan);
         if response.hovered() && !self.password_dialog && !selecting_for_recognition {
             let scroll = ctx.input(|i| i.raw_scroll_delta.y);
             if scroll != 0.0 {
@@ -1631,15 +1669,15 @@ impl Viewer {
                 }
             }
         }
-        if !selecting_for_recognition && response.dragged() && self.extra.tool == 2371 {
+        if !selecting_for_recognition && !selecting_text && response.dragged() && self.extra.tool == 2371 {
             self.pan += response.drag_delta();
             self.fit = false;
             self.zoom_anchor = None;
         }
-        if !selecting_for_recognition && response.double_clicked() {
+        if !selecting_for_recognition && !selecting_text && response.double_clicked() {
             self.reset_fit();
         }
-        if !selecting_for_recognition && self.extra.tool == 2372 {
+        if !selecting_for_recognition && !selecting_text && self.extra.tool == 2372 {
             if response.drag_started() {
                 self.extra.selection_origin = response.interact_pointer_pos();
             }
@@ -1651,7 +1689,7 @@ impl Viewer {
                 }
             }
         }
-        if !selecting_for_recognition && self.extra.tool == 2373 && response.clicked() {
+        if !selecting_for_recognition && !selecting_text && self.extra.tool == 2373 && response.clicked() {
             self.zoom_by(if ctx.input(|i| i.modifiers.shift) {
                 0.5
             } else {
@@ -1677,10 +1715,13 @@ impl Viewer {
             > image.preview_width as f32 * 1.05
             || image.height as f32 * self.scale * ctx.pixels_per_point()
                 > image.preview_height as f32 * 1.05)
+            && !self.embedded_psd_preview
             && !(self.extra.animated && !self.extra.animation_paused);
         let full_uv = Rect::from_min_max(Pos2::ZERO, egui::pos2(1.0, 1.0));
         paint_transparency(&painter, Rect::from_center_size(center, dimensions * self.scale));
-        if let Some(texture) = &self.extra.animation_texture {
+        if self.pyramid.is_some() {
+            self.draw_pyramid(&painter, &image, viewport, center);
+        } else if let Some(texture) = &self.extra.animation_texture {
             paint_quad(
                 &painter,
                 texture.id(),
@@ -1928,17 +1969,28 @@ impl Viewer {
             let placement = presentation::Placement {
                 scale: self.scale, pan: self.pan, rotation: self.rotation,
                 flip_x: self.flip_x, flip_y: self.flip_y, fit: self.fit,
+                max_fit: if self.embedded_psd_preview { 3.0 } else { 1.0 },
             };
             let name = self.entries.get(index).map(|entry| entry.name.as_str()).unwrap_or("");
             if let Some((preview, texture)) = self.extra.presentation.capture_displayed(
                 ctx, index, &image, overview, placement, name,
             ) {
-                self.remember_coverflow_preview(index, preview, texture);
+                self.remember_coverflow_preview(index, preview.with_embedded_psd(self.embedded_psd_preview), texture);
                 self.archive_image_drawn(index, ctx);
             }
             self.recent_image_drawn(index, ctx);
         }
         self.recognition_image(&response, &painter, &image, viewport, center, dimensions);
+        if self.embedded_psd_preview {
+            let label = painter.layout_no_wrap(
+                format!("PSD 内嵌预览 {} × {}", image.width, image.height),
+                FontId::proportional(12.0), theme::TEXT,
+            );
+            let pos = viewport.left_bottom() + egui::vec2(14.0, -label.size().y - 14.0);
+            painter.rect_filled(Rect::from_min_size(pos, label.size()).expand2(egui::vec2(7.0, 4.0)),
+                5.0, Color32::from_black_alpha(150));
+            painter.galley(pos, label, theme::TEXT);
+        }
     }
 
     fn dialogs(&mut self, ctx: &egui::Context) {
@@ -2013,7 +2065,7 @@ impl Viewer {
             ui.label("查看模式 Enter / Esc / Ctrl+W 返回列表；列表 Enter进入查看、Ctrl+W退出；Ctrl/Shift+单击多选。GIF/WebP按原帧时长播放，G暂停／恢复／重播。");
             ui.separator();ui.label("ZIP／7z包内修改先备份原包；RAR只读，不支持分卷。编辑支持高位副本、完整动画、无损参数记录；源图EXIF／IPTC／XMP在属性窗口中显式保存，RAW写XMP伴随文件。");
             ui.label("幻灯片、日历、刻录、在线和音视频均已移除。默认键位见docs/KEYBOARD.md，功能状态见docs/retained-command-audit.csv；未确认的原版隐藏命令不激活。");
-            ui.label(format!("最近图片缓存 {} MiB，可在「选项与快捷键」调整。细节纹理 256 MiB，图像工作进程 2 GiB，常规单文件输入和 RGBA 输出分别限 512 MiB。", self.cache.budget / MIB));
+            ui.label(format!("最近图片缓存 {} MiB，可在「选项与快捷键」调整。细节纹理 256 MiB，图像工作进程 2 GiB，常规单文件输入和 RGBA 输出分别限 512 MiB。本地金字塔 TIFF／BigTIFF 按需读取可见分块。", self.cache.budget / MIB));
         });
         }
         self.draw_source_metadata(ctx);
@@ -2094,8 +2146,10 @@ impl eframe::App for Viewer {
         if self.extra.settings_ui.open {
             let _ = self.custom_native_action(&native_events, 2);
         }
-        let recognition_cancelled = self.recognition.handle_escape(ctx);
-        if !recognition_cancelled && shortcuts_enabled(
+        let recognition_handled_key = !self.recognition_blocked()
+            && !self.quiet_chrome.menu_open
+            && self.recognition.handle_keys(ctx);
+        if !recognition_handled_key && shortcuts_enabled(
             ctx,
             self.password_dialog
                 || self.archive_jump.open
@@ -2176,14 +2230,14 @@ impl eframe::App for Viewer {
                 if single_view {
                     ctx.input_mut(consume_view_arrows);
                 }
-                if let Some(key) = held_arrow {
-                    self.navigate_with_arrow(key == egui::Key::ArrowRight, false, Some(key));
+                if let Some((key, repeat)) = held_arrow {
+                    self.navigate_with_arrow(key == egui::Key::ArrowRight, false, Some((key, repeat)));
                 } else {
                     self.perform(action, ctx);
                 }
             }
         }
-        if self.finish_deferred_image(ctx) {
+        if self.finish_deferred_image(ctx) || self.pending.is_some() && self.running.is_none() {
             self.start_pending_task(ctx);
         }
         if self.draw_direct_startup(ctx) {
@@ -2228,7 +2282,7 @@ impl eframe::App for Viewer {
         self.command_dialogs(ctx);
         self.draw_inspectors(ctx);
         self.draw_recognition(ctx);
-        self.draw_floating_toolbar(ctx, chrome_visible || self.recognition.selecting());
+        self.draw_floating_toolbar(ctx, chrome_visible || self.recognition.selecting() || self.recognition.dragging_text());
         self.update_window_title(ctx);
     }
 }
@@ -2267,26 +2321,30 @@ fn held_navigation_key(
     ctx: &egui::Context,
     native_events: &[crate::native_keys::NativeKeyEvent],
     action: Action,
-) -> Option<egui::Key> {
+) -> Option<(egui::Key, bool)> {
     let (key, virtual_key) = match action {
         Action::Previous => (egui::Key::ArrowLeft, 0x25),
         Action::Next => (egui::Key::ArrowRight, 0x27),
         _ => return None,
     };
     ctx.input(|input| {
-        if !input.focused || !input.modifiers.is_none() || !input.key_down(key) {
+        if !input.focused {
             return None;
         }
-        let bare_press = if native_events.is_empty() {
-            input.events.iter().any(|event| matches!(event,
-                egui::Event::Key { key: pressed_key, pressed: true, modifiers, .. }
-                    if *pressed_key == key && modifiers.is_none()))
+        let repeat = if native_events.is_empty() {
+            input.events.iter().find_map(|event| match event {
+                egui::Event::Key { key: pressed_key, pressed: true, modifiers, repeat, .. }
+                    if *pressed_key == key && modifiers.is_none() => Some(*repeat),
+                _ => None,
+            })
         } else {
-            native_events.iter().any(|event| matches!(event,
-                crate::native_keys::NativeKeyEvent::Key { virtual_key: pressed_key, pressed: true, modifiers, .. }
-                    if *pressed_key == virtual_key && modifiers.is_none()))
-        };
-        bare_press.then_some(key)
+            native_events.iter().find_map(|event| match event {
+                crate::native_keys::NativeKeyEvent::Key { virtual_key: pressed_key, pressed: true, modifiers, repeat, .. }
+                    if *pressed_key == virtual_key && modifiers.is_none() => Some(*repeat),
+                _ => None,
+            })
+        }?;
+        Some((key, repeat && input.key_down(key)))
     })
 }
 
@@ -2497,6 +2555,7 @@ mod tests {
         assert!(!cancel.load(Ordering::Relaxed));
 
         let rgba = vec![65, 77, 90, 255];
+        viewer.extra.presentation.allow_immediate_preview();
         preview_tx.send(worker::ContinuityPreview::sample(1, 1, &rgba, 1, 1).unwrap()).ok().unwrap();
         let ctx = egui::Context::default();
         let frame = ctx.run(egui::RawInput::default(), |ctx| {
@@ -2861,7 +2920,7 @@ mod tests {
             pressed, repeat: false,
         };
         let _ = ctx.run(egui::RawInput { focused: true, events: vec![event(true)], ..Default::default() }, |ctx| {
-            assert_eq!(held_navigation_key(ctx, &[], Action::Next), Some(arrow));
+            assert_eq!(held_navigation_key(ctx, &[], Action::Next), Some((arrow, false)));
             viewer.load_index_with_arrow(1, false, Some(arrow));
             viewer.load_index_with_arrow(2, false, Some(arrow));
             viewer.schedule_metadata();
@@ -2877,6 +2936,26 @@ mod tests {
                 Operation::Load { index: 2, preload: false, .. }));
             assert_eq!(viewer.extra.presentation.target_index(), Some(2));
         });
+    }
+
+    #[test]
+    fn first_arrow_starts_the_full_load_and_repeated_cached_arrow_uses_full_pixels() {
+        let folder = tempfile::tempdir().unwrap();
+        let entries = ["a.jpg", "b.jpg", "c.jpg"].into_iter().map(|name| Entry {
+            name: name.into(), size: 32, directory: false, archive: false, modified: None,
+        }).collect();
+        let mut viewer = browser_ui::tests::viewer(entries);
+        viewer.source = Some(folder.path().into());
+        viewer.selected = Some(0);
+        viewer.navigate_with_arrow(true, false, Some((egui::Key::ArrowRight, false)));
+        assert!(viewer.deferred_image.is_none());
+        assert!(matches!(viewer.pending.as_ref().unwrap().operation, Operation::Load { index: 1, preload: false, .. }));
+        let ready = pixels(16);
+        viewer.cache.insert((2, false), ready.clone(), false);
+        viewer.navigate_with_arrow(true, false, Some((egui::Key::ArrowRight, true)));
+        assert!(viewer.deferred_image.is_none());
+        assert!(Arc::ptr_eq(viewer.current.as_ref().unwrap(), &ready));
+        assert_eq!(viewer.current_key, Some((2, false)));
     }
 
     #[test]
@@ -2901,8 +2980,8 @@ mod tests {
                 ..Default::default()
             };
             let _ = ctx.run(input(true), |ctx| {
-                viewer.navigate_with_arrow(true, false, Some(arrow));
-                viewer.navigate_with_arrow(true, false, Some(arrow));
+                viewer.navigate_with_arrow(true, false, Some((arrow, true)));
+                viewer.navigate_with_arrow(true, false, Some((arrow, true)));
                 assert_eq!(viewer.deferred_image.as_ref().map(|target| (target.index, target.full_raw)), Some((2, full_raw)));
                 assert!(!viewer.finish_deferred_image(ctx));
                 assert!(viewer.pending.is_none());

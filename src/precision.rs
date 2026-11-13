@@ -970,7 +970,7 @@ fn add_edit(
 
 fn safe_source(input: &Path, work: &Path) -> Result<PathBuf, String> {
     let size = crate::imaging::checked_input_size(input)?;
-    if size > MAX_OUTPUT_BYTES {
+    if size > MAX_OUTPUT_BYTES || crate::imaging::is_photoshop(&input.to_string_lossy()) {
         // A layered PSD can be gigabytes while its saved composite is small.
         // Read the validated PSD directly: copying it would defeat seek-based
         // layer skipping. An absolute path cannot become an option or coder;
@@ -989,6 +989,40 @@ fn safe_source(input: &Path, work: &Path) -> Result<PathBuf, String> {
     let destination = work.join(format!("source.{extension}"));
     fs::copy(input, &destination).map_err(|e| e.to_string())?;
     Ok(destination)
+}
+
+fn photoshop_source(input: &Path, work: &Path, max_bytes: usize) -> Result<PathBuf, String> {
+    let source = safe_source(input, work)?;
+    if let Ok(info) = crate::psd_composite::inspect(&source) {
+        return photoshop_composite(source, &info, work, max_bytes);
+    }
+    Ok(source)
+}
+
+const PSD_MISSING_COMPOSITE: &str = "PSD/PSB 未保存完整合成图。请在 Photoshop 启用「最大兼容性」后另存副本";
+
+fn photoshop_composite(
+    source: PathBuf,
+    info: &crate::psd_composite::Info,
+    work: &Path,
+    max_bytes: usize,
+) -> Result<PathBuf, String> {
+    if !info.has_real_merged {
+        // Preserve reconstruction for simple files. Many full-canvas layers
+        // or large channel sections can exhaust the existing worker budgets.
+        let samples = info.layer_pixels.unwrap_or_else(|| {
+            u64::from(info.width) * u64::from(info.height)
+                * u64::from(info.layer_count.unwrap_or(1).max(1))
+        });
+        if info.layer_bytes > 64 * 1024 * 1024 || samples > 16_000_000 {
+            return Err(PSD_MISSING_COMPOSITE.into());
+        }
+    } else if matches!(info.compression, 2 | 3) {
+        let proxy = work.join(if info.version == 2 { "composite.psb" } else { "composite.psd" });
+        info.write_zip_proxy(&source, &proxy, max_bytes)?;
+        return Ok(proxy);
+    }
+    Ok(source)
 }
 
 /// Save a high-depth image/animation. Caller runs this in the existing memory-limited worker.
@@ -1036,6 +1070,8 @@ pub fn render(
         let path = work.join("raw16.png");
         crate::imaging::raw16_to_png(input, &path, raw, MAX_OUTPUT_BYTES as usize)?;
         path
+    } else if photoshop {
+        photoshop_source(input, work, MAX_OUTPUT_BYTES as usize)?
     } else {
         safe_source(input, work)?
     };
@@ -1325,16 +1361,53 @@ pub fn decode_fallback(
     max_bytes: usize,
     managed: bool,
 ) -> Result<crate::imaging::DecodedImage, String> {
+    decode_native(input, max_pixels, max_bytes, managed, None)
+}
+
+pub(crate) fn decode_photoshop(
+    input: &Path,
+    info: &crate::psd_composite::Info,
+    max_pixels: u64,
+    max_bytes: usize,
+    managed: bool,
+) -> Result<crate::imaging::DecodedImage, String> {
+    let pixels = u64::from(info.width) * u64::from(info.height);
+    if pixels > max_pixels || pixels * 4 > max_bytes as u64 {
+        return Err("PSD/PSB 合成图超过像素或RGBA内存预算".into());
+    }
+    if let Some(image) = crate::psd_view::decode_rgb8(input, info, max_bytes, managed)? {
+        return Ok(image);
+    }
+    decode_native(input, max_pixels, max_bytes, managed, Some(info)).map_err(|error| {
+        if !info.has_real_merged { PSD_MISSING_COMPOSITE.to_owned() } else { error }
+    })
+}
+
+fn decode_native(
+    input: &Path,
+    max_pixels: u64,
+    max_bytes: usize,
+    managed: bool,
+    info: Option<&crate::psd_composite::Info>,
+) -> Result<crate::imaging::DecodedImage, String> {
     let work = tempfile::Builder::new()
         .prefix("rustview-codec-")
         .tempdir()
         .map_err(|e| e.to_string())?;
     let work = work.path();
     let source = safe_source(input, work)?;
+    let source = if let Some(info) = info {
+        photoshop_composite(source, info, work, MAX_OUTPUT_BYTES as usize)?
+    } else { source };
     // PSD/PSB scene zero is the composite. Restrict the probe as well as the
     // decode so ImageMagick can skip layer pixels instead of listing them.
     let first = PathBuf::from(format!("{}[0]", source.display()));
-    let (w, h, _, _) = metadata(&first, work)?;
+    let (w, h) = if let Some(info) = info {
+        (info.width, info.height)
+    } else {
+        let (w, h, _, _) = metadata(&first, work)?;
+        (w, h)
+    };
     let allowed = (w as u64)
         .checked_mul(h as u64)
         .filter(|n| *n <= max_pixels)

@@ -663,6 +663,9 @@ impl Viewer {
         if self.extra.compare>0&&self.comparison_action(Action::LegacyCommand(id),ctx){return;}
         match id {
             2248..=2251 => {
+                if self.pyramid.is_some() {
+                    return; // Reduced-resolution TIFF directories are zoom levels.
+                }
                 if let Some(index) = self.selected {
                     if let Some(source) = self.make_load(index, self.full_raw) {
                         let page = match id {
