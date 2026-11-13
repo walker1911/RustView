@@ -8,11 +8,15 @@
 
 面向 **Windows x64** 的 Rust 看图项目。把相机 RAW、GIF/WebP 动画、Photoshop 合成图和 ZIP／RAR／7z 里的照片，放进熟悉的键盘翻图、Picasa 式胶片带与平滑缩放流程。
 
-[下载 v0.6.5](https://github.com/walker1911/RustView/releases/tag/v0.6.5) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
+[下载 v0.6.7](https://github.com/walker1911/RustView/releases/tag/v0.6.7) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
 
-![RustView Windows 查看界面，采用石墨配色和 Picasa 式胶片带](assets/readme/viewer.png)
+![RustView v0.6.7 清爽看图，照片和胶片带可见，菜单默认收起](assets/readme/viewer.png)
 
-**v0.6.5** 支持按住方向键快速预览符合条件的本地 RAW。在 **文件 → 最近打开…** 中，点击压缩包可续看，点击 **从头打开** 可回到包内第一张图。[v0.6.5 更新说明](docs/RELEASE-v0.6.5.md) · [压缩包续看与跳页](docs/RELEASE-v0.6.0.md)
+**v0.6.7** 默认以清爽模式打开单张照片。将鼠标移到窗口顶边，或拖动标题栏，菜单、文件路径和状态栏就会浮现。显隐时，照片和底部缩略图都留在原位。在照片上移动鼠标，还会唤出半透明浮动工具栏，可翻图、缩小、放大、看原始尺寸或顺时针旋转。[菜单浮现实拍](assets/readme/viewer-controls.png) · [v0.6.7 更新说明](docs/RELEASE-v0.6.7.md)
+
+背景默认使用石墨灰。选择 **「视图 → 看图背景 → 照片柔焦」** 后，照片周围的留白会换成取自当前照片的低饱和模糊背景。下次打开时会记住选择。[照片柔焦实拍](assets/readme/photo-soft-focus.png)
+
+![RustView 的半透明工具栏浮在胶片带上方](assets/readme/floating-toolbar.png)
 
 ## 从照片出发
 
@@ -34,7 +38,7 @@
 
 ![压缩包浏览流程](assets/readme/archive-flow.svg)
 
-在单图查看中点击工具栏的 **「跳页…」**，可以输入文件名的一部分、完整包内路径或从 1 开始的当前浏览序号。文件名重复时，可按包内路径选择。续看位置存入本地目录库，重新打开加密包时会再次询问密码。
+在单图查看中将鼠标移到窗口顶边，再点 **「跳页…」**，可以输入文件名的一部分、完整包内路径或从 1 开始的当前浏览序号。文件名重复时，可按包内路径选择。在 **「文件 → 最近打开…」** 中，点击压缩包可续看，也可点 **「从头打开」** 回到包内第一张图。重新打开加密包时会再次询问密码。[压缩包续看与跳页](docs/RELEASE-v0.6.0.md)
 
 快速翻图时，可复用已经在读取的目标任务。目标预览就绪前保留上一张的清晰预览，并同时标出目标文件和暂时显示的文件。直接打开单张图片时，先读取该图片，再扫描同目录。以静态图启动程序时，受限解码进程还可与图形初始化并行。[浏览说明](docs/PICASA-BROWSING.md)
 
@@ -67,7 +71,7 @@ v0.4.0 对[本地及ZIP／RAR／7z内的PSD/PSB](docs/PSD.md)提供源文件例�
 
 ## 下载与运行
 
-1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.5/RustView-0.6.5-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.6.5/RustView-0.6.5-win-x64-offline.zip.sha256)
+1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.7/RustView-0.6.7-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.6.7/RustView-0.6.7-win-x64-offline.zip.sha256)
 2. 完整解压，双击 `RustView.exe` 或 `Start-RustView.cmd`。图片引擎和运行库已经包含，首次启动也无需联网或安装依赖。
 3. 打开或拖入文件夹、图片、ZIP／RAR／7z。请保留完整目录。
 
@@ -109,7 +113,7 @@ pwsh -File .\tools\build.ps1 -Offline
 
 ## 验证到哪一步
 
-发行检查覆盖静态图与压缩包、GIF/WebP 动画、PSD/PSB 合成图、缩略图和大型加密 RAR 的取消清理。续看和跳页通过无窗口测试验证，使用同一套 Viewer 界面逻辑和真实 Windows 解码进程。[v0.6.0 更新说明](docs/RELEASE-v0.6.0.md) · [验证结果与范围](docs/VALIDATION.md)
+发行检查覆盖静态图与压缩包、GIF/WebP 动画、PSD/PSB 合成图、缩略图和大型加密 RAR 的取消清理。v0.6.7 在 Windows 桌面验证了菜单显隐、拖动窗口、照片与胶片带位置稳定，以及重启后记住背景选择。[v0.6.7 更新说明](docs/RELEASE-v0.6.7.md) · [验证结果与范围](docs/VALIDATION.md)
 
 真实相机样本包括 Nikon Z6、Sony a7 III、Canon EOS R、iPhone 12 Pro ProRAW 和 HEIC。原生窗口、显示和打印测试的范围见验证记录。反馈时请提供版本、格式或相机型号、预期行为和最小复现样本。[报告问题](https://github.com/walker1911/RustView/issues)
 

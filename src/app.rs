@@ -22,11 +22,15 @@ mod compare;
 mod coverflow;
 mod directory;
 mod edit_ui;
+mod floating_toolbar;
+mod floating_toolbar_glass;
 mod metadata_ui;
 mod navigation_probe;
 mod playback;
 mod presentation;
 mod print_ui;
+mod quiet_backdrop;
+mod quiet_chrome;
 mod recent_ui;
 mod settings_ui;
 mod startup;
@@ -183,6 +187,10 @@ pub struct Viewer {
     archive_jump: archive_jump::State,
     archive_resume: archive_resume::State,
     recent_ui: recent_ui::State,
+    floating_toolbar: floating_toolbar::State,
+    quiet_chrome: quiet_chrome::State,
+    quiet_backdrop: quiet_backdrop::State,
+    photo_soft_focus: bool,
     #[cfg(windows)]
     native_keys: Option<crate::native_keys::NativeKeys>,
     source: Option<PathBuf>,
@@ -237,6 +245,10 @@ impl Viewer {
             archive_jump: archive_jump::State::default(),
             archive_resume: archive_resume::State::default(),
             recent_ui: recent_ui::State::default(),
+            floating_toolbar: floating_toolbar::State::default(),
+            quiet_chrome: quiet_chrome::State::default(),
+            quiet_backdrop: quiet_backdrop::State::default(),
+            photo_soft_focus: false,
             #[cfg(windows)]
             native_keys: None,
             source: None,
@@ -1308,187 +1320,219 @@ impl Viewer {
                     .fill(theme::CHROME)
                     .inner_margin(egui::Margin::symmetric(12, 6)),
             )
-            .show(ctx, |ui| {
-                egui::menu::bar(ui, |ui| {
-                    ui.spacing_mut().button_padding = egui::vec2(8.0, 4.0);
-                    theme::tool_group().show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 2.0;
-                            for (label, browser) in [("管理", true), ("查看", false)] {
-                                let active = self.browser == browser;
-                                let button = egui::Button::new(label)
-                                    .selected(active)
-                                    .corner_radius(5)
-                                    .stroke(egui::Stroke::NONE);
-                                if ui.add(button).clicked() && !active {
-                                    self.perform(Action::ToggleBrowser, ctx);
-                                }
-                            }
-                        });
-                    });
-                    ui.menu_button("文件", |ui| {
-                        if ui.button("最近打开…").clicked() {
-                            self.open_recent_ui();
-                            ui.close_menu();
+            .show(ctx, |ui| self.toolbar_contents(ui, ctx));
+    }
+
+    fn toolbar_contents(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
+        let menu_open = egui::menu::bar(ui, |ui| {
+            ui.spacing_mut().button_padding = egui::vec2(8.0, 4.0);
+            theme::tool_group().show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    for (label, browser) in [("管理", true), ("查看", false)] {
+                        let active = self.browser == browser;
+                        let button = egui::Button::new(label)
+                            .selected(active)
+                            .corner_radius(5)
+                            .stroke(egui::Stroke::NONE);
+                        if ui.add(button).clicked() && !active {
+                            self.perform(Action::ToggleBrowser, ctx);
                         }
-                        for (label, action) in [
-                            ("打开图片或压缩包…", Action::Open),
-                            ("打开文件夹…", Action::OpenFolder),
-                            ("刷新", Action::Refresh),
-                            ("属性", Action::Properties),
-                            ("关闭当前图像", Action::Close),
-                            ("退出", Action::Exit),
-                        ] {
-                            if ui.button(label).clicked() {
-                                self.perform(action, ctx);
-                                ui.close_menu();
-                            }
-                        }
-                    });
-                    ui.menu_button("编辑", |ui| {
-                        for (label, action) in [
-                            ("复制文件", Action::CopyFile),
-                            ("复制图像", Action::CopyImage),
-                            ("复制路径", Action::CopyPath),
-                            ("移到回收站", Action::Delete),
-                        ] {
-                            if ui.button(label).clicked() {
-                                self.perform(action, ctx);
-                                ui.close_menu();
-                            }
-                        }
-                    });
-                    ui.menu_button("视图", |ui| {
-                        for (label, action) in [
-                            ("文件列表", Action::ToggleBrowser),
-                            ("适应窗口", Action::Fit),
-                            ("原始尺寸", Action::ActualSize),
-                            ("全屏", Action::Fullscreen),
-                            ("向左旋转", Action::RotateLeft),
-                            ("向右旋转", Action::RotateRight),
-                            ("水平翻转", Action::FlipHorizontal),
-                            ("垂直翻转", Action::FlipVertical),
-                        ] {
-                            if ui.button(label).clicked() {
-                                self.perform(action, ctx);
-                                ui.close_menu();
-                            }
-                        }
-                    });
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .button("帮助")
-                            .on_hover_text("快捷键与版本说明")
-                            .clicked()
-                        {
-                            self.help = true;
-                        }
-                        if ui
-                            .button("选项")
-                            .on_hover_text("选项与快捷键（Alt+O）")
-                            .clicked()
-                        {
-                            self.extra.settings_ui.open = true;
-                        }
-                    });
-                });
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().button_padding = egui::vec2(8.0, 3.0);
-                    let open = egui::Button::new("打开…")
-                        .fill(theme::SELECTED)
-                        .stroke(egui::Stroke::NONE);
-                    if ui.add(open).clicked() {
-                        self.choose_file();
-                    }
-                    if ui.button("文件夹…").clicked() {
-                        self.choose_folder();
-                    }
-                    for actions in [
-                        &[
-                            ("←", "上一张", Action::Previous),
-                            ("→", "下一张", Action::Next),
-                        ][..],
-                        &[
-                            ("−", "缩小", Action::ZoomOut),
-                            ("＋", "放大", Action::ZoomIn),
-                            ("适应", "适应窗口", Action::Fit),
-                            ("1:1", "原始尺寸", Action::ActualSize),
-                            ("全屏", "全屏", Action::Fullscreen),
-                        ],
-                    ] {
-                        theme::tool_group().show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = 2.0;
-                                for &(label, hint, action) in actions {
-                                    if ui.button(label).on_hover_text(hint).clicked() {
-                                        self.perform(action, ctx);
-                                    }
-                                }
-                            });
-                        });
-                    }
-                    if self.is_archive_source()
-                        && !self.browser
-                        && self.extra.compare == 0
-                        && self.extra.edit_dialog.is_none()
-                    {
-                        let available =
-                            !self.password_dialog && !self.browse_entries().1.is_empty();
-                        if ui
-                            .add_enabled(available, egui::Button::new("跳页…"))
-                            .clicked()
-                        {
-                            self.open_archive_jump();
-                        }
-                    }
-                    let is_raw = self
-                        .selected
-                        .and_then(|i| self.entries.get(i))
-                        .is_some_and(|e| crate::imaging::is_raw(&e.name));
-                    if is_raw {
-                        let mut full = self.full_raw;
-                        if ui.checkbox(&mut full, "完整 RAW 解码").changed() {
-                            if let Some(i) = self.selected {
-                                self.load_index(i, full);
-                            }
-                        }
-                    }
-                    if (self.running.is_some() || !self.directory_scan.is_idle())
-                        && self.extra.pending_write.is_none()
-                        && self.extra.writing.is_none()
-                    {
-                        ui.spinner();
-                        if ui.small_button("取消").clicked() {
-                            self.cancel_current_read();
-                        }
-                    }
-                    if self.extra.animated {
-                        if ui
-                            .button(if self.extra.animation_ended {
-                                "重播动画 (G)"
-                            } else if self.extra.animation_paused {
-                                "播放动画 (G)"
-                            } else {
-                                "暂停动画 (G)"
-                            })
-                            .clicked()
-                        {
-                            self.toggle_animation();
-                        }
-                    }
-                    if self.extra.edited {
-                        ui.colored_label(Color32::YELLOW, "有未保存的编辑");
                     }
                 });
-                if let Some(path) = &self.source {
-                    let path = path.to_string_lossy();
-                    let label = egui::RichText::new(path.as_ref())
-                        .small()
-                        .color(theme::MUTED);
-                    ui.add(egui::Label::new(label).truncate())
-                        .on_hover_text(path.as_ref());
+            });
+            ui.menu_button("文件", |ui| {
+                if ui.button("最近打开…").clicked() {
+                    self.open_recent_ui();
+                    ui.close_menu();
+                }
+                for (label, action) in [
+                    ("打开图片或压缩包…", Action::Open),
+                    ("打开文件夹…", Action::OpenFolder),
+                    ("刷新", Action::Refresh),
+                    ("属性", Action::Properties),
+                    ("关闭当前图像", Action::Close),
+                    ("退出", Action::Exit),
+                ] {
+                    if ui.button(label).clicked() {
+                        self.perform(action, ctx);
+                        ui.close_menu();
+                    }
                 }
             });
+            ui.menu_button("编辑", |ui| {
+                for (label, action) in [
+                    ("复制文件", Action::CopyFile),
+                    ("复制图像", Action::CopyImage),
+                    ("复制路径", Action::CopyPath),
+                    ("移到回收站", Action::Delete),
+                ] {
+                    if ui.button(label).clicked() {
+                        self.perform(action, ctx);
+                        ui.close_menu();
+                    }
+                }
+            });
+            ui.menu_button("视图", |ui| {
+                for (label, action) in [
+                    ("文件列表", Action::ToggleBrowser),
+                    ("适应窗口", Action::Fit),
+                    ("原始尺寸", Action::ActualSize),
+                    ("全屏", Action::Fullscreen),
+                    ("向左旋转", Action::RotateLeft),
+                    ("向右旋转", Action::RotateRight),
+                    ("水平翻转", Action::FlipHorizontal),
+                    ("垂直翻转", Action::FlipVertical),
+                ] {
+                    if ui.button(label).clicked() {
+                        self.perform(action, ctx);
+                        ui.close_menu();
+                    }
+                }
+                ui.separator();
+                ui.small("看图背景");
+                for (label, soft_focus) in [("石墨灰", false), ("照片柔焦", true)] {
+                    if ui.selectable_label(self.photo_soft_focus == soft_focus, label).clicked() {
+                        self.set_photo_soft_focus(soft_focus);
+                        ui.close_menu();
+                    }
+                }
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .button("帮助")
+                    .on_hover_text("快捷键与版本说明")
+                    .clicked()
+                {
+                    self.help = true;
+                }
+                if ui
+                    .button("选项")
+                    .on_hover_text("选项与快捷键（Alt+O）")
+                    .clicked()
+                {
+                    self.extra.settings_ui.open = true;
+                }
+            });
+            egui::menu::BarState::load(ctx, ui.id()).is_some()
+        }).inner;
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().button_padding = egui::vec2(8.0, 3.0);
+            let open = egui::Button::new("打开…")
+                .fill(theme::SELECTED)
+                .stroke(egui::Stroke::NONE);
+            if ui.add(open).clicked() {
+                self.choose_file();
+            }
+            if ui.button("文件夹…").clicked() {
+                self.choose_folder();
+            }
+            theme::tool_group().show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    for (label, hint, action) in [
+                        ("适应", "适应窗口", Action::Fit),
+                        ("全屏", "全屏", Action::Fullscreen),
+                    ] {
+                        if ui.button(label).on_hover_text(hint).clicked() {
+                            self.perform(action, ctx);
+                        }
+                    }
+                });
+            });
+            if self.is_archive_source()
+                && !self.browser
+                && self.extra.compare == 0
+                && self.extra.edit_dialog.is_none()
+            {
+                let available =
+                    !self.password_dialog && !self.browse_entries().1.is_empty();
+                if ui
+                    .add_enabled(available, egui::Button::new("跳页…"))
+                    .clicked()
+                {
+                    self.open_archive_jump();
+                }
+            }
+            let is_raw = self
+                .selected
+                .and_then(|i| self.entries.get(i))
+                .is_some_and(|e| crate::imaging::is_raw(&e.name));
+            if is_raw {
+                let mut full = self.full_raw;
+                if ui.checkbox(&mut full, "完整 RAW 解码").changed() {
+                    if let Some(i) = self.selected {
+                        self.load_index(i, full);
+                    }
+                }
+            }
+            if (self.running.is_some() || !self.directory_scan.is_idle())
+                && self.extra.pending_write.is_none()
+                && self.extra.writing.is_none()
+            {
+                ui.spinner();
+                if ui.small_button("取消").clicked() {
+                    self.cancel_current_read();
+                }
+            }
+            if self.extra.animated {
+                if ui
+                    .button(if self.extra.animation_ended {
+                        "重播动画 (G)"
+                    } else if self.extra.animation_paused {
+                        "播放动画 (G)"
+                    } else {
+                        "暂停动画 (G)"
+                    })
+                    .clicked()
+                {
+                    self.toggle_animation();
+                }
+            }
+            if self.extra.edited {
+                ui.colored_label(Color32::YELLOW, "有未保存的编辑");
+            }
+        });
+        if let Some(path) = &self.source {
+            let path = path.to_string_lossy();
+            let label = egui::RichText::new(path.as_ref())
+                .small()
+                .color(theme::MUTED);
+            ui.add(egui::Label::new(label).truncate())
+                .on_hover_text(path.as_ref());
+        }
+        menu_open
+    }
+
+    fn status_contents(&self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(
+                egui::RichText::new(format!(
+                    "最近图片缓存 {:.0}/{} MiB · GPU 细节 {:.0}/256 MiB",
+                    self.cache.bytes as f64 / MIB as f64,
+                    self.cache.budget / MIB,
+                    self.tile_bytes as f64 / MIB as f64
+                ))
+                .small()
+                .color(theme::MUTED),
+            );
+            if let Some(image) = &self.current {
+                ui.add_space(8.0);
+                let (width, height) = self.extra.comparison.active_dimensions()
+                    .unwrap_or((image.width, image.height));
+                ui.small(format!("{} × {}  · {:.0}%", width, height,
+                    self.scale * ctx.pixels_per_point() * 100.0));
+            }
+            ui.add_space(8.0);
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), ui.text_style_height(&TextStyle::Small)),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    let label = egui::RichText::new(&self.status).small();
+                    ui.add(egui::Label::new(label).truncate()).on_hover_text(&self.status);
+                },
+            );
+        });
     }
 
     fn ensure_overview(&mut self, ctx: &egui::Context) {
@@ -1512,7 +1556,14 @@ impl Viewer {
         self.extra.viewport = viewport;
         let painter = ui.painter_at(viewport);
         painter.rect_filled(viewport, 0.0, theme::CANVAS);
-        if let Some(texture) = &self.extra.background_tile {
+        if !self.browser && self.photo_soft_focus {
+            if self.current.is_some() || self.extra.presentation.has_frame() {
+                self.quiet_backdrop.paint(&painter, viewport, self.current.as_ref(), self.rotation,
+                    self.flip_x, self.flip_y);
+            } else {
+                self.quiet_backdrop.clear();
+            }
+        } else if let Some(texture) = &self.extra.background_tile {
             let period = texture.size_vec2() / ctx.pixels_per_point();
             painter.image(
                 texture.id(),
@@ -2042,7 +2093,8 @@ impl eframe::App for Viewer {
                 || self.properties
                 || self.extra.settings_ui.open
                 || self.extra.print_ui.open
-                || self.help,
+                || self.help
+                || self.quiet_chrome.menu_open,
         ) && (!text_field_focused(ctx)
             || self.extra.edit_dialog.is_some()
                 && ctx.input(|i| {
@@ -2092,14 +2144,14 @@ impl eframe::App for Viewer {
             let action = ctx.input(|i| shortcuts::action_with_view_arrows(i, self.browser, single_view));
             let management_navigation = self.browser && ctx.input(|i| i.events.iter().any(|e| matches!(e,
                 egui::Event::Key { key: egui::Key::ArrowUp | egui::Key::ArrowDown | egui::Key::ArrowLeft | egui::Key::ArrowRight | egui::Key::Home | egui::Key::End | egui::Key::PageUp | egui::Key::PageDown, pressed: true, modifiers, .. } if !modifiers.ctrl && !modifiers.alt)));
-            let processing_button_key = self.extra.edit_dialog.is_some()
-                && ctx.wants_keyboard_input()
+            let focused_button_key = (self.extra.edit_dialog.is_some() && ctx.wants_keyboard_input()
+                || self.floating_toolbar.has_focus(ctx))
                 && ctx.input(|i| {
                     i.modifiers.is_none()
                         && (i.key_pressed(egui::Key::Space) || i.key_pressed(egui::Key::Enter))
                 });
             if let Some(action) = action.filter(|a| {
-                !processing_button_key
+                !focused_button_key
                     && !(management_navigation
                         && matches!(
                             a,
@@ -2126,56 +2178,18 @@ impl eframe::App for Viewer {
             self.update_window_title(ctx);
             return;
         }
-        self.draw_toolbar(ctx);
-        if self.extra.statusbar {
-            egui::TopBottomPanel::bottom("status")
-                .show_separator_line(false)
-                .frame(
-                    egui::Frame::side_top_panel(&ctx.style())
-                        .fill(theme::CHROME)
-                        .inner_margin(egui::Margin::symmetric(12, 5)),
-                )
-                .show(ctx, |ui| {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "最近图片缓存 {:.0}/{} MiB · GPU 细节 {:.0}/256 MiB",
-                                self.cache.bytes as f64 / MIB as f64,
-                                self.cache.budget / MIB,
-                                self.tile_bytes as f64 / MIB as f64
-                            ))
-                            .small()
-                            .color(theme::MUTED),
-                        );
-                        if let Some(image) = &self.current {
-                            ui.add_space(8.0);
-                            let (width, height) = self
-                                .extra
-                                .comparison
-                                .active_dimensions()
-                                .unwrap_or((image.width, image.height));
-                            ui.small(format!(
-                                "{} × {}  · {:.0}%",
-                                width,
-                                height,
-                                self.scale * ctx.pixels_per_point() * 100.0
-                            ));
-                        }
-                        ui.add_space(8.0);
-                        ui.allocate_ui_with_layout(
-                            egui::vec2(
-                                ui.available_width(),
-                                ui.text_style_height(&TextStyle::Small),
-                            ),
-                            egui::Layout::left_to_right(egui::Align::Center),
-                            |ui| {
-                                let label = egui::RichText::new(&self.status).small();
-                                ui.add(egui::Label::new(label).truncate())
-                                    .on_hover_text(&self.status);
-                            },
-                        );
-                    });
-                });
+        let quiet = !self.browser && self.extra.compare == 0 && self.extra.edit_dialog.is_none()
+            && (self.selected.is_some() || self.extra.presentation.has_frame());
+        if !quiet {
+            self.quiet_chrome.reset(ctx);
+            self.draw_toolbar(ctx);
+            if self.extra.statusbar {
+                egui::TopBottomPanel::bottom("status")
+                    .show_separator_line(false)
+                    .frame(egui::Frame::side_top_panel(&ctx.style()).fill(theme::CHROME)
+                        .inner_margin(egui::Margin::symmetric(12, 5)))
+                    .show(ctx, |ui| self.status_contents(ui, ctx));
+            }
         }
         self.draw_extra_panels(ctx);
         self.draw_browser_panels(ctx);
@@ -2197,9 +2211,11 @@ impl eframe::App for Viewer {
                     self.draw_image(ui, ctx)
                 }
             });
+        let chrome_visible = quiet && self.draw_quiet_chrome(ctx);
         self.dialogs(ctx);
         self.command_dialogs(ctx);
         self.draw_inspectors(ctx);
+        self.draw_floating_toolbar(ctx, chrome_visible);
         self.update_window_title(ctx);
     }
 }

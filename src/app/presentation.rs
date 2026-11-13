@@ -110,6 +110,15 @@ impl State {
     pub fn has_frame(&self) -> bool {
         self.frame.is_some() || self.target.as_ref().is_some_and(|target| target.preview.is_some())
     }
+
+    pub(super) fn frame_bounds(&self, viewport: Rect, pixels_per_point: f32) -> Rect {
+        let frame = self.target.as_ref().and_then(|target| target.preview.as_ref())
+            .map(|preview| ([preview.pixels.source_width, preview.pixels.source_height], Placement::default()))
+            .or_else(|| self.frame.as_ref().map(|frame| (frame.dimensions, frame.placement)));
+        frame.map_or(Rect::NOTHING, |(dimensions, placement)| {
+            Rect::from_points(&frame_corners(viewport, dimensions, placement, pixels_per_point)).intersect(viewport)
+        })
+    }
     pub fn is_waiting(&self) -> bool { self.target.is_some() }
     pub fn has_target_preview(&self, index: usize) -> bool {
         self.target.as_ref().is_some_and(|target| target.index == index && target.preview.is_some())

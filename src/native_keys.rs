@@ -1,4 +1,4 @@
-//! Observe Win32 keyboard messages without consuming egui's input.
+//! Observe Win32 keyboard and window motion messages without consuming egui's input.
 use egui::Modifiers;
 
 #[derive(Clone, Copy, Debug)]
@@ -25,18 +25,22 @@ mod platform {
         cell::{Cell, RefCell},
         collections::VecDeque,
         rc::Rc,
+        time::Instant,
     };
     use windows_sys::Win32::{
-        Foundation::{HWND, LPARAM, LRESULT, WPARAM},
+        Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM},
+        Graphics::Gdi::{RedrawWindow, RDW_INTERNALPAINT},
         System::Threading::GetCurrentThreadId,
         UI::{
             Input::KeyboardAndMouse::{
-                GetKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+                GetKeyState, TrackMouseEvent, TME_LEAVE, TME_NONCLIENT, TRACKMOUSEEVENT,
+                VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
             },
             Shell::{DefSubclassProc, GetWindowSubclass, RemoveWindowSubclass, SetWindowSubclass},
             WindowsAndMessaging::{
-                GetWindowThreadProcessId, WM_CHAR, WM_KEYDOWN, WM_KEYUP, WM_NCDESTROY, WM_SYSCHAR,
-                WM_SYSKEYDOWN, WM_SYSKEYUP,
+                GetCursorPos, GetWindowThreadProcessId, HTCAPTION, WM_CHAR, WM_EXITSIZEMOVE,
+                WM_KEYDOWN, WM_KEYUP, WM_MOUSEMOVE, WM_MOVING, WM_NCDESTROY, WM_NCMOUSELEAVE,
+                WM_NCMOUSEMOVE, WM_SYSCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP,
             },
         },
     };
@@ -47,6 +51,10 @@ mod platform {
         queue: RefCell<VecDeque<NativeKeyEvent>>,
         attached: Cell<bool>,
         thread: u32,
+        moving: Cell<bool>,
+        move_ended: Cell<Option<Instant>>,
+        caption_hovered: Cell<bool>,
+        release_position: Cell<Option<(i32, i32)>>,
     }
 
     /// Attach once on the window's UI thread. Rc deliberately makes this !Send.
@@ -70,6 +78,10 @@ mod platform {
                     queue: RefCell::new(VecDeque::new()),
                     attached: Cell::new(true),
                     thread,
+                    moving: Cell::new(false),
+                    move_ended: Cell::new(None),
+                    caption_hovered: Cell::new(false),
+                    release_position: Cell::new(None),
                 });
                 // The installation owns one Rc until detach OR WM_NCDESTROY.
                 let reference = Rc::into_raw(state.clone());
@@ -86,6 +98,14 @@ mod platform {
 
         pub fn drain(&self) -> Vec<NativeKeyEvent> {
             self.state.queue.borrow_mut().drain(..).collect()
+        }
+
+        pub fn window_motion(&self) -> (bool, Option<Instant>, bool) {
+            (
+                self.state.moving.get(),
+                self.state.move_ended.get(),
+                self.state.caption_hovered.get(),
+            )
         }
     }
 
@@ -134,6 +154,55 @@ mod platform {
             }
             return result;
         }
+
+        let redraw = match message {
+            WM_MOVING if !state.moving.replace(true) => {
+                state.move_ended.set(None);
+                state.caption_hovered.set(false);
+                true
+            }
+            WM_EXITSIZEMOVE if state.moving.replace(false) => {
+                state.move_ended.set(Some(Instant::now()));
+                state.caption_hovered.set(false);
+                // Windows may refresh the caption hit-test after releasing the mouse.
+                // Wait for a new position before treating this as a fresh hover.
+                let mut cursor = POINT { x: 0, y: 0 };
+                state
+                    .release_position
+                    .set((GetCursorPos(&mut cursor) != 0).then_some((cursor.x, cursor.y)));
+                true
+            }
+            WM_NCMOUSEMOVE if !state.moving.get() => {
+                let position = (lparam as i16 as i32, (lparam >> 16) as i16 as i32);
+                let moved = state.release_position.get() != Some(position);
+                if moved {
+                    state.release_position.set(None);
+                }
+                let hovered = moved && wparam == HTCAPTION as usize;
+                let changed = state.caption_hovered.replace(hovered) != hovered;
+                if changed && hovered {
+                    TrackMouseEvent(&mut TRACKMOUSEEVENT {
+                        cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                        dwFlags: TME_LEAVE | TME_NONCLIENT,
+                        hwndTrack: hwnd,
+                        dwHoverTime: 0,
+                    });
+                }
+                changed
+            }
+            WM_NCMOUSELEAVE | WM_MOUSEMOVE => state.caption_hovered.replace(false),
+            _ => false,
+        };
+        if redraw {
+            // Queue WM_PAINT, which winit can dispatch during the system move loop.
+            RedrawWindow(
+                hwnd,
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                RDW_INTERNALPAINT,
+            );
+        }
+
         let flags = lparam as usize;
         let event = match message {
             WM_KEYDOWN | WM_SYSKEYDOWN | WM_KEYUP | WM_SYSKEYUP => Some(NativeKeyEvent::Key {

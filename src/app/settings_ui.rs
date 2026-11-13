@@ -4,6 +4,7 @@ use crate::native_keys::NativeKeyEvent;
 
 const MAX_RECENT_IMAGE_CACHE_MIB: u32 = 2048;
 const RECENT_IMAGE_CACHE_KEY: &str = "rustview.recent_image_cache_mib";
+const PHOTO_SOFT_FOCUS_KEY: &str = "rustview.photo_soft_focus";
 
 pub(super) struct State {
     pub open: bool,
@@ -216,7 +217,43 @@ impl Viewer {
                 "rustview.color_managed" => self.extra.color_managed = value,
                 "rustview.zoom_lock" => self.extra.zoom_lock = value,
                 "rustview.pan_lock" => self.extra.pan_lock = value,
+                PHOTO_SOFT_FOCUS_KEY => self.photo_soft_focus = value,
                 _ => {}
+            }
+        }
+    }
+
+    pub(super) fn set_photo_soft_focus(&mut self, value: bool) {
+        if self.photo_soft_focus == value {
+            return;
+        }
+        self.photo_soft_focus = value;
+        if !value {
+            self.quiet_backdrop.clear();
+        }
+        let Some(path) = config_path() else { return };
+        let result = (|| {
+            let mut report = if path.is_file() {
+                let mut report = legacy_settings::import_file(&path)?;
+                // This updates the existing configuration, so keep its import history intact.
+                report.sources.pop();
+                report
+            } else {
+                ImportReport::default()
+            };
+            report.settings.insert(PHOTO_SOFT_FOCUS_KEY.into(), value.into());
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            legacy_settings::export_file(&path, &report)
+        })();
+        match result {
+            Ok(()) => {
+                self.extra.settings_ui.active.settings.insert(PHOTO_SOFT_FOCUS_KEY.into(), value.into());
+            }
+            Err(error) => {
+                self.status = format!("看图背景未保存：{error}");
+                self.extra.settings_ui.error = Some(error);
             }
         }
     }
@@ -380,6 +417,7 @@ impl Viewer {
                 ("rustview.color_managed", self.extra.color_managed),
                 ("rustview.zoom_lock", self.extra.zoom_lock),
                 ("rustview.pan_lock", self.extra.pan_lock),
+                (PHOTO_SOFT_FOCUS_KEY, self.photo_soft_focus),
             ] {
                 report.settings.insert(key.into(), value.into());
             }

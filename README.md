@@ -8,11 +8,15 @@
 
 An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, Photoshop composites, and pictures inside compressed archives.
 
-[Download v0.6.5](https://github.com/walker1911/RustView/releases/tag/v0.6.5) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+[Download v0.6.7](https://github.com/walker1911/RustView/releases/tag/v0.6.7) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
 
-![RustView's native Windows viewer with its graphite theme and Picasa-style filmstrip](assets/readme/viewer.png)
+![RustView v0.6.7 with the photo and filmstrip visible and the menus tucked away](assets/readme/viewer.png)
 
-**v0.6.5** adds quick previews for eligible local RAW files when you hold an arrow key. In **文件 → 最近打开…** (File → Recent), select an archive to resume or use **从头打开** (Open from start) to begin at its first image. [v0.6.5 release notes](docs/RELEASE-v0.6.5.md) · [Archive resume and jump](docs/RELEASE-v0.6.0.md)
+**v0.6.7** opens a single photo in quiet view. Move the pointer to the top edge or drag the window by its title bar to reveal the menus, file path, and status. The photo and filmstrip stay in place as the controls fade in and out. Move the pointer over the photo to bring up a separate translucent toolbar with previous and next, zoom out and in, actual size, and clockwise rotation. [Menus revealed](assets/readme/viewer-controls.png) · [v0.6.7 release notes](docs/RELEASE-v0.6.7.md)
+
+Graphite is the default background. Under **视图 → 看图背景 → 照片柔焦** (View → Background → Photo Soft Focus), the space around the photo takes on a subdued blur drawn from the image. RustView remembers the choice across launches. [Photo Soft Focus screenshot](assets/readme/photo-soft-focus.png)
+
+![RustView's translucent floating toolbar just above the filmstrip](assets/readme/floating-toolbar.png)
 
 ## Start with the pictures
 
@@ -32,7 +36,7 @@ An archive-first photo viewer for **Windows x64**, written in Rust. Familiar key
 
 ![Archive browsing flow](assets/readme/archive-flow.svg)
 
-In single-image view, click **跳页…** to find an archive image. Enter part of a filename, the full path inside the archive, or a number starting at 1 in the current browsing order. When filenames repeat, use the path to select the intended entry. Resume positions are stored in the local catalog. Encrypted archives prompt for the password again when reopened.
+In single-image view, move the pointer to the top edge and click **跳页…** (Jump to image). Enter part of a filename, the full path inside the archive, or a number starting at 1 in the current browsing order. When filenames repeat, use the path to select the intended entry. In **文件 → 最近打开…** (File → Recent), select an archive to resume or use **从头打开** (Open from start) to begin at its first image. Encrypted archives prompt for the password again when reopened. [Archive resume and jump](docs/RELEASE-v0.6.0.md)
 
 During rapid navigation, RustView can reuse a matching read in progress. While the target preview loads, the previous image's clear overview stays visible with a label identifying both images. Opening an individual image starts the read before directory scanning. For a static image opened at launch, the supervised read can also overlap graphics initialization. [Browsing behavior](docs/PICASA-BROWSING.md)
 
@@ -61,7 +65,7 @@ v0.4.0 permits [local and ZIP/RAR/7z-contained PSD/PSB](docs/PSD.md) sources up 
 
 ## Download and use
 
-1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.5/RustView-0.6.5-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.6.5/RustView-0.6.5-win-x64-offline.zip.sha256)
+1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.7/RustView-0.6.7-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.6.7/RustView-0.6.7-win-x64-offline.zip.sha256)
 2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. The package includes the image engines and runtime libraries for offline use from first launch.
 3. Open or drag in a folder, picture, or archive. Keep the complete extracted folder.
 
@@ -101,7 +105,7 @@ pwsh -File .\tools\build.ps1 -Offline
 
 See [BUILDING.md](BUILDING.md) for checksums and validation steps.
 
-Release checks cover static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnails, and large encrypted-RAR cancellation. Archive resume and jump were tested with the viewer's interface logic and real Windows decoding workers in a headless harness. [v0.6.0 release notes](docs/RELEASE-v0.6.0.md) · [Validation results and scope](docs/VALIDATION.md)
+Release checks cover static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnails, and large encrypted-RAR cancellation. Windows desktop checks for v0.6.7 cover menu reveal and fade, window dragging, stable photo and filmstrip placement, and background persistence. [v0.6.7 release notes](docs/RELEASE-v0.6.7.md) · [Validation results and scope](docs/VALIDATION.md)
 
 Real-camera samples include Nikon Z6, Sony a7 III, Canon EOS R, iPhone 12 Pro ProRAW and HEIC. See the validation record for the scope of native-window, display, and print checks.
 

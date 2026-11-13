@@ -484,6 +484,7 @@ impl Viewer {
         let mut clicked = None;
         let enabled = !self.password_dialog && self.extra.dialog.is_none() && !self.properties
             && !self.extra.settings_ui.open && !self.extra.print_ui.open && !self.help
+            && !self.quiet_chrome.menu_open
             && !ctx.memory(|memory| memory.any_popup_open());
         egui::TopBottomPanel::bottom("viewer-coverflow")
             .exact_height(height)
