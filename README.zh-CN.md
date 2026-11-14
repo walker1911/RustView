@@ -8,13 +8,22 @@
 
 面向 **Windows x64** 的 Rust 看图项目。用熟悉的快捷键、Picasa 式胶片带和平滑缩放浏览相机 RAW、GIF/WebP 动画、Photoshop 合成图及 ZIP／RAR／7z 里的照片。看图时也能直接读二维码、复制图片里的文字。
 
-[下载 v0.7.3](https://github.com/walker1911/RustView/releases/tag/v0.7.3) · [English](README.en.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
+[下载 v0.7.4](https://github.com/walker1911/RustView/releases/tag/v0.7.4) · [English](README.en.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
 
-## v0.7.3 新功能
+## v0.7.4 新功能
 
-**优化双击图片启动。** Windows 上直接打开静态图片时，RustView 优先使用符合条件的硬件 OpenGL，必要时回退到 Vulkan 或默认渲染方式。同机用实际文件关联打开 OneDrive 桌面测试 JPEG，首图可见中位数从 **729 降到 517 毫秒**。
+**从最近打开的文件夹续看。** 在 **「文件 → 最近打开…」** 中点击文件夹，回到上次显示的图片。点击 **「从头打开」** 则从第一张开始。浏览中改名会更新续看位置。上次图片在关窗后改名或被删除时，从第一张开始。新图还未显示就关窗，会保留上次的位置。
 
-长按翻图到目标预览的中位数，万张 JPEG 目录从 **70 降到 20 毫秒**，相机 RAW 从 **65 降到 20 毫秒**。进程树内存采样峰值的中位数分别为 **586 → 409 MiB** 和 **568 → 388 MiB**。这两组测试启动到第一张清晰图的中位数延长约 71–80 毫秒。[v0.7.3 更新说明与实测数据](docs/RELEASE-v0.7.3.md)
+**首图解码完成后立即刷新。** 查看器收到解码结果后会主动请求重绘。无需缩放的概览图直接复用解码数据，避免重复写入临时文件。
+
+| 同一台 Windows 电脑的实测中位数 | v0.7.3 | v0.7.4 |
+|---|---:|---:|
+| OneDrive 桌面首图可见，JPEG／PNG | 536／556 ms | 521／503 ms |
+| 本地目录首图可见，JPEG／PNG | 508／541 ms | 508／529 ms |
+| 万张 JPEG 目录，首张清晰图 | 569 ms | 578 ms |
+| 混合相机 RAW，首张清晰图 | 554 ms | 536 ms |
+
+万张 JPEG 的两轮配对测试一快一慢，合计 20 对，**没有测到稳定提速**。长按翻图未采到空白帧。应用和解码进程的私有提交内存采样峰值与 v0.7.3 基本持平，新版 JPEG 约 429 MiB，RAW 约 509 MiB。[v0.7.4 更新说明、测试方法与详细数据](docs/RELEASE-v0.7.4.md)
 
 ## 本地目录浏览
 
@@ -50,7 +59,7 @@
 |---|---|
 | **直接看包内图片** | 按需读取 ZIP／RAR／7z 里的图片，需要时输入密码。可续看到上次显示的位置，也可按文件名、路径或序号跳页。 |
 | **本地文件夹跳图** | 按文件名或当前浏览序号查找图片。 |
-| **最近打开** | 从文件菜单重新打开最近的图片、文件夹或压缩包，最多显示 20 项。历史保存在本地目录库。 |
+| **最近打开** | 从文件菜单重新打开最近的图片、文件夹或压缩包，最多显示 20 项。文件夹和压缩包可续看或从第一张打开，历史保存在本地目录库。 |
 | **自动刷新本地目录** | 更新当前目录的文件列表与缩略图，当前图被其他软件保存后原位重读。 |
 | **连续翻图** | 左右键切换，上下键缩放。点按读取完整图，按住左右键可快速预览未缓存的本地 JPEG 和符合条件的 RAW。平直胶片带平滑跟随，当前图居中并显示文件名和 `1/84` 序号。 |
 | **看 Photoshop 文档** | 直接读取本地及 ZIP／RAR／7z 内 PSD/PSB 保存的合成图，支持超过 512 MiB 的大源文件。合成图不可用时可显示带标记的内嵌预览。 |
@@ -103,7 +112,7 @@ v0.4.0 对[本地及ZIP／RAR／7z内的PSD/PSB](docs/PSD.md)提供源文件例�
 
 ## 下载与运行
 
-1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.3/RustView-0.7.3-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.7.3/RustView-0.7.3-win-x64-offline.zip.sha256)
+1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.4/RustView-0.7.4-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.7.4/RustView-0.7.4-win-x64-offline.zip.sha256)
 2. 完整解压，双击 `RustView.exe` 或 `Start-RustView.cmd`。图像引擎、运行库、Tesseract 和简体中文及英文模型均随包提供，首次启动即可离线看图和识别文字。
 3. 打开或拖入文件夹、图片、ZIP／RAR／7z。请保留完整目录。
 
@@ -146,7 +155,7 @@ pwsh -File .\tools\build.ps1 -Offline
 
 ## 验证到哪一步
 
-发行检查覆盖静态图与压缩包、GIF/WebP 动画、PSD/PSB 合成图、缩略图和大型加密 RAR 的取消清理。v0.7.3 在 Windows 桌面对照了实际文件关联启动、JPEG／PNG 直接打开、万张 JPEG 与 RAW 长按翻图，并复测了透明棋盘格和大 BigTIFF 缩放。[v0.7.3 更新说明与实测数据](docs/RELEASE-v0.7.3.md) · [历次验证记录](docs/VALIDATION.md)
+发行检查覆盖静态图与压缩包、GIF/WebP 动画、PSD/PSB 合成图、缩略图和大型加密 RAR 的取消清理。v0.7.4 在 Windows 桌面验证了文件夹续看、从头打开、改名、删除和出图前关窗。与 v0.7.3 对照测试了 OneDrive 桌面及本地目录的 JPEG／PNG、万张 JPEG 和混合相机 RAW。[v0.7.4 更新说明与实测数据](docs/RELEASE-v0.7.4.md) · [历次验证记录](docs/VALIDATION.md)
 
 真实相机样本包括 Nikon Z6、Sony a7 III、Canon EOS R、iPhone 12 Pro ProRAW 和 HEIC。原生窗口、显示和打印测试的范围见验证记录。反馈时请提供版本、格式或相机型号、预期行为和最小复现样本。[报告问题](https://github.com/walker1911/RustView/issues)
 

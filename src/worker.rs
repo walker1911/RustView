@@ -130,6 +130,8 @@ pub struct Reply {
     pub height: u32,
     pub preview_width: u32,
     pub preview_height: u32,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub(crate) preview_is_full_image: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pyramid: Option<PyramidInfo>,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -1263,8 +1265,20 @@ fn write_image(
     if rgba.len() > MAX_IMAGE_BYTES {
         return Err("编辑结果超过512 MiB预算".into());
     }
-    fs::write(output.join("pixels.rgba"), &rgba).map_err(|e| e.to_string())?;
     let image = image::RgbaImage::from_raw(width, height, rgba).ok_or("图片尺寸错误")?;
+    fs::write(output.join("pixels.rgba"), image.as_raw()).map_err(|e| e.to_string())?;
+    if width <= 2048 && height <= 2048 {
+        // An unscaled overview is identical to the full RGBA buffer.
+        return Ok(Reply {
+            width,
+            height,
+            preview_width: width,
+            preview_height: height,
+            preview_is_full_image: true,
+            note,
+            ..Default::default()
+        });
+    }
     let preview = image::DynamicImage::ImageRgba8(image)
         .thumbnail(width.min(2048), height.min(2048))
         .into_rgba8();
@@ -1491,7 +1505,19 @@ fn execute_in_directory(
         }
         match child.try_wait() {
             Ok(Some(exit)) => break exit,
-            Ok(None) => std::thread::sleep(Duration::from_millis(15)),
+            Ok(None) => {
+                #[cfg(windows)]
+                {
+                    use std::os::windows::io::AsRawHandle;
+                    use windows_sys::Win32::{Foundation::WAIT_FAILED, System::Threading::WaitForSingleObject};
+                    // Wake immediately on exit, while keeping the existing cancellation/preview poll interval.
+                    if unsafe { WaitForSingleObject(child.as_raw_handle(), 15) } == WAIT_FAILED {
+                        std::thread::sleep(Duration::from_millis(15));
+                    }
+                }
+                #[cfg(not(windows))]
+                std::thread::sleep(Duration::from_millis(15));
+            }
             Err(e) => {
                 #[cfg(windows)]
                 _job.terminate();
@@ -1532,13 +1558,22 @@ fn execute_in_directory(
         if thumbnail { thumbnail_bytes } else { MAX_IMAGE_BYTES },
         &cancel,
     )?;
-    let preview = read_pixels(
-        directory.join("preview.rgba"),
-        reply.preview_width,
-        reply.preview_height,
-        if thumbnail { thumbnail_bytes } else { 2048 * 2048 * 4 },
-        &cancel,
-    )?;
+    let preview = if reply.preview_is_full_image {
+        if (reply.width, reply.height) != (reply.preview_width, reply.preview_height)
+            || reply.width > 2048 || reply.height > 2048
+        {
+            return Err("概览图尺寸错误".into());
+        }
+        rgba.clone()
+    } else {
+        read_pixels(
+            directory.join("preview.rgba"),
+            reply.preview_width,
+            reply.preview_height,
+            if thumbnail { thumbnail_bytes } else { 2048 * 2048 * 4 },
+            &cancel,
+        )?
+    };
     Ok(Output {
         reply,
         rgba,
@@ -1916,8 +1951,10 @@ mod tests {
         );
         assert!(reply.error.is_none(), "{:?}", reply.error);
         assert_eq!((reply.preview_width, reply.preview_height), (3, 2));
+        assert!(reply.preview_is_full_image);
+        assert!(!folder.path().join("preview.rgba").exists());
         assert_eq!(
-            fs::metadata(folder.path().join("preview.rgba"))
+            fs::metadata(folder.path().join("pixels.rgba"))
                 .unwrap()
                 .len(),
             24

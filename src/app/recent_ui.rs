@@ -1,6 +1,14 @@
 use super::Viewer;
-use crate::catalog::{Recent, RecentKind};
-use std::path::{Path, PathBuf};
+use crate::catalog::{Catalog, Recent, RecentKind};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+    sync::mpsc::{self, Receiver, TryRecvError},
+    time::{Duration, Instant, SystemTime},
+};
+
+const FOLDER_SAVE_DELAY: Duration = Duration::from_millis(350);
+const MAX_PENDING_FOLDERS: usize = 20;
 
 #[derive(Default)]
 pub(super) struct State {
@@ -9,6 +17,10 @@ pub(super) struct State {
     error: Option<String>,
     opening: Option<Opening>,
     opened: Option<Opening>,
+    folder: Option<FolderPosition>,
+    folder_writes: BTreeMap<PathBuf, FolderWrite>,
+    folder_writer: Option<Receiver<Result<(), String>>>,
+    loading_rows: bool,
 }
 
 struct Opening {
@@ -16,6 +28,25 @@ struct Opening {
     kind: RecentKind,
     image_index: Option<usize>,
     listed: bool,
+}
+
+struct FolderPosition {
+    path: PathBuf,
+    last_drawn: Option<String>,
+    recorded_open: bool,
+}
+
+struct FolderWrite {
+    filename: String,
+    viewed_at: SystemTime,
+    due: Instant,
+    record_open: bool,
+}
+
+impl State {
+    pub(super) fn is_local_folder(&self) -> bool {
+        self.folder.is_some()
+    }
 }
 
 impl Viewer {
@@ -55,6 +86,9 @@ impl Viewer {
         }
         opening.listed = true;
         if opening.kind == RecentKind::Folder {
+            if let Some(folder) = &mut self.recent_ui.folder {
+                folder.recorded_open = true;
+            }
             self.recent_opened(ctx);
         }
     }
@@ -99,13 +133,177 @@ impl Viewer {
         }
     }
 
+    pub(super) fn change_recent_folder(&mut self, path: Option<&Path>) {
+        if self
+            .recent_ui
+            .folder
+            .as_ref()
+            .map(|folder| folder.path.as_path())
+            == path
+        {
+            return;
+        }
+        self.save_recent_folder(true);
+        self.recent_ui.folder = path.map(|path| FolderPosition {
+            path: path.to_owned(),
+            last_drawn: None,
+            recorded_open: false,
+        });
+    }
+
+    pub(super) fn folder_image_drawn(&mut self, index: usize, ctx: &egui::Context) {
+        if self.browser
+            || self.selected != Some(index)
+            || self.current_key.map(|key| key.0) != Some(index)
+        {
+            return;
+        }
+        let Some(folder) = &mut self.recent_ui.folder else {
+            return;
+        };
+        let Some(entry) = self
+            .entries
+            .get(index)
+            .filter(|entry| !entry.directory && !entry.archive)
+        else {
+            return;
+        };
+        if self.source.as_ref() != Some(&folder.path)
+            || folder.last_drawn.as_ref() == Some(&entry.name)
+        {
+            return;
+        }
+        let now = Instant::now();
+        folder.last_drawn = Some(entry.name.clone());
+        let pending = self
+            .recent_ui
+            .folder_writes
+            .entry(folder.path.clone())
+            .or_insert_with(|| FolderWrite {
+                filename: String::new(),
+                viewed_at: SystemTime::now(),
+                due: now + FOLDER_SAVE_DELAY,
+                record_open: false,
+            });
+        entry.name.clone_into(&mut pending.filename);
+        pending.viewed_at = SystemTime::now();
+        pending.due = now + FOLDER_SAVE_DELAY;
+        pending.record_open |= !folder.recorded_open;
+        folder.recorded_open = true;
+        if self.recent_ui.folder_writes.len() > MAX_PENDING_FOLDERS {
+            if let Some(oldest) = self
+                .recent_ui
+                .folder_writes
+                .iter()
+                .min_by_key(|(_, job)| job.viewed_at)
+                .map(|(path, _)| path.clone())
+            {
+                self.recent_ui.folder_writes.remove(&oldest);
+            }
+        }
+        ctx.request_repaint_after(FOLDER_SAVE_DELAY);
+    }
+
+    pub(super) fn save_recent_folder(&mut self, force: bool) {
+        if force {
+            let now = Instant::now();
+            for pending in self.recent_ui.folder_writes.values_mut() {
+                pending.due = now;
+            }
+        }
+    }
+
+    pub(super) fn recent_folder_drained(&self) -> bool {
+        self.recent_ui.folder_writes.is_empty() && self.recent_ui.folder_writer.is_none()
+    }
+
+    pub(super) fn poll_recent_folder(&mut self, ctx: &egui::Context) {
+        if let Some(receiver) = &self.recent_ui.folder_writer {
+            let result = match receiver.try_recv() {
+                Ok(result) => result,
+                Err(TryRecvError::Empty) => return,
+                Err(TryRecvError::Disconnected) => Err("后台任务已结束".into()),
+            };
+            self.recent_ui.folder_writer = None;
+            if let Err(error) = result {
+                self.status = format!("无法保存文件夹续看位置：{error}");
+            }
+        }
+        let now = Instant::now();
+        let Some(due) = self
+            .recent_ui
+            .folder_writes
+            .values()
+            .map(|pending| pending.due)
+            .min()
+        else {
+            return;
+        };
+        if due > now {
+            ctx.request_repaint_after(due - now);
+            return;
+        }
+        if !self.closing && self.startup_image.is_some() && self.extra.catalog.is_none() {
+            return;
+        }
+        let Some(database) = self
+            .extra
+            .catalog
+            .as_ref()
+            .and_then(Catalog::path)
+            .map(Path::to_owned)
+        else {
+            self.recent_ui.folder_writes.clear();
+            return;
+        };
+        let pending = &mut self.recent_ui.folder_writes;
+        let ready: Vec<_> = pending
+            .iter()
+            .filter(|(_, job)| job.due <= now)
+            .map(|(path, _)| path.clone())
+            .collect();
+        let mut batch: Vec<_> = ready
+            .into_iter()
+            .filter_map(|path| pending.remove_entry(&path))
+            .collect();
+        batch.sort_by_key(|(_, job)| job.viewed_at);
+        let (sender, receiver) = mpsc::sync_channel(1);
+        self.recent_ui.folder_writer = Some(receiver);
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let result = Catalog::open(&database).and_then(|mut catalog| {
+                let mut result = Ok(());
+                for (path, job) in batch {
+                    let saved = catalog.remember_folder_resume(&path, &job.filename, job.viewed_at);
+                    let recent = if job.record_open {
+                        catalog.remember_recent_source(&path, RecentKind::Folder)
+                    } else {
+                        Ok(())
+                    };
+                    result = result.and(saved).and(recent);
+                }
+                result
+            });
+            let _ = sender.send(result);
+            ctx.request_repaint();
+        });
+    }
+
     pub(super) fn open_recent_ui(&mut self) {
         self.initialize_catalog();
         self.flush_recent_open(false);
         self.save_archive_resume(true);
+        self.save_recent_folder(true);
         self.recent_ui.open = true;
         self.recent_ui.rows.clear();
         self.recent_ui.error = None;
+        self.recent_ui.loading_rows = !self.recent_folder_drained();
+        if !self.recent_ui.loading_rows {
+            self.read_recent_rows();
+        }
+    }
+
+    fn read_recent_rows(&mut self) {
         match self
             .extra
             .catalog
@@ -127,6 +325,10 @@ impl Viewer {
         if !self.recent_ui.open {
             return;
         }
+        if self.recent_ui.loading_rows && self.recent_folder_drained() {
+            self.recent_ui.loading_rows = false;
+            self.read_recent_rows();
+        }
         let mut close = false;
         let modal = egui::Modal::new(egui::Id::new("recent-open")).show(ctx, |ui| {
             ui.set_width((ctx.screen_rect().width() - 48.0).clamp(180.0, 520.0));
@@ -135,13 +337,15 @@ impl Viewer {
             if let Some(error) = &self.recent_ui.error {
                 ui.label(error);
             }
-            if self.recent_ui.rows.is_empty() && self.recent_ui.error.is_none() {
+            if self.recent_ui.loading_rows {
+                ui.label("正在读取最近打开记录…");
+            } else if self.recent_ui.rows.is_empty() && self.recent_ui.error.is_none() {
                 ui.label("还没有最近打开的图片、文件夹或压缩包。");
             }
             egui::ScrollArea::vertical()
                 .max_height(360.0)
                 .show(ui, |ui| {
-                    for recent in &self.recent_ui.rows {
+                    for (index, recent) in self.recent_ui.rows.iter().enumerate() {
                         let path = display_path(&recent.path);
                         let name = recent
                             .path
@@ -159,16 +363,16 @@ impl Viewer {
                             .on_hover_text(&path)
                             .clicked()
                         {
-                            target = Some((recent.path.clone(), recent.kind, false));
+                            target = Some((index, false));
                         }
-                        if recent.kind == RecentKind::Archive {
+                        if recent.kind != RecentKind::Image {
                             ui.horizontal(|ui| {
                                 if ui
                                     .add(egui::Button::new("从头打开").small())
                                     .on_hover_text(format!("从第一张图片打开 {name}"))
                                     .clicked()
                                 {
-                                    target = Some((recent.path.clone(), recent.kind, true));
+                                    target = Some((index, true));
                                 }
                                 if let Some(entry) = &recent.entry {
                                     ui.add(
@@ -190,17 +394,38 @@ impl Viewer {
         if close || modal.should_close() {
             self.recent_ui.open = false;
         }
-        if let Some((path, kind, from_start)) = modal.inner {
-            let available = match kind {
-                RecentKind::Folder => path.is_dir(),
-                RecentKind::Image | RecentKind::Archive => path.is_file(),
-            };
-            if available {
-                self.recent_ui.open = false;
-                self.open_path_with_start(path, from_start);
+        if let Some((index, from_start)) = modal.inner {
+            self.activate_recent_row(index, from_start);
+        }
+    }
+
+    fn activate_recent_row(&mut self, index: usize, from_start: bool) {
+        let recent = &self.recent_ui.rows[index];
+        let available = match recent.kind {
+            RecentKind::Folder => recent.path.is_dir(),
+            RecentKind::Image | RecentKind::Archive => recent.path.is_file(),
+        };
+        if !available {
+            self.recent_ui.error = Some(format!("找不到 {}", display_path(&recent.path)));
+            return;
+        }
+        let path = recent.path.clone();
+        self.recent_ui.open = false;
+        if recent.kind == RecentKind::Folder {
+            if from_start {
+                self.open_recent_folder_start(path);
+            } else if let Some(filename) = &recent.entry {
+                let image = path.join(filename);
+                if image.is_file() && crate::imaging::is_supported_image(filename) {
+                    self.open_path(image);
+                } else {
+                    self.open_recent_folder_start(path);
+                }
             } else {
-                self.recent_ui.error = Some(format!("找不到 {}", display_path(&path)));
+                self.open_path(path);
             }
+        } else {
+            self.open_path_with_start(path, from_start);
         }
     }
 }
@@ -217,7 +442,6 @@ fn display_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::Catalog;
 
     #[test]
     fn records_the_displayed_open_once_and_discards_a_cancelled_open() {
@@ -271,5 +495,77 @@ mod tests {
         viewer.recent_source_listed(&ctx);
         viewer.recent_image_drawn(0, &ctx);
         assert!(viewer.recent_ui.opened.is_some());
+    }
+
+    #[test]
+    fn recent_folder_opens_saved_image_directly_or_lists_when_starting_over() {
+        use super::super::Operation;
+
+        let folder = tempfile::tempdir().unwrap();
+        let file = folder.path().join("照片.png");
+        std::fs::write(&file, b"test image identity").unwrap();
+        for (saved, from_start, expect_direct) in [
+            ("照片.png", false, true),
+            ("照片.png", true, false),
+            ("已删除.png", false, false),
+        ] {
+            let mut viewer = Viewer::empty();
+            viewer.recent_ui.rows.push(Recent {
+                path: folder.path().to_owned(),
+                kind: RecentKind::Folder,
+                entry: Some(saved.to_owned()),
+            });
+            viewer.activate_recent_row(0, from_start);
+            let task = viewer.pending.as_ref().unwrap();
+            if expect_direct {
+                assert!(matches!(task.operation, Operation::Load { index: 0, .. }));
+                assert_eq!(viewer.entries[0].name, saved);
+            } else {
+                assert!(matches!(
+                    task.operation,
+                    Operation::List {
+                        from_start: true,
+                        management: false,
+                        ..
+                    }
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn folder_position_coalesces_confirmed_images_and_ignores_old_frames() {
+        use super::super::worker::Entry;
+
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path();
+        let entries = ["first.jpg", "current.jpg", "pending.jpg"].map(|name| Entry {
+            name: name.into(),
+            size: 0,
+            directory: false,
+            archive: false,
+            modified: None,
+        });
+        let ctx = egui::Context::default();
+        let mut viewer = Viewer::empty();
+        viewer.install_source(path.to_owned(), None, entries.to_vec());
+        viewer.browser = false;
+        viewer.current_key = Some((0, false));
+        viewer.selected = Some(1);
+        viewer.folder_image_drawn(0, &ctx);
+        assert!(viewer.recent_folder_drained());
+
+        viewer.selected = Some(0);
+        viewer.folder_image_drawn(0, &ctx);
+        viewer.selected = Some(1);
+        viewer.current_key = Some((1, false));
+        viewer.folder_image_drawn(1, &ctx);
+        viewer.selected = Some(2);
+        viewer.folder_image_drawn(2, &ctx);
+
+        assert_eq!(viewer.recent_ui.folder_writes.len(), 1);
+        let job = &viewer.recent_ui.folder_writes[path];
+        assert_eq!(job.filename, "current.jpg");
+        assert!(job.record_open);
     }
 }

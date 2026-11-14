@@ -10,6 +10,8 @@ enum Phase {
 pub(super) struct ImageStartup {
     serial: u64,
     phase: Phase,
+    traced_first_update: bool,
+    pub(super) repaint_context: Arc<std::sync::OnceLock<egui::Context>>,
 }
 
 impl ImageStartup {
@@ -17,6 +19,8 @@ impl ImageStartup {
         Self {
             serial,
             phase: Phase::Loading,
+            traced_first_update: false,
+            repaint_context: Arc::default(),
         }
     }
 }
@@ -73,9 +77,13 @@ impl Viewer {
     }
 
     pub(super) fn draw_direct_startup(&mut self, ctx: &egui::Context) -> bool {
-        let Some(startup) = &self.startup_image else {
+        let Some(startup) = &mut self.startup_image else {
             return false;
         };
+        if !startup.traced_first_update {
+            startup.traced_first_update = true;
+            crate::trace_startup("first_update");
+        }
         if startup.serial != self.serial
             || self.error.is_some()
             || self.browser
@@ -103,6 +111,7 @@ impl Viewer {
         if matches!(startup.phase, Phase::Loading)
             && (self.current.is_some() || self.extra.presentation.has_frame())
         {
+            crate::trace_startup("first_photo_drawn");
             startup.phase = Phase::PhotoDrawn;
             ctx.request_repaint();
         }

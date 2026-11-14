@@ -8,7 +8,7 @@ use std::{
 const MAX_QUERY: usize = 500;
 const MAX_KEY_BYTES: usize = 32 * 1024;
 const MAX_CATEGORY_BYTES: usize = 4096;
-const MAX_ARCHIVE_RESUME: i64 = 512;
+const MAX_RESUME_POSITIONS: i64 = 512;
 const MAX_RECENT_SOURCES: i64 = 20;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,6 +102,16 @@ fn timestamp_micros(time: SystemTime) -> Result<i64, String> {
         .map_err(|error| error.to_string())?
         .as_micros();
     i64::try_from(micros).map_err(|error| error.to_string())
+}
+
+fn child_filename(filename: &str) -> Result<(), String> {
+    if filename.trim_end_matches(['.', ' ']).is_empty()
+        || filename.len() > MAX_KEY_BYTES
+        || filename.contains(['/', '\\', ':', '\0'])
+    {
+        return Err("文件夹续看位置必须是文件名".into());
+    }
+    Ok(())
 }
 
 fn read_record(connection: &Connection, key: &str) -> Result<Record, String> {
@@ -212,6 +222,11 @@ impl Catalog {
                entry_name TEXT NOT NULL,
                viewed_at INTEGER NOT NULL
              );
+             CREATE TABLE IF NOT EXISTS folder_resume (
+               folder_key TEXT PRIMARY KEY NOT NULL,
+               file_name TEXT NOT NULL,
+               viewed_at INTEGER NOT NULL
+             );
              CREATE TABLE IF NOT EXISTS recent_sources (
                source_key TEXT PRIMARY KEY NOT NULL,
                kind TEXT NOT NULL CHECK(kind IN ('image','folder','archive')),
@@ -309,7 +324,55 @@ impl Catalog {
                 "DELETE FROM archive_resume WHERE rowid IN (
                    SELECT rowid FROM archive_resume ORDER BY viewed_at DESC, rowid DESC LIMIT -1 OFFSET ?1
                  )",
-                [MAX_ARCHIVE_RESUME],
+                [MAX_RESUME_POSITIONS],
+            )
+            .map_err(|error| error.to_string())?;
+        transaction.commit().map_err(|error| error.to_string())
+    }
+
+    #[cfg(test)]
+    fn folder_resume(&self, folder: &Path) -> Result<Option<String>, String> {
+        let filename: Option<String> = self
+            .connection
+            .query_row(
+                "SELECT file_name FROM folder_resume WHERE folder_key=?1",
+                [source_path_key(folder)?],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        Ok(filename.filter(|name| child_filename(name).is_ok()))
+    }
+
+    pub fn remember_folder_resume(
+        &mut self,
+        folder: &Path,
+        filename: &str,
+        viewed_at: SystemTime,
+    ) -> Result<(), String> {
+        child_filename(filename)?;
+        let key = source_path_key(folder)?;
+        let viewed_at = timestamp_micros(viewed_at)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        transaction
+            .execute(
+                "INSERT INTO folder_resume(folder_key,file_name,viewed_at)
+                 VALUES(?1,?2,?3)
+                 ON CONFLICT(folder_key) DO UPDATE SET
+                   file_name=excluded.file_name,viewed_at=excluded.viewed_at
+                 WHERE excluded.viewed_at>=folder_resume.viewed_at",
+                params![key, filename, viewed_at],
+            )
+            .map_err(|error| error.to_string())?;
+        transaction
+            .execute(
+                "DELETE FROM folder_resume WHERE rowid IN (
+                   SELECT rowid FROM folder_resume ORDER BY viewed_at DESC, rowid DESC LIMIT -1 OFFSET ?1
+                 )",
+                [MAX_RESUME_POSITIONS],
             )
             .map_err(|error| error.to_string())?;
         transaction.commit().map_err(|error| error.to_string())
@@ -320,10 +383,13 @@ impl Catalog {
         let mut query = self
             .connection
             .prepare(
-                "SELECT recent.source_key,recent.kind,resume.entry_name,recent.opened_at
+                "SELECT recent.source_key,recent.kind,COALESCE(resume.entry_name,folder.file_name),
+                        recent.opened_at
                  FROM recent_sources recent
                  LEFT JOIN archive_resume resume
                    ON recent.kind='archive' AND resume.archive_key=recent.source_key
+                 LEFT JOIN folder_resume folder
+                   ON recent.kind='folder' AND folder.folder_key=recent.source_key
                  UNION ALL
                  SELECT resume.archive_key,'archive',resume.entry_name,resume.viewed_at
                  FROM archive_resume resume
@@ -341,10 +407,12 @@ impl Catalog {
                     "archive" => RecentKind::Archive,
                     _ => return Err(rusqlite::Error::InvalidQuery),
                 };
+                let entry: Option<String> = row.get(2)?;
                 Ok(Recent {
                     path: PathBuf::from(row.get::<_, String>(0)?),
                     kind,
-                    entry: row.get(2)?,
+                    entry: entry
+                        .filter(|name| kind != RecentKind::Folder || child_filename(name).is_ok()),
                 })
             })
             .map_err(|error| error.to_string())?;
@@ -1013,6 +1081,67 @@ mod tests {
     }
 
     #[test]
+    fn folder_resume_updates_displayed_image_without_reordering_recents() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("catalog.sqlite");
+        let folder = directory.path().join("旅行");
+        let image = directory.path().join("single.jpg");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(&image, []).unwrap();
+        let older = UNIX_EPOCH + Duration::from_secs(1);
+        let newer = UNIX_EPOCH + Duration::from_secs(2);
+        {
+            let mut catalog = Catalog::open(&database).unwrap();
+            catalog
+                .remember_recent_source(&folder, RecentKind::Folder)
+                .unwrap();
+            catalog
+                .remember_recent_source(&image, RecentKind::Image)
+                .unwrap();
+            catalog
+                .remember_folder_resume(&folder, "照片.png", newer)
+                .unwrap();
+            let mut second = Catalog::open(&database).unwrap();
+            second
+                .remember_folder_resume(&folder, "旧照片.png", older)
+                .unwrap();
+            for invalid in [
+                "",
+                ".",
+                "..",
+                "../照片.png",
+                "..\\照片.png",
+                "C:照片.png",
+                "图\0片.png",
+            ] {
+                assert!(second
+                    .remember_folder_resume(&folder, invalid, newer)
+                    .is_err());
+            }
+        }
+        let catalog = Catalog::open(&database).unwrap();
+        assert_eq!(
+            catalog.folder_resume(&folder.join(".")).unwrap().as_deref(),
+            Some("照片.png")
+        );
+        assert_eq!(
+            catalog.recent_sources().unwrap(),
+            [
+                Recent {
+                    path: image.canonicalize().unwrap(),
+                    kind: RecentKind::Image,
+                    entry: None,
+                },
+                Recent {
+                    path: folder.canonicalize().unwrap(),
+                    kind: RecentKind::Folder,
+                    entry: Some("照片.png".into()),
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn recent_sources_keeps_only_the_newest_paths() {
         let directory = tempfile::tempdir().unwrap();
         let database = directory.path().join("catalog.sqlite");
@@ -1082,6 +1211,7 @@ mod tests {
             assert_eq!(catalog.get("old").unwrap().rating, 4);
             assert!(catalog.default_preset().unwrap().is_none());
             assert!(catalog.recent_sources().unwrap().is_empty());
+            assert!(catalog.folder_resume(directory.path()).unwrap().is_none());
             let preset = Record {
                 rating: 5,
                 label: 3,

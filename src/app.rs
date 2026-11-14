@@ -356,7 +356,9 @@ impl Viewer {
     }
 
     pub fn attach_window(mut self, cc: &eframe::CreationContext<'_>) -> Self {
-        if self.startup_image.is_none() {
+        if let Some(startup) = &self.startup_image {
+            let _ = startup.repaint_context.set(cc.egui_ctx.clone());
+        } else {
             startup::configure_fonts(&cc.egui_ctx);
             self.initialize_catalog();
         }
@@ -436,6 +438,7 @@ impl Viewer {
         self.extra.edited = false;
         self.flush_recent_open(true);
         self.save_archive_resume(true);
+        self.save_recent_folder(true);
         self.closing = true;
         self.recognition.reset();
         if let Some(view) = &self.pyramid { view.close(); }
@@ -478,6 +481,7 @@ impl Viewer {
         let recognition_finished = self.recognition.drained();
         if self.running.is_none() && self.pending.is_none() && self.extra.retiring.is_none()
             && covers_finished && recognition_finished && self.directory_scan.drained()
+            && self.recent_folder_drained()
             && self.pyramid.as_ref().is_none_or(pyramid_view::View::drained)
             && self.extra.writing.is_none() && self.extra.pending_write.is_none() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -493,6 +497,14 @@ impl Viewer {
     }
 
     fn open_path_with_start(&mut self, path: PathBuf, from_start: bool) {
+        self.open_source_path(path, from_start, true);
+    }
+
+    fn open_recent_folder_start(&mut self, path: PathBuf) {
+        self.open_source_path(path, true, false);
+    }
+
+    fn open_source_path(&mut self, path: PathBuf, from_start: bool, manage_folder: bool) {
         if self.extra.edited
             && !rfd::MessageDialog::new()
                 .set_title("尚未保存编辑")
@@ -549,8 +561,8 @@ impl Viewer {
                 path,
                 select: None,
                 password: None,
-                management: directory,
-                from_start: archive && from_start,
+                management: directory && manage_folder,
+                from_start,
             },
         );
     }
@@ -865,6 +877,7 @@ impl Viewer {
     fn poll(&mut self, ctx: &egui::Context) {
         self.flush_recent_open(false);
         self.poll_archive_resume(ctx);
+        self.poll_recent_folder(ctx);
         self.poll_directory_scan(ctx);
         self.poll_animation(ctx);
         self.poll_writes(ctx);
@@ -952,6 +965,7 @@ impl Viewer {
                                     self.cancel_recent_open();
                                     self.reset_coverflow();
                                     self.change_archive_source(None);
+                                    self.change_recent_folder(None);
                                     self.source = Some(path);
                                     self.directory_order = directory::Order::default();
                                     self.entries = vec![Entry {
@@ -1021,6 +1035,9 @@ impl Viewer {
                                             self.browser = true;
                                         }
                                     } else {
+                                        if from_start && self.recent_ui.is_local_folder() {
+                                            self.browser = true;
+                                        }
                                         self.status = format!(
                                             "共 {} 个条目，没有可显示的图片",
                                             self.entries.len()
@@ -1156,9 +1173,15 @@ impl Viewer {
         let thread_cancel = cancel.clone();
         let id = task.id;
         let reload = matches!(task.operation, Operation::Reload { .. });
+        let startup_context = if context.is_none() {
+            self.startup_image.as_ref().map(|startup| startup.repaint_context.clone())
+        } else {
+            None
+        };
         std::thread::spawn(move || {
+            if startup_context.is_some() { crate::trace_startup("image_worker_begin"); }
             let repaint = || {
-                if let Some(ctx) = &context {
+                if let Some(ctx) = context.as_ref().or_else(|| startup_context.as_ref()?.get()) {
                     ctx.request_repaint();
                 }
             };
@@ -1172,6 +1195,7 @@ impl Viewer {
                 worker::execute(task.request, thread_cancel)
             };
             let _ = sender.send(Event { id, request, operation: task.operation, result });
+            if startup_context.is_some() { crate::trace_startup("image_worker_ready"); }
             repaint();
         });
         self.running = Some(Running {
@@ -2029,6 +2053,7 @@ impl Viewer {
                 self.remember_coverflow_preview(index, preview.with_embedded_psd(self.embedded_psd_preview), texture);
                 self.archive_image_drawn(index, ctx);
             }
+            self.folder_image_drawn(index, ctx);
             self.recent_image_drawn(index, ctx);
         }
         self.recognition_image(&response, &painter, &image, viewport, center, dimensions);

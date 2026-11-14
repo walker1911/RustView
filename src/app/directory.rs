@@ -129,10 +129,11 @@ impl Viewer {
         password: Option<String>,
         entries: Vec<Entry>,
     ) {
-        self.change_archive_source(Some(&path));
+        let archive = self.change_archive_source(Some(&path));
         self.directory_scan.cancel();
         // A directory itself can be named `photos.zip`.
-        if !worker::is_archive(&path) || path.is_dir() {
+        self.change_recent_folder((!archive).then_some(path.as_path()));
+        if !archive {
             self.directory_scan.watch_path = Some(path.clone());
         }
         if self.extra.history.get(self.extra.history_pos) != Some(&path) {

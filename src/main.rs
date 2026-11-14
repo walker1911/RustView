@@ -26,7 +26,25 @@ mod recipes;
 mod shortcuts;
 mod worker;
 
+static STARTUP_TRACE: std::sync::OnceLock<(std::time::Instant, std::path::PathBuf)> =
+    std::sync::OnceLock::new();
+
+fn trace_startup(stage: &str) {
+    use std::io::Write;
+    if let Some((started, path)) = STARTUP_TRACE.get() {
+        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            let wall = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_micros();
+            let line = format!("{{\"stage\":\"{stage}\",\"elapsed_us\":{},\"unix_us\":{wall}}}\n", started.elapsed().as_micros());
+            let _ = file.write_all(line.as_bytes());
+        }
+    }
+}
+
 fn main() -> eframe::Result {
+    let started = std::time::Instant::now();
     if std::env::args().nth(1).as_deref() == Some("--navigation-probe") {
         app::navigation_probe_main();
         return Ok(());
@@ -55,8 +73,13 @@ fn main() -> eframe::Result {
         worker::probe_main();
         return Ok(());
     }
+    if let Some(path) = std::env::var_os("RUSTVIEW_STARTUP_TRACE") {
+        let _ = STARTUP_TRACE.set((started, path.into()));
+    }
+    trace_startup("main");
     let initial = std::env::args_os().nth(1).map(std::path::PathBuf::from);
     let viewer = app::Viewer::start(initial);
+    trace_startup("viewer_initialized");
     #[cfg(windows)]
     let direct_image = viewer.is_direct_image_startup();
     let mut viewer = Some(viewer);
@@ -72,6 +95,7 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     options.wgpu_options.desired_maximum_frame_latency = Some(1);
+    trace_startup("window_setup");
     #[cfg(windows)]
     if direct_image && eframe::wgpu::Backends::from_env().is_none() {
         use eframe::wgpu::{Backends, DeviceType};
@@ -88,7 +112,8 @@ fn main() -> eframe::Result {
                 // Use the adapter already enumerated by egui-wgpu. Software GL can
                 // open a window but makes later zooming and tile uploads expensive.
                 setup.native_adapter_selector = Some(std::sync::Arc::new(|adapters, surface| {
-                    adapters
+                    trace_startup("gl_enumerated");
+                    let selected = adapters
                         .iter()
                         .find(|adapter| {
                             let info = adapter.get_info();
@@ -98,9 +123,12 @@ fn main() -> eframe::Result {
                                 && opengl_supports_vsync(adapter)
                         })
                         .cloned()
-                        .ok_or_else(|| "No compatible hardware OpenGL adapter".into())
+                        .ok_or_else(|| "No compatible hardware OpenGL adapter".into());
+                    trace_startup("gl_selected");
+                    selected
                 }));
             }
+            trace_startup(if backend == Backends::GL { "gl_begin" } else { "vulkan_begin" });
             let result = run_viewer(preferred, &mut viewer);
             // If renderer initialization failed, the factory has not consumed the Viewer.
             if !matches!(result, Err(eframe::Error::Wgpu(_))) || viewer.is_none() {
@@ -153,6 +181,7 @@ fn run_viewer(options: eframe::NativeOptions, viewer: &mut Option<app::Viewer>) 
         "RustView 图片浏览器",
         options,
         Box::new(move |cc| {
+            trace_startup("renderer_ready");
             Ok(Box::new(
                 viewer
                     .take()

@@ -20,7 +20,7 @@ struct Position {
 }
 
 impl Viewer {
-    pub(super) fn change_archive_source(&mut self, source: Option<&Path>) {
+    pub(super) fn change_archive_source(&mut self, source: Option<&Path>) -> bool {
         self.save_archive_resume(true);
         self.archive_resume = State {
             archive: source
@@ -29,6 +29,7 @@ impl Viewer {
             last: None,
         };
         self.archive_jump.open = false;
+        self.archive_resume.archive.is_some()
     }
 
     pub(super) fn is_archive_source(&self) -> bool {

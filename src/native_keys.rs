@@ -40,7 +40,7 @@ mod platform {
             WindowsAndMessaging::{
                 GetCursorPos, GetWindowThreadProcessId, HTCAPTION, WM_CHAR, WM_EXITSIZEMOVE,
                 WM_KEYDOWN, WM_KEYUP, WM_MOUSEMOVE, WM_MOVING, WM_NCDESTROY, WM_NCMOUSELEAVE,
-                WM_NCMOUSEMOVE, WM_SYSCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP,
+                WM_NCMOUSEMOVE, WM_SHOWWINDOW, WM_SYSCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP,
             },
         },
     };
@@ -145,6 +145,9 @@ mod platform {
         reference: usize,
     ) -> LRESULT {
         let state = &*(reference as *const State);
+        if message == WM_SHOWWINDOW && wparam != 0 {
+            crate::trace_startup("window_show");
+        }
         if message == WM_NCDESTROY {
             let release = state.attached.replace(false);
             RemoveWindowSubclass(hwnd, Some(callback), SUBCLASS_ID);

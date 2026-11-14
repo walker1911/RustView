@@ -8,13 +8,22 @@
 
 An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, Photoshop composites, and pictures inside compressed archives. Read QR codes and copy text from pictures while staying in the viewer.
 
-[Download v0.7.3](https://github.com/walker1911/RustView/releases/tag/v0.7.3) · [简体中文](README.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+[Download v0.7.4](https://github.com/walker1911/RustView/releases/tag/v0.7.4) · [简体中文](README.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
 
-## New in v0.7.3
+## New in v0.7.4
 
-**Quicker double-click opening.** When opening a still image directly on Windows, RustView tries compatible hardware OpenGL first and can fall back to Vulkan or the default renderer. The OneDrive desktop JPEG first became visible in a median of **517 ms**, down from **729 ms**, when opened through the installed Windows file association on the same PC.
+**Resume a recently opened folder.** Select the folder under **文件 → 最近打开…** (File → Recent) to return to the last image shown, or choose **从头打开** (Open from start) to begin with the first image. Renaming the image while browsing updates the saved position. If the saved image is renamed after closing the window or is deleted, the folder starts at the first image. Closing before the next image appears preserves the previous position.
 
-Median held-arrow preview time fell from **70 to 20 ms** in the 10,000-JPEG folder and from **65 to 20 ms** with camera RAW. The median sampled process-tree peaks were **586 → 409 MiB** and **568 → 388 MiB**, respectively. Those workloads took about 71–80 ms longer to show the first clear image at the median. [v0.7.3 release notes and benchmarks](docs/RELEASE-v0.7.3.md)
+**Repaint as soon as the first decode finishes.** The viewer requests a repaint when it receives the decode result. When the overview uses the original dimensions, it reuses the decoded pixels and avoids a second temporary-file write.
+
+| Median on the same Windows PC | v0.7.3 | v0.7.4 |
+|---|---:|---:|
+| OneDrive desktop, first visible JPEG / PNG | 536 / 556 ms | 521 / 503 ms |
+| Local folder, first visible JPEG / PNG | 508 / 541 ms | 508 / 529 ms |
+| 10,000-JPEG folder, first clear image | 569 ms | 578 ms |
+| Mixed camera RAW, first clear image | 554 ms | 536 ms |
+
+The two rounds in the 10,000-JPEG folder moved in opposite directions. Across 20 pairs, **there was no consistent speedup**. Held-arrow browsing produced no blank frames in the samples. Sampled peak private commit for the viewer and its workers was close to v0.7.3, reaching about 429 MiB for JPEG and 509 MiB for RAW. [v0.7.4 release notes, methods, and benchmark details](docs/RELEASE-v0.7.4.md)
 
 ## Browsing local folders
 
@@ -48,7 +57,7 @@ Graphite is the default background. Under **视图 → 看图背景 → 照片�
 |---|---|
 | **Browse archives** | Read ZIP / RAR / 7z images on demand with password prompts, resume from the last image shown, and jump by filename, path, or number. |
 | **Jump within a local folder** | Find a picture by name or by its number in the current browsing order. |
-| **Reopen recent items** | Return to up to 20 recently opened images, folders, or archives from the File menu. History stays in the local catalog. |
+| **Reopen recent items** | Return to up to 20 recently opened images, folders, or archives from the File menu. Resume a folder or archive, or open its first image. History stays in the local catalog. |
 | **Follow local changes** | Refresh the open local folder automatically and reload the current image in place when another program saves it. |
 | **Keep browsing** | Left/right changes images and up/down zooms. Tap to load the full image or hold an arrow key for quick previews of uncached local JPEGs and eligible RAWs. A flat, animated filmstrip keeps the selected photo centered, with a filename and `1/84` counter. |
 | **View modern formats** | Common images, LibRaw-supported RAW and ProRAW DNG, plus HEIC/HEIF, AVIF, and JPEG XL. |
@@ -97,7 +106,7 @@ v0.4.0 permits [local and ZIP/RAR/7z-contained PSD/PSB](docs/PSD.md) sources up 
 
 ## Download and use
 
-1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.3/RustView-0.7.3-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.7.3/RustView-0.7.3-win-x64-offline.zip.sha256)
+1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.4/RustView-0.7.4-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.7.4/RustView-0.7.4-win-x64-offline.zip.sha256)
 2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. The package includes the image engines, runtime libraries, and Tesseract with Simplified Chinese and English models. Viewing and OCR work offline from the first launch.
 3. Open or drag in a folder, picture, or archive. Keep the complete extracted folder.
 
@@ -138,7 +147,7 @@ pwsh -File .\tools\build.ps1 -Offline
 
 See [BUILDING.md](BUILDING.md) for checksums and validation steps.
 
-Release checks cover static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnails, and large encrypted-RAR cancellation. Windows desktop checks for v0.7.3 compared installed file-association launches, direct JPEG and PNG opening, and held-arrow browsing in a 10,000-JPEG folder and a camera RAW set. They also rechecked the transparency checkerboard and large BigTIFF zoom. [v0.7.3 release notes and benchmarks](docs/RELEASE-v0.7.3.md) · [Prior validation](docs/VALIDATION.md)
+Release checks cover static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnails, and large encrypted-RAR cancellation. Windows desktop checks for v0.7.4 covered folder resume, opening from the start, renames, deletion, and closing before an image appeared. The v0.7.3 comparison used JPEGs and PNGs on the OneDrive desktop and in a local folder, a 10,000-JPEG folder, and mixed camera RAW files. [v0.7.4 release notes and benchmarks](docs/RELEASE-v0.7.4.md) · [Prior validation](docs/VALIDATION.md)
 
 Real-camera samples include Nikon Z6, Sony a7 III, Canon EOS R, iPhone 12 Pro ProRAW and HEIC. See the validation record for the scope of native-window, display, and print checks.
 
