@@ -1,4 +1,11 @@
-use std::{collections::HashSet, ffi::OsString, io, path::PathBuf};
+use std::{collections::HashSet, ffi::OsString, io, path::{Path, PathBuf}};
+
+pub(super) fn supported_path(path: &Path) -> bool {
+    #[cfg(windows)]
+    { !windows::remote(path) }
+    #[cfg(not(windows))]
+    { let _ = path; false }
+}
 
 const MAX_NAMES: usize = 256;
 
@@ -272,7 +279,7 @@ mod windows {
         }
     }
 
-    fn remote(path: &Path) -> bool {
+    pub(super) fn remote(path: &Path) -> bool {
         const DRIVE_REMOTE: u32 = 4;
         match path.components().next() {
             Some(Component::Prefix(prefix)) => match prefix.kind() {

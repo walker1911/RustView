@@ -583,7 +583,12 @@ impl Viewer {
                 }
                 ui.horizontal(|ui| {
                     ui.add_space(12.0);
-                    ui.label(egui::RichText::new(format!("{} / {}", position + 1, total))
+                    let count = if self.directory_listing() {
+                        "正在扫描目录…".to_owned()
+                    } else {
+                        format!("{} / {}", position + 1, total)
+                    };
+                    ui.label(egui::RichText::new(count)
                         .small().strong().color(theme::TEXT));
                     if let Some(index) = self.selected {
                         if let Some(entry) = self.entries.get(index) {

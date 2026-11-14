@@ -21,6 +21,7 @@ mod commands;
 mod compare;
 mod coverflow;
 mod directory;
+mod directory_neighbors;
 mod directory_watch;
 mod edit_ui;
 mod floating_toolbar;
@@ -204,7 +205,7 @@ pub struct Viewer {
     native_keys: Option<crate::native_keys::NativeKeys>,
     source: Option<PathBuf>,
     entries: Vec<Entry>,
-    initial_entry_position: Option<usize>,
+    directory_order: directory::Order,
     directory_scan: directory::Scan,
     startup_image: Option<startup::ImageStartup>,
     #[cfg(windows)]
@@ -265,7 +266,7 @@ impl Viewer {
             native_keys: None,
             source: None,
             entries: Vec::new(),
-            initial_entry_position: None,
+            directory_order: directory::Order::default(),
             directory_scan: directory::Scan::default(),
             startup_image: None,
             #[cfg(windows)]
@@ -952,7 +953,7 @@ impl Viewer {
                                     self.reset_coverflow();
                                     self.change_archive_source(None);
                                     self.source = Some(path);
-                                    self.initial_entry_position = None;
+                                    self.directory_order = directory::Order::default();
                                     self.entries = vec![Entry {
                                         name: "clipboard.png".into(),
                                         size: 0,
@@ -1185,6 +1186,7 @@ impl Viewer {
     }
 
     fn navigate_with_arrow(&mut self, forward: bool, end: bool, arrow: Option<(egui::Key, bool)>) {
+        if self.defer_directory_navigation(forward, end) { return; }
         if let Some(index) = self.navigation_target(forward, end) {
             self.nav_forward = forward;
             let full_raw = arrow.is_some()
@@ -1192,6 +1194,8 @@ impl Viewer {
                 && self.source.as_ref().is_some_and(|source| source.is_dir())
                 && crate::imaging::is_raw(&self.entries[index].name);
             self.load_index_with_arrow(index, full_raw, arrow.and_then(|(key, repeat)| repeat.then_some(key)));
+        } else {
+            self.queue_missing_directory_neighbor(forward, end);
         }
     }
 
@@ -2285,6 +2289,7 @@ impl eframe::App for Viewer {
                 }
             }
         }
+        self.replay_directory_navigation(ctx);
         if self.finish_deferred_image(ctx) || self.pending.is_some() && self.running.is_none() {
             self.start_pending_task(ctx);
         }

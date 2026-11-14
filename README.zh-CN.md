@@ -8,9 +8,11 @@
 
 面向 **Windows x64** 的 Rust 看图项目。用熟悉的快捷键、Picasa 式胶片带和平滑缩放浏览相机 RAW、GIF/WebP 动画、Photoshop 合成图及 ZIP／RAR／7z 里的照片。看图时也能直接读二维码、复制图片里的文字。
 
-[下载 v0.7.0](https://github.com/walker1911/RustView/releases/tag/v0.7.0) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
+[下载 v0.7.1](https://github.com/walker1911/RustView/releases/tag/v0.7.1) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
 
-## v0.7.0 新功能
+## v0.7.1 新功能
+
+**首图出现后，能更早翻到旁边的照片。** 双击本地图片时仍先出首图。RustView 先让前后各最多 8 张图片可翻，再完成全目录的排序和索引。按得早也会暂存方向键操作，等相邻图片可用后切换。在同一万张 JPEG 目录里，首图刚出现时只按一次左键或右键，v0.7.1 成功 8／8 次，v0.7.0 为 0／8 次。[v0.7.1 更新说明与实测数据](docs/RELEASE-v0.7.1.md)
 
 **外部保存后，接着看同一个位置。** RustView 会自动刷新正在浏览的本地目录。添加、移走、重命名或保存图片后，文件列表和缩略图会跟着更新。当前图被重新保存时，会在原位置重读，保留缩放和平移。文件尚未写完时先保留原画面，长按翻图时等浏览停下来再更新目录。[v0.7.0 更新说明与实测数据](docs/RELEASE-v0.7.0.md)
 
@@ -57,7 +59,7 @@
 
 在单图查看中将鼠标移到窗口顶边，再点 **「跳页…」**，可以输入文件名的一部分、完整包内路径或从 1 开始的当前浏览序号。文件名重复时，可按包内路径选择。在 **「文件 → 最近打开…」** 中，点击压缩包可续看，也可点 **「从头打开」** 回到包内第一张图。重新打开加密包时会再次询问密码。[压缩包续看与跳页](docs/RELEASE-v0.6.0.md)
 
-快速翻图时，可复用已经在读取的目标任务。命中缓存的图片直接显示。目标有可用像素前，保留上一张的清晰概览，并同时标出目标文件和暂时显示的文件。直接打开单张图片时，先读取该图片，再扫描同目录。以静态图启动程序时，受限解码进程还可与图形初始化并行。[浏览说明](docs/PICASA-BROWSING.md)
+快速翻图时，可复用已经在读取的目标任务。命中缓存的图片直接显示。目标有可用像素前，保留上一张的清晰概览，并同时标出目标文件和暂时显示的文件。直接打开单张图片时，先读取该图片，再扫描同目录。以静态图启动程序时，受限解码进程还可与图形初始化并行。遍历完文件名后，可在全目录排序前先翻到相邻图片。[浏览说明](docs/PICASA-BROWSING.md)
 
 处理步骤保存为记录，常用参数保存为预设。导出会重新读取源数据计算，界面中的 RGBA8 显示预览不作为 RAW／高位输出的来源。
 
@@ -90,7 +92,7 @@ v0.4.0 对[本地及ZIP／RAR／7z内的PSD/PSB](docs/PSD.md)提供源文件例�
 
 ## 下载与运行
 
-1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.0/RustView-0.7.0-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.7.0/RustView-0.7.0-win-x64-offline.zip.sha256)
+1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.1/RustView-0.7.1-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.7.1/RustView-0.7.1-win-x64-offline.zip.sha256)
 2. 完整解压，双击 `RustView.exe` 或 `Start-RustView.cmd`。图像引擎、运行库、Tesseract 和简体中文及英文模型均随包提供，首次启动即可离线看图和识别文字。
 3. 打开或拖入文件夹、图片、ZIP／RAR／7z。请保留完整目录。
 
@@ -133,7 +135,7 @@ pwsh -File .\tools\build.ps1 -Offline
 
 ## 验证到哪一步
 
-发行检查覆盖静态图与压缩包、GIF/WebP 动画、PSD/PSB 合成图、缩略图和大型加密 RAR 的取消清理。v0.7.0 在 Windows 桌面验证了本地目录变更、PSD 保存后的原位刷新，以及大批文件变动时的长按翻图。同机对照 v0.6.9，万张 JPEG 图库的首图耗时中位数为 698 → 684 毫秒。[v0.7.0 更新说明与实测数据](docs/RELEASE-v0.7.0.md) · [历次验证记录](docs/VALIDATION.md)
+发行检查覆盖静态图与压缩包、GIF/WebP 动画、PSD/PSB 合成图、缩略图和大型加密 RAR 的取消清理。v0.7.1 在 Windows 桌面验证了万张 JPEG 目录里的首次按键翻图、快速反向，以及超出首批邻图范围后的继续翻图。[v0.7.1 更新说明与实测数据](docs/RELEASE-v0.7.1.md) · [历次验证记录](docs/VALIDATION.md)
 
 真实相机样本包括 Nikon Z6、Sony a7 III、Canon EOS R、iPhone 12 Pro ProRAW 和 HEIC。原生窗口、显示和打印测试的范围见验证记录。反馈时请提供版本、格式或相机型号、预期行为和最小复现样本。[报告问题](https://github.com/walker1911/RustView/issues)
 

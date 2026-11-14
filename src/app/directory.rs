@@ -1,13 +1,31 @@
 use super::*;
-use super::directory_watch::{Changes, Watcher};
+use super::directory_watch::{self, Changes, Watcher};
 use std::{collections::HashSet, fs, io, time::Duration};
 
 const NAVIGATION_QUIET: Duration = Duration::from_millis(150);
 
 #[derive(Default)]
+pub(super) struct Order {
+    indices: Vec<usize>,
+    positions: Vec<usize>,
+}
+
+impl Order {
+    fn new(indices: Vec<usize>) -> Self {
+        let mut positions = vec![0; indices.len()];
+        for (position, &index) in indices.iter().enumerate() {
+            positions[index] = position;
+        }
+        Self { indices, positions }
+    }
+}
+
+#[derive(Default)]
 pub(super) struct Scan {
     waiting: Option<PathBuf>,
     running: Option<ScanTask>,
+    navigation: Option<(bool, bool)>,
+    neighbors_ready: bool,
     watch_path: Option<PathBuf>,
     watcher: Option<Watcher>,
     retiring: Option<Watcher>,
@@ -19,7 +37,12 @@ pub(super) struct Scan {
 
 struct ScanTask {
     cancel: Arc<AtomicBool>,
-    receiver: Receiver<Result<Vec<Entry>, String>>,
+    receiver: Receiver<ScanResult>,
+}
+
+enum ScanResult {
+    Neighbors(Vec<Entry>),
+    Full(Result<Vec<Entry>, String>),
 }
 
 struct RefreshTask {
@@ -45,6 +68,8 @@ impl Scan {
 
     pub fn cancel_scan(&mut self) {
         self.waiting = None;
+        self.navigation = None;
+        self.neighbors_ready = false;
         self.changes = None;
         self.ready = None;
         self.apply_after = None;
@@ -118,7 +143,7 @@ impl Viewer {
         self.source = Some(path);
         self.password = password;
         self.entries = entries;
-        self.initial_entry_position = None;
+        self.directory_order = Order::default();
         self.selected = None;
         self.nav_forward = true;
         self.extra.selection.clear();
@@ -164,48 +189,96 @@ impl Viewer {
     }
 
     pub(super) fn directory_order(&self) -> impl Iterator<Item = usize> + '_ {
-        // Keep the directly opened image's identity at slot zero. The list
-        // supplies its natural position without changing any in-flight index.
-        let first = self.initial_entry_position.unwrap_or(0);
-        (0..self.entries.len()).map(move |position| match position.cmp(&first) {
-            std::cmp::Ordering::Less => position + 1,
-            std::cmp::Ordering::Equal => 0,
-            std::cmp::Ordering::Greater => position,
-        })
+        (0..self.entries.len()).map(|position| self.directory_order.indices.get(position).copied().unwrap_or(position))
     }
 
     pub(super) fn directory_position(&self, index: usize) -> usize {
-        let first = self.initial_entry_position.unwrap_or(0);
-        match index {
-            0 => first,
-            index if index <= first => index - 1,
-            index => index,
+        self.directory_order.positions.get(index).copied().unwrap_or(index)
+    }
+
+    fn merge_local_directory(&mut self, entries: Vec<Entry>) {
+        // Decode and filmstrip jobs refer to slots. Keep all slots already
+        // exposed to navigation and install the sorted order independently.
+        let mut existing = self.entries.iter().enumerate()
+            .map(|(index, entry)| (entry.name.clone(), index)).collect::<HashMap<_, _>>();
+        let opened = self.entries.first().map(|entry| entry.name.to_lowercase());
+        let mut match_opened_case = cfg!(windows) && self.entries.len() == 1
+            && !self.entries.first().is_some_and(|first| entries.iter().any(|entry|
+            !entry.directory && !entry.archive && entry.name == first.name));
+        let mut indices = Vec::with_capacity(entries.len().max(self.entries.len()));
+        self.entries.reserve(entries.len().saturating_sub(self.entries.len()));
+        for entry in entries {
+            let previous = existing.remove(&entry.name).or_else(|| {
+                if match_opened_case && !entry.directory && !entry.archive
+                    && opened.as_ref().is_some_and(|name| entry.name.to_lowercase() == *name)
+                {
+                    match_opened_case = false;
+                    Some(0)
+                } else {
+                    None
+                }
+            });
+            let index = if let Some(index) = previous {
+                self.entries[index] = entry;
+                index
+            } else {
+                let index = self.entries.len();
+                self.entries.push(entry);
+                index
+            };
+            indices.push(index);
+        }
+        if indices.len() != self.entries.len() {
+            let present: HashSet<_> = indices.iter().copied().collect();
+            indices.splice(..0, (0..self.entries.len()).filter(|index| !present.contains(index)));
+        }
+        self.directory_order = Order::new(indices);
+        self.rebuild_visible();
+        self.extra.browser_ui.invalidate();
+    }
+
+    fn partial_directory_navigation(&self) -> bool {
+        !self.browser && self.extra.compare == 0 && self.extra.edit_dialog.is_none()
+            && self.extra.search.is_empty() && self.extra.filter == 0
+            && self.extra.group_descending.is_none()
+    }
+
+    pub(super) fn directory_listing(&self) -> bool {
+        !self.directory_scan.is_idle()
+    }
+
+    pub(super) fn defer_directory_navigation(&mut self, forward: bool, end: bool) -> bool {
+        self.directory_scan.navigation = None;
+        if !self.directory_listing() { return false; }
+        if self.partial_directory_navigation() && self.selected.is_some()
+            && (end || !self.directory_scan.neighbors_ready)
+        {
+            self.directory_scan.navigation = Some((forward, end));
+            return true;
+        }
+        !self.partial_directory_navigation()
+    }
+
+    pub(super) fn queue_missing_directory_neighbor(&mut self, forward: bool, end: bool) {
+        if !end && self.partial_directory_navigation() && self.directory_listing() {
+            self.directory_scan.navigation = Some((forward, false));
         }
     }
 
-    fn merge_local_directory(&mut self, mut entries: Vec<Entry>) {
-        let Some(first) = self.entries.first() else {
+    pub(super) fn replay_directory_navigation(&mut self, ctx: &egui::Context) {
+        let Some((forward, end)) = self.directory_scan.navigation else { return; };
+        if !self.partial_directory_navigation()
+            || self.password_dialog || self.properties || self.extra.dialog.is_some()
+            || self.recent_ui.open || self.extra.settings_ui.open || self.extra.print_ui.open
+            || self.help || self.quiet_chrome.menu_open || self.recognition.menu_open
+            || ctx.memory(|memory| memory.any_popup_open())
+        {
+            self.directory_scan.navigation = None;
             return;
-        };
-        let mut position = entries
-            .iter()
-            .position(|entry| !entry.directory && !entry.archive && entry.name == first.name);
-        if cfg!(windows) && position.is_none() && self.current.is_some() {
-            let name = first.name.to_lowercase();
-            position = entries.iter().position(|entry| {
-                !entry.directory && !entry.archive && entry.name.to_lowercase() == name
-            });
         }
-        let first = position
-            .map(|index| entries.remove(index))
-            .unwrap_or_else(|| first.clone());
-        entries.insert(0, first);
-        self.initial_entry_position = position;
-        self.entries = entries;
-        self.rebuild_visible();
-        self.extra.browser_ui.invalidate();
-        if self.current.is_some() && self.running.is_none() {
-            self.schedule_preload();
+        if self.directory_listing() && (end || !self.directory_scan.neighbors_ready) { return; }
+        if self.navigation_target(forward, end).is_some() || !self.directory_listing() {
+            self.navigate(forward, end);
         }
     }
 
@@ -213,16 +286,35 @@ impl Viewer {
         if let Some(task) = &self.directory_scan.running {
             let result = match task.receiver.try_recv() {
                 Ok(result) => Some(result),
-                Err(mpsc::TryRecvError::Disconnected) => Some(Err("目录扫描意外结束".into())),
+                Err(mpsc::TryRecvError::Disconnected) => Some(ScanResult::Full(Err("目录扫描意外结束".into()))),
                 Err(mpsc::TryRecvError::Empty) => None,
             };
             if let Some(result) = result {
                 let cancelled = task.cancel.load(Ordering::Relaxed);
-                self.directory_scan.running = None;
-                if !cancelled {
-                    match result {
-                        Ok(entries) => self.merge_local_directory(entries),
-                        Err(error) => self.status = format!("无法扫描同目录：{error}"),
+                match result {
+                    ScanResult::Neighbors(entries) => {
+                        if !cancelled && self.partial_directory_navigation() {
+                            self.merge_local_directory(entries);
+                            self.directory_scan.neighbors_ready = true;
+                        }
+                        // Give this frame's input a chance to use these entries
+                        // before handling the complete list on the next frame.
+                        ctx.request_repaint();
+                    }
+                    ScanResult::Full(result) => {
+                        self.directory_scan.running = None;
+                        if !cancelled {
+                            match result {
+                                Ok(entries) => {
+                                    self.merge_local_directory(entries);
+                                    if self.current.is_some() && self.running.is_none()
+                                        && self.directory_scan.navigation.is_none() {
+                                        self.schedule_preload();
+                                    }
+                                }
+                                Err(error) => self.status = format!("无法扫描同目录：{error}"),
+                            }
+                        }
                     }
                 }
             }
@@ -242,12 +334,21 @@ impl Viewer {
             return;
         };
         self.directory_scan.arm_watch(ctx);
-        let (sender, receiver) = mpsc::sync_channel(1);
+        let opened = self.entries.first().map(|entry| entry.name.clone());
+        let (sender, receiver) = mpsc::sync_channel(2);
         let cancel = Arc::new(AtomicBool::new(false));
         let thread_cancel = cancel.clone();
         let context = ctx.clone();
         std::thread::spawn(move || {
-            let _ = sender.send(list_directory(path, thread_cancel));
+            let result = if let Some(opened) = opened.filter(|_| directory_watch::supported_path(&path)) {
+                super::directory_neighbors::scan(&path, &opened, &thread_cancel, |entries| {
+                    let _ = sender.send(ScanResult::Neighbors(entries));
+                    context.request_repaint();
+                })
+            } else {
+                list_directory(path, thread_cancel)
+            };
+            let _ = sender.send(ScanResult::Full(result));
             context.request_repaint();
         });
         self.directory_scan.running = Some(ScanTask { cancel, receiver });
@@ -411,7 +512,7 @@ impl Viewer {
                 .find(|&index| !entries[index].directory && !entries[index].archive)
         });
         self.entries = entries;
-        self.initial_entry_position = None;
+        self.directory_order = Order::default();
 
         let cache = &mut self.cache;
         cache.bytes = 0;
@@ -693,6 +794,40 @@ mod tests {
     }
 
     #[test]
+    fn opening_arrow_uses_neighbors_before_full_list_without_remapping_its_load() {
+        let folder = tempfile::tempdir().unwrap();
+        let mut viewer = Viewer::empty();
+        viewer.open_local_image(folder.path().join("b10.jpg"));
+        viewer.pending = None;
+        let image = pixels();
+        viewer.set_current(0, false, image.clone());
+        viewer.directory_scan.waiting = None;
+        let (sender, receiver) = mpsc::sync_channel(2);
+        viewer.directory_scan.running = Some(ScanTask { cancel: Arc::new(AtomicBool::new(false)), receiver });
+        let ctx = egui::Context::default();
+
+        viewer.navigate(true, false);
+        assert!(viewer.pending.is_none());
+        assert!(Arc::ptr_eq(viewer.current.as_ref().unwrap(), &image));
+        sender.send(ScanResult::Neighbors(vec![entry("b2.jpg"), entry("b10.jpg"), entry("b11.jpg")])).ok().unwrap();
+        viewer.poll_directory_scan(&ctx);
+        viewer.replay_directory_navigation(&ctx);
+        assert!(viewer.directory_listing());
+        assert_eq!(viewer.selected, Some(2));
+        let pending = viewer.pending.as_ref().unwrap().id;
+
+        sender.send(ScanResult::Full(Ok(vec![entry("a.jpg"), entry("b2.jpg"), entry("b10.jpg"), entry("b11.jpg"), entry("z.jpg")]))).ok().unwrap();
+        viewer.poll_directory_scan(&ctx);
+        assert!(!viewer.directory_listing());
+        assert_eq!(viewer.selected, Some(2));
+        assert_eq!(viewer.pending.as_ref().unwrap().id, pending);
+        assert!(matches!(&viewer.pending.as_ref().unwrap().request, Request::Load { path, .. } if path.ends_with("b11.jpg")));
+        assert_eq!(viewer.navigation_target(false, false), Some(0));
+        let next = viewer.navigation_target(true, false).unwrap();
+        assert_eq!(viewer.entries[next].name, "z.jpg");
+    }
+
+    #[test]
     fn direct_open_does_not_promote_a_pending_preload_from_an_old_source() {
         let folder = tempfile::tempdir().unwrap();
         let path = folder.path().join("new.jpg");
@@ -737,7 +872,7 @@ mod tests {
             .iter()
             .any(|c| matches!(c, egui::ViewportCommand::Close)));
 
-        sender.send(Ok(vec![entry("stale.jpg")])).ok().unwrap();
+        sender.send(ScanResult::Full(Ok(vec![entry("stale.jpg")]))).ok().unwrap();
         let last = ctx.run(egui::RawInput::default(), |ctx| {
             assert!(viewer.handle_close_request(ctx))
         });

@@ -8,9 +8,11 @@
 
 An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, Photoshop composites, and pictures inside compressed archives. Read QR codes and copy text from pictures while staying in the viewer.
 
-[Download v0.7.0](https://github.com/walker1911/RustView/releases/tag/v0.7.0) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+[Download v0.7.1](https://github.com/walker1911/RustView/releases/tag/v0.7.1) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
 
-## New in v0.7.0
+## New in v0.7.1
+
+**Flip to the next photo sooner.** Double-clicking a local photo still loads that photo first. RustView then finds up to eight neighbors on either side and makes them available while the full folder index finishes. It keeps an early arrow press until the adjacent photo is available. In the same 10,000-JPEG folder, a single Left or Right press immediately after the first photo appeared worked in all eight v0.7.1 trials, compared with zero of eight on v0.7.0. [v0.7.1 release notes and benchmarks](docs/RELEASE-v0.7.1.md)
 
 **Stay on the same spot when a file is saved.** RustView watches the active local folder and refreshes after images are added, removed, renamed, or saved from another program. A changed photo reloads in place with its zoom and pan intact. While a file is still being written, the previous view stays visible. During held-arrow browsing, folder changes wait for a pause. [v0.7.0 release notes and benchmarks](docs/RELEASE-v0.7.0.md)
 
@@ -55,7 +57,7 @@ Graphite is the default background. Under **视图 → 看图背景 → 照片�
 
 In single-image view, move the pointer to the top edge and click **跳页…** (Jump to image). Enter part of a filename, the full path inside the archive, or a number starting at 1 in the current browsing order. When filenames repeat, use the path to select the intended entry. In **文件 → 最近打开…** (File → Recent), select an archive to resume or use **从头打开** (Open from start) to begin at its first image. Encrypted archives prompt for the password again when reopened. [Archive resume and jump](docs/RELEASE-v0.6.0.md)
 
-During rapid navigation, RustView can reuse a matching read in progress. Cached images display directly. The previous image's clear overview stays visible, with both images identified, until the target has pixels to show. Opening an individual image starts the read before directory scanning. For a static image opened at launch, the supervised read can also overlap graphics initialization. [Browsing behavior](docs/PICASA-BROWSING.md)
+During rapid navigation, RustView can reuse a matching read in progress. Cached images display directly. The previous image's clear overview stays visible, with both images identified, until the target has pixels to show. Opening an individual image starts the read before directory scanning. For a static image opened at launch, the supervised read can also overlap graphics initialization. Once the scan has seen the filenames, it can make the first neighboring photos available ahead of the full folder sort. [Browsing behavior](docs/PICASA-BROWSING.md)
 
 ZIP and 7z updates create a backup. RAR is read-only. RAW metadata uses XMP sidecars.
 
@@ -84,7 +86,7 @@ v0.4.0 permits [local and ZIP/RAR/7z-contained PSD/PSB](docs/PSD.md) sources up 
 
 ## Download and use
 
-1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.0/RustView-0.7.0-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.7.0/RustView-0.7.0-win-x64-offline.zip.sha256)
+1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.1/RustView-0.7.1-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.7.1/RustView-0.7.1-win-x64-offline.zip.sha256)
 2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. The package includes the image engines, runtime libraries, and Tesseract with Simplified Chinese and English models. Viewing and OCR work offline from the first launch.
 3. Open or drag in a folder, picture, or archive. Keep the complete extracted folder.
 
@@ -125,7 +127,7 @@ pwsh -File .\tools\build.ps1 -Offline
 
 See [BUILDING.md](BUILDING.md) for checksums and validation steps.
 
-Release checks cover static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnails, and large encrypted-RAR cancellation. Windows desktop checks for v0.7.0 covered folder changes, PSD saves without a change in viewport geometry, and browsing while many files were being added or removed. In a paired test against v0.6.9, median first-image time in a 10,000-JPEG folder was 698 → 684 ms. [v0.7.0 release notes and benchmarks](docs/RELEASE-v0.7.0.md) · [Prior validation](docs/VALIDATION.md)
+Release checks cover static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnails, and large encrypted-RAR cancellation. Windows desktop checks for v0.7.1 covered the first arrow press in a 10,000-JPEG folder, rapid changes of direction, and browsing past the first group of neighbors. [v0.7.1 release notes and benchmarks](docs/RELEASE-v0.7.1.md) · [Prior validation](docs/VALIDATION.md)
 
 Real-camera samples include Nikon Z6, Sony a7 III, Canon EOS R, iPhone 12 Pro ProRAW and HEIC. See the validation record for the scope of native-window, display, and print checks.
 
