@@ -8,11 +8,15 @@
 
 An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, Photoshop composites, and pictures inside compressed archives. Read QR codes and copy text from pictures while staying in the viewer.
 
-[Published download v0.7.2](https://github.com/walker1911/RustView/releases/tag/v0.7.2) · [简体中文](README.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+[Download v0.7.3](https://github.com/walker1911/RustView/releases/tag/v0.7.3) · [简体中文](README.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
 
-**Current source (v0.7.3).** When opening an image directly on Windows, RustView tries compatible hardware OpenGL first and can fall back to Vulkan or the default renderer.
+## New in v0.7.3
 
-## New in v0.7.2
+**Quicker double-click opening.** When opening a still image directly on Windows, RustView tries compatible hardware OpenGL first and can fall back to Vulkan or the default renderer. The OneDrive desktop JPEG first became visible in a median of **517 ms**, down from **729 ms**, when opened through the installed Windows file association on the same PC.
+
+Median held-arrow preview time fell from **70 to 20 ms** in the 10,000-JPEG folder and from **65 to 20 ms** with camera RAW. The median sampled process-tree peaks were **586 → 409 MiB** and **568 → 388 MiB**, respectively. Those workloads took about 71–80 ms longer to show the first clear image at the median. [v0.7.3 release notes and benchmarks](docs/RELEASE-v0.7.3.md)
+
+## Browsing local folders
 
 **Jump to an image in a local folder.** In single-image view, show the top toolbar and click **跳页…** (Jump to image). Search by filename or enter a number in the current browsing order. Continue with Left and Right from the selected image. The Windows desktop checks included jumping to image 6,800 in a folder of 10,000 JPEGs. [v0.7.2 release notes and benchmarks](docs/RELEASE-v0.7.2.md)
 
@@ -93,7 +97,7 @@ v0.4.0 permits [local and ZIP/RAR/7z-contained PSD/PSB](docs/PSD.md) sources up 
 
 ## Download and use
 
-1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.2/RustView-0.7.2-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.7.2/RustView-0.7.2-win-x64-offline.zip.sha256)
+1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.3/RustView-0.7.3-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.7.3/RustView-0.7.3-win-x64-offline.zip.sha256)
 2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. The package includes the image engines, runtime libraries, and Tesseract with Simplified Chinese and English models. Viewing and OCR work offline from the first launch.
 3. Open or drag in a folder, picture, or archive. Keep the complete extracted folder.
 
@@ -134,7 +138,7 @@ pwsh -File .\tools\build.ps1 -Offline
 
 See [BUILDING.md](BUILDING.md) for checksums and validation steps.
 
-Release checks cover static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnails, and large encrypted-RAR cancellation. Windows desktop checks for v0.7.2 covered name and number jumps, a rename while the dialog was open, and paired JPEG and RAW browsing tests. [v0.7.2 release notes and benchmarks](docs/RELEASE-v0.7.2.md) · [Prior validation](docs/VALIDATION.md)
+Release checks cover static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnails, and large encrypted-RAR cancellation. Windows desktop checks for v0.7.3 compared installed file-association launches, direct JPEG and PNG opening, and held-arrow browsing in a 10,000-JPEG folder and a camera RAW set. They also rechecked the transparency checkerboard and large BigTIFF zoom. [v0.7.3 release notes and benchmarks](docs/RELEASE-v0.7.3.md) · [Prior validation](docs/VALIDATION.md)
 
 Real-camera samples include Nikon Z6, Sony a7 III, Canon EOS R, iPhone 12 Pro ProRAW and HEIC. See the validation record for the scope of native-window, display, and print checks.
 
