@@ -38,6 +38,7 @@ mod recognition;
 mod recent_ui;
 mod settings_ui;
 mod startup;
+mod svg_view;
 mod theme;
 mod workspace;
 use commands::Extras;
@@ -56,6 +57,7 @@ struct Pixels {
     preview_height: u32,
     note: String,
     record: Option<Arc<crate::recipes::EditRecord>>,
+    svg_size: Option<[u32; 2]>,
 }
 impl Pixels {
     fn bytes(&self) -> usize {
@@ -66,6 +68,12 @@ impl Pixels {
             } else {
                 0
             }
+    }
+
+    fn intrinsic_scale(&self) -> f32 {
+        self.svg_size.map_or(1.0, |[width, height]| {
+            width.max(height) as f32 / self.width.max(self.height) as f32
+        })
     }
 }
 
@@ -157,6 +165,10 @@ enum Operation {
         index: usize,
         full_raw: bool,
     },
+    SvgRefine {
+        index: usize,
+        side: u32,
+    },
 }
 struct Task {
     id: u64,
@@ -227,6 +239,7 @@ pub struct Viewer {
     current: Option<Arc<Pixels>>,
     current_key: Option<(usize, bool)>,
     pyramid: Option<pyramid_view::View>,
+    svg: svg_view::View,
     embedded_psd_preview: bool,
     full_raw: bool,
     overview: Option<TextureHandle>,
@@ -291,6 +304,7 @@ impl Viewer {
             current: None,
             current_key: None,
             pyramid: None,
+            svg: svg_view::View::default(),
             embedded_psd_preview: false,
             full_raw: false,
             overview: None,
@@ -742,6 +756,7 @@ impl Viewer {
         self.current = None;
         self.current_key = None;
         self.pyramid = None;
+        self.svg = svg_view::View::default();
         self.embedded_psd_preview = false;
         self.overview = None;
         self.tiles.clear();
@@ -764,6 +779,7 @@ impl Viewer {
     fn set_current(&mut self, index: usize, full_raw: bool, image: Arc<Pixels>) {
         self.extra.exposure_texture = None;
         self.pyramid = None;
+        self.svg = svg_view::View::default();
         self.embedded_psd_preview = false;
         self.selected = Some(index);
         self.current_key = Some((index, full_raw));
@@ -783,7 +799,8 @@ impl Viewer {
         self.flip_y = false;
         self.zoom_anchor = None;
         self.extra.selection_rect = None;
-        self.status = "就绪".into();
+        self.status = self.current.as_ref().filter(|image| image.svg_size.is_some())
+            .map_or_else(|| "就绪".into(), |image| image.note.clone());
         self.read_record();
         let record = self.current.as_ref().and_then(|p| p.record.clone());
         self.sync_workspace_source(record.as_deref());
@@ -845,6 +862,7 @@ impl Viewer {
             if item.directory
                 || item.archive
                 || crate::imaging::is_raw(&item.name)
+                || crate::svg::is_svg(&item.name)
                 || matches!(
                     Path::new(&item.name)
                         .extension()
@@ -926,7 +944,9 @@ impl Viewer {
                                 event.operation,
                                 Operation::Load { preload: true, .. } | Operation::Thumbnail { .. }
                             );
-                            if matches!(event.operation, Operation::Reload { .. }) {
+                            if let Operation::SvgRefine { .. } = event.operation {
+                                self.status = format!("SVG 清晰重绘未完成：{error}");
+                            } else if matches!(event.operation, Operation::Reload { .. }) {
                                 self.status = format!("更新图片失败：{error}");
                             } else if !preload {
                                 self.status = error.clone();
@@ -956,6 +976,9 @@ impl Viewer {
                                     }
                                 }
                                 Operation::CopyImage => self.copy_worker_image(output),
+                                Operation::SvgRefine { index, side } => {
+                                    self.accept_svg_refinement(index, side, output, ctx);
+                                }
                                 Operation::Compare {
                                     slot,
                                     generation,
@@ -994,6 +1017,7 @@ impl Viewer {
                                             preview_height: output.reply.preview_height,
                                             note: output.reply.note,
                                             record: None,
+                                            svg_size: None,
                                         }),
                                     );
                                 }
@@ -1063,6 +1087,7 @@ impl Viewer {
                                         preview_height: output.reply.preview_height,
                                         note: output.reply.note,
                                         record: output.reply.editing_record.map(Arc::new),
+                                        svg_size: output.reply.svg_size,
                                     });
                                     if pyramid.is_none() && !embedded
                                         && matches!(event.request, Request::Load { .. } | Request::ColorPreview { .. })
@@ -1105,7 +1130,9 @@ impl Viewer {
                         if let Operation::Metadata { ref key } = event.operation {
                             self.metadata_error(key.clone(), error.clone());
                         }
-                        if matches!(event.operation, Operation::Reload { .. }) {
+                        if matches!(event.operation, Operation::SvgRefine { .. }) {
+                            if error != "已取消" { self.status = format!("SVG 清晰重绘未完成：{error}"); }
+                        } else if matches!(event.operation, Operation::Reload { .. }) {
                             if error != "已取消" { self.status = format!("更新图片失败：{error}"); }
                         } else if !matches!(
                             event.operation,
@@ -1172,7 +1199,7 @@ impl Viewer {
         let cancel = Arc::new(AtomicBool::new(false));
         let thread_cancel = cancel.clone();
         let id = task.id;
-        let reload = matches!(task.operation, Operation::Reload { .. });
+        let reload = matches!(task.operation, Operation::Reload { .. } | Operation::SvgRefine { .. });
         let startup_context = if context.is_none() {
             self.startup_image.as_ref().map(|startup| startup.repaint_context.clone())
         } else {
@@ -1255,7 +1282,8 @@ impl Viewer {
             Action::Fit => self.reset_fit(),
             Action::ActualSize => {
                 self.fit = false;
-                self.target_scale = 1.0 / ctx.pixels_per_point();
+                let intrinsic = self.current.as_deref().map_or(1.0, |image| image.intrinsic_scale().min(64.0));
+                self.target_scale = intrinsic / ctx.pixels_per_point();
                 self.pan = Vec2::ZERO;
                 self.zoom_anchor = None;
             }
@@ -1346,6 +1374,7 @@ impl Viewer {
                 self.current = None;
                 self.current_key = None;
                 self.pyramid = None;
+                self.svg = svg_view::View::default();
                 self.embedded_psd_preview = false;
                 self.selected = None;
                 self.overview = None;
@@ -1638,9 +1667,9 @@ impl Viewer {
             if let Some(image) = &self.current {
                 ui.add_space(8.0);
                 let (width, height) = self.extra.comparison.active_dimensions()
-                    .unwrap_or((image.width, image.height));
+                    .unwrap_or_else(|| image.svg_size.map(|[w, h]| (w, h)).unwrap_or((image.width, image.height)));
                 ui.small(format!("{} × {}  · {:.0}%", width, height,
-                    self.scale * ctx.pixels_per_point() * 100.0));
+                    self.scale * ctx.pixels_per_point() * 100.0 / image.intrinsic_scale()));
             }
             ui.add_space(8.0);
             ui.allocate_ui_with_layout(
@@ -1723,7 +1752,7 @@ impl Viewer {
             egui::vec2(image.height as f32, image.width as f32)
         };
         if self.fit {
-            let max_fit = if self.embedded_psd_preview { 3.0 } else { 1.0 } / ctx.pixels_per_point();
+            let max_fit = self.image_fit_limit(&image) / ctx.pixels_per_point();
             let fit = (viewport.width() / dimensions.x)
                 .min(viewport.height() / dimensions.y)
                 .min(max_fit);
@@ -1796,6 +1825,8 @@ impl Viewer {
         paint_transparency(&painter, Rect::from_center_size(center, dimensions * self.scale));
         if self.pyramid.is_some() {
             self.draw_pyramid(&painter, &image, viewport, center);
+        } else if image.svg_size.is_some() {
+            self.draw_svg(&painter, &image, center, full_uv);
         } else if let Some(texture) = &self.extra.animation_texture {
             paint_quad(
                 &painter,
@@ -2044,7 +2075,7 @@ impl Viewer {
             let placement = presentation::Placement {
                 scale: self.scale, pan: self.pan, rotation: self.rotation,
                 flip_x: self.flip_x, flip_y: self.flip_y, fit: self.fit,
-                max_fit: if self.embedded_psd_preview { 3.0 } else { 1.0 },
+                max_fit: self.image_fit_limit(&image),
             };
             let name = self.entries.get(index).map(|entry| entry.name.as_str()).unwrap_or("");
             if let Some((preview, texture)) = self.extra.presentation.capture_displayed(
@@ -2732,6 +2763,7 @@ mod tests {
         let image = || Arc::new(Pixels {
             width: 2, height: 1, rgba: vec![255; 8], preview: vec![255; 8],
             preview_width: 2, preview_height: 1, note: String::new(), record: None,
+            svg_size: None,
         });
         let ctx = egui::Context::default();
         let draw = |viewer: &mut Viewer| {
@@ -2772,6 +2804,7 @@ mod tests {
         viewer.current = Some(Arc::new(Pixels {
             width: 3, height: 2, rgba: row.repeat(2), preview: row.repeat(2),
             preview_width: 3, preview_height: 2, note: String::new(), record: None,
+            svg_size: None,
         }));
         let draw = |viewer: &mut Viewer| {
             ctx.run(egui::RawInput {
@@ -2948,6 +2981,7 @@ mod tests {
             preview_height: 0,
             note: String::new(),
             record: None,
+            svg_size: None,
         })
     }
     #[test]
@@ -3175,6 +3209,7 @@ mod tests {
             preview_height: 0,
             note: String::new(),
             record: None,
+            svg_size: None,
         }));
         viewer.rotation = 1;
         viewer.extra.viewport = Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));

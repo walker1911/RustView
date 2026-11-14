@@ -154,6 +154,7 @@ impl Viewer {
         self.current = None;
         self.current_key = None;
         self.pyramid = None;
+        self.svg = Default::default();
         self.embedded_psd_preview = false;
         self.overview = None;
         self.tiles.clear();
@@ -546,6 +547,7 @@ impl Viewer {
             } else {
                 self.current = None;
                 self.pyramid = None;
+                self.svg = Default::default();
                 self.overview = None;
                 self.tiles.clear();
                 self.tile_bytes = 0;
@@ -645,7 +647,7 @@ mod tests {
 
     fn pixels() -> Arc<Pixels> {
         Arc::new(Pixels { width: 1, height: 1, rgba: vec![0; 4], preview: vec![0; 4],
-            preview_width: 1, preview_height: 1, note: String::new(), record: None })
+            preview_width: 1, preview_height: 1, note: String::new(), record: None, svg_size: None })
     }
 
     fn changes(paths: &[(&str, Option<&str>)], renames: &[(&str, &str)]) -> Refresh {

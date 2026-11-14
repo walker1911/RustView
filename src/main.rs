@@ -24,6 +24,7 @@ mod precision;
 mod qr;
 mod recipes;
 mod shortcuts;
+mod svg;
 mod worker;
 
 static STARTUP_TRACE: std::sync::OnceLock<(std::time::Instant, std::path::PathBuf)> =

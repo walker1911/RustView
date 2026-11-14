@@ -122,6 +122,8 @@ const MAX_PHOTOSHOP_INPUT_BYTES: u64 = 64 * 1024 * 1024 * 1024;
 pub fn input_byte_limit(name: &str) -> u64 {
     if is_photoshop(name) {
         MAX_PHOTOSHOP_INPUT_BYTES
+    } else if crate::svg::is_svg(name) {
+        crate::svg::MAX_SOURCE_BYTES
     } else {
         MAX_INPUT_BYTES
     }
@@ -139,6 +141,8 @@ pub(crate) fn checked_input_size(input: &Path) -> Result<u64, String> {
     if size > limit {
         return Err(if limit == MAX_PHOTOSHOP_INPUT_BYTES {
             "PSD/PSB输入超过64 GiB，已停止读取".into()
+        } else if limit == crate::svg::MAX_SOURCE_BYTES {
+            format!("SVG 输入超过 {} MiB，已停止读取", limit / (1024 * 1024))
         } else {
             "输入文件超过512 MiB，已停止读取".into()
         });
@@ -184,6 +188,7 @@ pub fn is_supported_image(name: &str) -> bool {
                 | "hif"
                 | "avif"
                 | "jxl"
+                | "svg"
         )
 }
 
@@ -231,6 +236,11 @@ fn decode_options(
     managed: bool,
 ) -> Result<DecodedImage, String> {
     checked_input_size(input)?;
+    if input.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("svg")) {
+        let [width, height] = crate::svg::INITIAL_VIEW;
+        return crate::svg::render(input, width, height, max_pixels, max_output_bytes)
+            .map(|(image, _)| image);
+    }
     if is_raw(&input.to_string_lossy()) {
         return decode_raw(input, max_pixels, max_output_bytes, raw_full);
     }
@@ -1334,6 +1344,7 @@ mod tests {
         assert!(is_supported_image("subfolder/PHOTO.WEBP"));
         assert!(is_supported_image("design/PHOTO.PSD"));
         assert!(is_supported_image("design/PHOTO.PSB"));
+        assert!(is_supported_image("icons/ICON.SVG"));
         assert!(is_raw("camera.CR3"));
         assert!(!is_supported_image("movie.mp4"));
         assert!(!is_supported_image("archive.zip"));

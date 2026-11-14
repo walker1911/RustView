@@ -815,6 +815,7 @@ mod tests {
             preview_height: 1,
             note: String::new(),
             record: None,
+            svg_size: None,
         })
     }
 

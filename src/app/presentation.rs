@@ -289,7 +289,7 @@ mod tests {
         let color = [255, 20, 40, 255];
         let image = Arc::new(Pixels { width: 512, height: 256, rgba: color.repeat(512 * 256),
             preview: color.repeat(256 * 128), preview_width: 256, preview_height: 128,
-            note: String::new(), record: None });
+            note: String::new(), record: None, svg_size: None });
         let overview = ctx.load_texture("overview", egui::ColorImage::from_rgba_unmultiplied(
             [256, 128], &image.preview), TextureOptions::LINEAR);
         (image, overview)

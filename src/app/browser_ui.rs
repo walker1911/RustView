@@ -1714,6 +1714,7 @@ pub(super) mod tests {
             preview_height: 1,
             note: String::new(),
             record: None,
+            svg_size: None,
         });
         app.cache.insert((0, false), pixels, false);
         let ctx = egui::Context::default();

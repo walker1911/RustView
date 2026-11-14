@@ -6,26 +6,30 @@
 
 **Open the archive. Keep the flow.**
 
-An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, Photoshop composites, and pictures inside compressed archives. Read QR codes and copy text from pictures while staying in the viewer.
+An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, static SVG, Photoshop composites, and pictures inside compressed archives. Read QR codes and copy text from pictures while staying in the viewer.
 
-[Download v0.7.4](https://github.com/walker1911/RustView/releases/tag/v0.7.4) · [简体中文](README.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+[Download v0.7.5](https://github.com/walker1911/RustView/releases/tag/v0.7.5) · [简体中文](README.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
 
-## New in v0.7.4
+## New in v0.7.5
 
-**Resume a recently opened folder.** Select the folder under **文件 → 最近打开…** (File → Recent) to return to the last image shown, or choose **从头打开** (Open from start) to begin with the first image. Renaming the image while browsing updates the saved position. If the saved image is renamed after closing the window or is deleted, the folder starts at the first image. Closing before the next image appears preserves the previous position.
+**View static SVGs.** Double-click a local `.svg` associated with RustView or drag it into the window. View SVGs and their thumbnails in folders and ZIP, RAR, or 7z archives, with password prompts for encrypted archives. Transparent areas use a fixed checkerboard.
 
-**Repaint as soon as the first decode finishes.** The viewer requests a repaint when it receives the decode result. When the overview uses the original dimensions, it reuses the decoded pixels and avoids a second temporary-file write.
+**See sharper detail after zooming.** The current image stays visible while you zoom. After about 140 ms of inactivity, resvg can render a sharper image in the background while preserving zoom and pan. RustView reads UTF-8 static SVG files up to 8 MiB. Rendering stays within 4,096 pixels per edge and 8 million pixels total, and skips external resources.
 
-| Median on the same Windows PC | v0.7.3 | v0.7.4 |
+| Median on the same Windows PC | v0.7.4 | v0.7.5 |
 |---|---:|---:|
-| OneDrive desktop, first visible JPEG / PNG | 536 / 556 ms | 521 / 503 ms |
-| Local folder, first visible JPEG / PNG | 508 / 541 ms | 508 / 529 ms |
-| 10,000-JPEG folder, first clear image | 569 ms | 578 ms |
-| Mixed camera RAW, first clear image | 554 ms | 536 ms |
+| OneDrive desktop, first visible JPEG / PNG | 492 / 586 ms | 500 / 498 ms |
+| Local folder, first visible JPEG / PNG | 471 / 502 ms | 505 / 513 ms |
+| 10,000-JPEG folder, first clear image | 531 ms | 539 ms |
+| Mixed camera RAW, first clear image | 525 ms | 519 ms |
+| Target preview during held-arrow browsing, JPEG / RAW | 19.8 / 11.6 ms | 19.1 / 11.4 ms |
+| Clear image after releasing the arrow key, JPEG / RAW | 19.6 / 289.8 ms | 17.9 / 281.3 ms |
 
-The two rounds in the 10,000-JPEG folder moved in opposite directions. Across 20 pairs, **there was no consistent speedup**. Held-arrow browsing produced no blank frames in the samples. Sampled peak private commit for the viewer and its workers was close to v0.7.3, reaching about 429 MiB for JPEG and 509 MiB for RAW. [v0.7.4 release notes, methods, and benchmark details](docs/RELEASE-v0.7.4.md)
+Local JPEG startup times varied. The medians for the two versions were about 35 ms apart and the median difference within matched pairs was about −2 ms. Held-arrow browsing produced no blank frames in the samples. Sampled peak private commit for the viewer and its workers went from 426.6 to 429.0 MiB for JPEG and from 510.2 to 512.5 MiB for RAW. [v0.7.5 release notes, methods, and benchmark details](docs/RELEASE-v0.7.5.md)
 
 ## Browsing local folders
+
+**Resume a recently opened folder.** Select the folder under **文件 → 最近打开…** (File → Recent) to return to the last image shown, or choose **从头打开** (Open from start) to begin with the first image. Renaming the image while browsing updates the saved position. If the saved image is renamed after closing the window or is deleted, the folder starts at the first image. Closing before the next image appears preserves the previous position. [v0.7.4 release notes](docs/RELEASE-v0.7.4.md)
 
 **Jump to an image in a local folder.** In single-image view, show the top toolbar and click **跳页…** (Jump to image). Search by filename or enter a number in the current browsing order. Continue with Left and Right from the selected image. The Windows desktop checks included jumping to image 6,800 in a folder of 10,000 JPEGs. [v0.7.2 release notes and benchmarks](docs/RELEASE-v0.7.2.md)
 
@@ -60,7 +64,7 @@ Graphite is the default background. Under **视图 → 看图背景 → 照片�
 | **Reopen recent items** | Return to up to 20 recently opened images, folders, or archives from the File menu. Resume a folder or archive, or open its first image. History stays in the local catalog. |
 | **Follow local changes** | Refresh the open local folder automatically and reload the current image in place when another program saves it. |
 | **Keep browsing** | Left/right changes images and up/down zooms. Tap to load the full image or hold an arrow key for quick previews of uncached local JPEGs and eligible RAWs. A flat, animated filmstrip keeps the selected photo centered, with a filename and `1/84` counter. |
-| **View modern formats** | Common images, LibRaw-supported RAW and ProRAW DNG, plus HEIC/HEIF, AVIF, and JPEG XL. |
+| **View modern formats** | Common images, static SVG, LibRaw-supported RAW and ProRAW DNG, plus HEIC/HEIF, AVIF, and JPEG XL. |
 | **Open Photoshop documents** | View saved PSD/PSB composites locally or inside ZIP/RAR/7z, including sources larger than 512 MiB. Use a labeled embedded preview if the full composite is unavailable and the document includes a usable thumbnail. |
 | **Browse huge TIFFs** | View supported local tiled pyramidal TIFF/BigTIFF files using their overview and on-demand detail tiles. |
 | **Read QR codes and image text** | Scan the current image for QR codes, drag to select automatically recognized text, or request whole-image and selected-area OCR. [QR support](docs/RELEASE-v0.6.8.md) |
@@ -106,7 +110,7 @@ v0.4.0 permits [local and ZIP/RAR/7z-contained PSD/PSB](docs/PSD.md) sources up 
 
 ## Download and use
 
-1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.4/RustView-0.7.4-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.7.4/RustView-0.7.4-win-x64-offline.zip.sha256)
+1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.5/RustView-0.7.5-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.7.5/RustView-0.7.5-win-x64-offline.zip.sha256)
 2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. The package includes the image engines, runtime libraries, and Tesseract with Simplified Chinese and English models. Viewing and OCR work offline from the first launch.
 3. Open or drag in a folder, picture, or archive. Keep the complete extracted folder.
 
@@ -147,7 +151,7 @@ pwsh -File .\tools\build.ps1 -Offline
 
 See [BUILDING.md](BUILDING.md) for checksums and validation steps.
 
-Release checks cover static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnails, and large encrypted-RAR cancellation. Windows desktop checks for v0.7.4 covered folder resume, opening from the start, renames, deletion, and closing before an image appeared. The v0.7.3 comparison used JPEGs and PNGs on the OneDrive desktop and in a local folder, a 10,000-JPEG folder, and mixed camera RAW files. [v0.7.4 release notes and benchmarks](docs/RELEASE-v0.7.4.md) · [Prior validation](docs/VALIDATION.md)
+Release checks cover static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnails, and large encrypted-RAR cancellation. Windows desktop checks for v0.7.5 covered local SVG opens, drag and drop, thumbnails, checkerboard transparency, detail after zoom, and browsing SVGs in encrypted ZIP, RAR, and 7z archives. Cancelling or closing during SVG rendering left no worker processes or temporary files in these tests. [v0.7.5 release notes and benchmarks](docs/RELEASE-v0.7.5.md) · [Prior validation](docs/VALIDATION.md)
 
 Real-camera samples include Nikon Z6, Sony a7 III, Canon EOS R, iPhone 12 Pro ProRAW and HEIC. See the validation record for the scope of native-window, display, and print checks.
 

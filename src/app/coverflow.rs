@@ -815,6 +815,7 @@ mod tests {
             width: 2, height: 1, rgba: vec![255; 8],
             preview: vec![255; 8], preview_width: 2, preview_height: 1,
             note: String::new(), record: None,
+            svg_size: None,
         }));
         viewer.extra.coverflow.wanted = vec![0];
         let ctx = egui::Context::default();

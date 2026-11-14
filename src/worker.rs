@@ -20,6 +20,8 @@ pub const THUMBNAIL_SIDE: u32 = 128;
 pub const MAX_ENTRIES: usize = 100_000;
 pub(crate) const CONTINUITY_SIDE: u32 = 64;
 pub(crate) const CONTINUITY_MIN_BYTES: usize = 8 * 1024 * 1024;
+const SVG_WORKER_MEMORY: usize = 512 * 1024 * 1024;
+const SVG_WORKER_TIMEOUT: Duration = Duration::from_secs(12);
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "operation")]
@@ -62,6 +64,11 @@ pub enum Request {
     Thumbnail {
         source: Box<Request>,
     },
+    Svg {
+        source: Box<Request>,
+        width: u32,
+        height: u32,
+    },
     RawPreview {
         source: Box<Request>,
     },
@@ -90,6 +97,7 @@ impl Request {
             | Self::Unedited { source }
             | Self::ColorPreview { source, .. }
             | Self::Thumbnail { source }
+            | Self::Svg { source, .. }
             | Self::RawPreview { source }
             | Self::Preview { source, .. }
             | Self::Edit { source, .. }
@@ -136,6 +144,8 @@ pub struct Reply {
     pub pyramid: Option<PyramidInfo>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub embedded_psd_preview: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub svg_size: Option<[u32; 2]>,
     pub note: String,
     pub error: Option<String>,
     pub password_required: bool,
@@ -261,6 +271,7 @@ pub(crate) fn archive_error(error: crate::archive::ArchiveError) -> Reply {
 pub(crate) fn prepare_image(request: &Request, output: &Path) -> Result<PathBuf, Reply> {
     if let Request::ColorPreview { source, .. }
     | Request::Page { source, .. }
+    | Request::Svg { source, .. }
     | Request::Unedited { source } = request
     {
         return prepare_image(source, output);
@@ -318,6 +329,59 @@ pub(crate) fn prepare_image(request: &Request, output: &Path) -> Result<PathBuf,
         });
     }
     Ok(input)
+}
+
+fn svg_source(request: &Request) -> bool {
+    match request {
+        Request::Load { entry: Some(entry), .. } => crate::svg::is_svg(entry),
+        Request::Load { path, .. } => path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("svg")),
+        Request::ColorPreview { source, .. }
+        | Request::Page { source, .. }
+        | Request::Svg { source, .. }
+        | Request::Unedited { source }
+        | Request::Thumbnail { source }
+        | Request::Preview { source, .. }
+        | Request::Edit { source, .. } => svg_source(source),
+        _ => false,
+    }
+}
+
+fn svg_view(request: &Request, output: &Path, size: [u32; 2], include_overview: bool) -> Reply {
+    let input = match prepare_image(request, output) {
+        Ok(path) => path,
+        Err(reply) => return reply,
+    };
+    let [width, height] = size;
+    let result = (|| -> Result<Reply, String> {
+        let (image, intrinsic) = crate::svg::render(
+            &input,
+            width,
+            height,
+            crate::svg::MAX_RASTER_PIXELS,
+            crate::svg::MAX_RASTER_BYTES,
+        )?;
+        let mut reply = if include_overview {
+            write_image(output, image.width, image.height, image.rgba, image.note)?
+        } else {
+            fs::write(output.join("pixels.rgba"), &image.rgba).map_err(|error| error.to_string())?;
+            Reply {
+                width: image.width,
+                height: image.height,
+                note: image.note,
+                ..Default::default()
+            }
+        };
+        [reply.source_width, reply.source_height] = intrinsic;
+        reply.svg_size = Some(intrinsic);
+        reply.page_total = 1;
+        Ok(reply)
+    })();
+    result.unwrap_or_else(|error| Reply {
+        error: Some(error),
+        ..Default::default()
+    })
 }
 
 fn decode_source(
@@ -853,6 +917,12 @@ fn handle_request(request: Request, output: &Path, publish_preview: bool) -> Rep
             raw,
             save,
         } => {
+            if svg_source(&source) {
+                return Reply {
+                    error: Some("SVG 支持查看，编辑与另存请使用位图副本".into()),
+                    ..Default::default()
+                };
+            }
             let input = match prepare_image(&source, output) {
                 Ok(p) => p,
                 Err(r) => return r,
@@ -1040,6 +1110,9 @@ fn handle_request(request: Request, output: &Path, publish_preview: bool) -> Rep
             result.unwrap_or_else(|error| Reply { error: Some(error), ..Default::default() })
         }
         Request::Thumbnail { source } => {
+            if svg_source(&source) {
+                return svg_view(&source, output, [THUMBNAIL_SIDE; 2], true);
+            }
             match read_pyramid(&source) {
                 Ok(Some((overview, info))) => {
                     let result = (|| -> Result<Reply, String> {
@@ -1216,10 +1289,26 @@ fn handle_request(request: Request, output: &Path, publish_preview: bool) -> Rep
                 ..Default::default()
             }
         }
+        Request::Svg {
+            source,
+            width,
+            height,
+        } => {
+            if !svg_source(&source) {
+                return Reply {
+                    error: Some("此请求需要静态 SVG 源文件".into()),
+                    ..Default::default()
+                };
+            }
+            svg_view(&source, output, [width, height], false)
+        }
         Request::Load { .. }
         | Request::Page { .. }
         | Request::ColorPreview { .. }
         | Request::Unedited { .. } => {
+            if svg_source(&request) {
+                return svg_view(&request, output, crate::svg::INITIAL_VIEW, true);
+            }
             match pyramid_overview(&request, output) {
                 Ok(Some(reply)) => return reply,
                 Ok(None) => {}
@@ -1378,11 +1467,13 @@ impl Drop for Job {
 
 fn resource_limits(request: &Request) -> (usize, Duration) {
     match request {
+        Request::Svg { .. } => (SVG_WORKER_MEMORY, SVG_WORKER_TIMEOUT),
         Request::Thumbnail { .. } => (THUMBNAIL_MEMORY, Duration::from_secs(30)),
         Request::RawPreview { .. } => (THUMBNAIL_MEMORY, Duration::from_secs(5)),
         Request::MetadataRead { .. } | Request::MetadataWrite { .. } => {
             (METADATA_MEMORY, Duration::from_secs(120))
         }
+        _ if svg_source(request) => (SVG_WORKER_MEMORY, SVG_WORKER_TIMEOUT),
         _ => (WORKER_MEMORY, Duration::from_secs(120)),
     }
 }
@@ -1551,12 +1642,15 @@ fn execute_in_directory(
     if thumbnail && (reply.width > THUMBNAIL_SIDE || reply.height > THUMBNAIL_SIDE) {
         return Err("缩略图结果超过 128×128 上限".into());
     }
+    let pixel_budget = if thumbnail {
+        thumbnail_bytes
+    } else if reply.svg_size.is_some() {
+        crate::svg::MAX_RASTER_BYTES
+    } else {
+        MAX_IMAGE_BYTES
+    };
     let rgba = read_pixels(
-        directory.join("pixels.rgba"),
-        reply.width,
-        reply.height,
-        if thumbnail { thumbnail_bytes } else { MAX_IMAGE_BYTES },
-        &cancel,
+        directory.join("pixels.rgba"), reply.width, reply.height, pixel_budget, &cancel,
     )?;
     let preview = if reply.preview_is_full_image {
         if (reply.width, reply.height) != (reply.preview_width, reply.preview_height)
@@ -1960,6 +2054,65 @@ mod tests {
             24
         );
     }
+
+    #[test]
+    fn svg_load_thumbnail_and_refinement_use_requested_raster_sizes() {
+        let folder = tempfile::tempdir().unwrap();
+        let input = folder.path().join("透明.SVG");
+        fs::write(
+            &input,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="9600" height="4800">
+              <rect x="4800" width="4800" height="4800" fill="red" opacity="0.5"/>
+            </svg>"#,
+        ).unwrap();
+        let load = Request::Load {
+            path: input, entry: None, password: None, full_raw: false,
+        };
+        assert_eq!(resource_limits(&load), (SVG_WORKER_MEMORY, SVG_WORKER_TIMEOUT));
+        let cases = [
+            (load.clone(), (1280, 640), true),
+            (Request::Thumbnail { source: Box::new(load.clone()) }, (128, 64), true),
+            (Request::Svg { source: Box::new(load), width: 2400, height: 2000 }, (2400, 1200), false),
+        ];
+        for (request, dimensions, overview) in cases {
+            let output = tempfile::tempdir().unwrap();
+            let reply = handle(request, output.path());
+            assert!(reply.error.is_none(), "{:?}", reply.error);
+            assert_eq!(reply.svg_size, Some([9600, 4800]));
+            assert_eq!((reply.width, reply.height), dimensions);
+            assert_eq!(reply.preview_is_full_image, overview);
+            assert!(!output.path().join("preview.rgba").exists());
+            let rgba = fs::read(output.path().join("pixels.rgba")).unwrap();
+            assert_eq!(rgba.len(), (dimensions.0 * dimensions.1 * 4) as usize);
+            assert_eq!(&rgba[0..4], &[0, 0, 0, 0]);
+            assert_eq!(&rgba[rgba.len() - 4..], &[255, 0, 0, 128]);
+        }
+    }
+
+    #[test]
+    fn svg_archive_resource_limit_and_password_are_preserved_through_wrappers() {
+        let mut request = Request::Svg {
+            source: Box::new(Request::ColorPreview {
+                source: Box::new(Request::Load {
+                    path: "gallery.7z".into(),
+                    entry: Some("nested/design.SVG".into()),
+                    password: None,
+                    full_raw: false,
+                }),
+                managed: true,
+            }),
+            width: 1200,
+            height: 900,
+        };
+        assert!(svg_source(&request));
+        request.set_password(Some("fixture-password".into()));
+        let Request::Svg { source, .. } = request else { panic!("SVG wrapper") };
+        let Request::ColorPreview { source, .. } = *source else { panic!("color wrapper") };
+        let Request::Load { password, entry, .. } = *source else { panic!("archive load") };
+        assert_eq!(password.as_deref(), Some("fixture-password"));
+        assert_eq!(crate::imaging::input_byte_limit(&entry.unwrap()), crate::svg::MAX_SOURCE_BYTES);
+    }
+
     #[test]
     fn preview_and_thumbnail_preserve_aspect_ratio_and_small_size() {
         let directory = tempfile::tempdir().unwrap();

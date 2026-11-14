@@ -2,7 +2,7 @@
 # Production passes CurrentUser; no machine-wide keys or default assignments are changed.
 $RustViewImageExtensions = @(
     'jpg','jpeg','jpe','jfif','png','webp','gif','bmp','dib','tif','tiff','ico',
-    'pnm','pbm','pgm','ppm','pam','tga','qoi','heic','heif','hif','avif','jxl','psd','psb',
+    'pnm','pbm','pgm','ppm','pam','tga','qoi','heic','heif','hif','avif','jxl','psd','psb','svg',
     '3fr','arw','cr2','cr3','crw','dcr','dcs','dng','erf','fff','gpr','iiq','kdc','mef',
     'mos','mrw','nef','nrw','orf','pef','raf','raw','rw2','rwl','sr2','srf','srw','x3f'
 )

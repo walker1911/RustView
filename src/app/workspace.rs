@@ -61,6 +61,7 @@ mod tests {
                 preview_height: 1,
                 note: String::new(),
                 record: Some(Arc::new(record)),
+                svg_size: None,
             }),
         );
         assert_eq!(viewer.extra.edits, recipe.edits);
@@ -138,6 +139,7 @@ mod tests {
             preview_height: 1,
             note: String::new(),
             record: None,
+            svg_size: None,
         }));
         let context = egui::Context::default();
         let output = context.run(
@@ -239,6 +241,7 @@ mod tests {
             preview_height: 1,
             note: String::new(),
             record: None,
+            svg_size: None,
         }));
         viewer.open_edit_dialog(2045);
         assert!(!viewer.browser);
@@ -444,6 +447,7 @@ impl Viewer {
             preview_height: output.reply.preview_height,
             note: output.reply.note,
             record: None,
+            svg_size: None,
         });
         let same = self
             .current

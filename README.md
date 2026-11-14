@@ -6,26 +6,30 @@
 
 **打开压缩包，接着看。**
 
-面向 **Windows x64** 的 Rust 看图项目。用熟悉的快捷键、Picasa 式胶片带和平滑缩放浏览相机 RAW、GIF/WebP 动画、Photoshop 合成图及 ZIP／RAR／7z 里的照片。看图时也能直接读二维码、复制图片里的文字。
+面向 **Windows x64** 的 Rust 看图项目。用熟悉的快捷键、Picasa 式胶片带和平滑缩放浏览相机 RAW、静态 SVG、GIF/WebP 动画、Photoshop 合成图及 ZIP／RAR／7z 里的照片。看图时也能直接读二维码、复制图片里的文字。
 
-[下载 v0.7.4](https://github.com/walker1911/RustView/releases/tag/v0.7.4) · [English](README.en.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
+[下载 v0.7.5](https://github.com/walker1911/RustView/releases/tag/v0.7.5) · [English](README.en.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
 
-## v0.7.4 新功能
+## v0.7.5 新功能
 
-**从最近打开的文件夹续看。** 在 **「文件 → 最近打开…」** 中点击文件夹，回到上次显示的图片。点击 **「从头打开」** 则从第一张开始。浏览中改名会更新续看位置。上次图片在关窗后改名或被删除时，从第一张开始。新图还未显示就关窗，会保留上次的位置。
+**直接看静态 SVG。** 双击已关联的本地 `.svg`，或拖入窗口即可打开。文件夹和 ZIP／RAR／7z 中的 SVG 均可浏览和预览缩略图，加密压缩包按需输入密码。透明区域使用固定棋盘格。
 
-**首图解码完成后立即刷新。** 查看器收到解码结果后会主动请求重绘。无需缩放的概览图直接复用解码数据，避免重复写入临时文件。
+**放大停稳后补清晰。** 连续缩放时沿用当前画面，停稳约 140 ms 后按需在后台用 resvg 渲染更清晰的画面，保留缩放和位置。支持 8 MiB 以内的 UTF-8 静态 SVG。渲染长边最多 4,096 像素、总面积最多 800 万像素，外部资源会跳过。
 
-| 同一台 Windows 电脑的实测中位数 | v0.7.3 | v0.7.4 |
+| 同一台 Windows 电脑的实测中位数 | v0.7.4 | v0.7.5 |
 |---|---:|---:|
-| OneDrive 桌面首图可见，JPEG／PNG | 536／556 ms | 521／503 ms |
-| 本地目录首图可见，JPEG／PNG | 508／541 ms | 508／529 ms |
-| 万张 JPEG 目录，首张清晰图 | 569 ms | 578 ms |
-| 混合相机 RAW，首张清晰图 | 554 ms | 536 ms |
+| OneDrive 桌面首图可见，JPEG／PNG | 492／586 ms | 500／498 ms |
+| 本地目录首图可见，JPEG／PNG | 471／502 ms | 505／513 ms |
+| 万张 JPEG 目录，首张清晰图 | 531 ms | 539 ms |
+| 混合相机 RAW，首张清晰图 | 525 ms | 519 ms |
+| 长按翻到目标图预览，JPEG／RAW | 19.8／11.6 ms | 19.1／11.4 ms |
+| 松开方向键后显示清晰图，JPEG／RAW | 19.6／289.8 ms | 17.9／281.3 ms |
 
-万张 JPEG 的两轮配对测试一快一慢，合计 20 对，**没有测到稳定提速**。长按翻图未采到空白帧。应用和解码进程的私有提交内存采样峰值与 v0.7.3 基本持平，新版 JPEG 约 429 MiB，RAW 约 509 MiB。[v0.7.4 更新说明、测试方法与详细数据](docs/RELEASE-v0.7.4.md)
+本地 JPEG 两版各自的中位数相差约 35 ms，同一轮内逐对计算的中位差约 −2 ms，首图有波动。长按翻图未采到空白帧。应用及其工作进程的私有提交内存采样峰值在 JPEG 测试中为 426.6 → 429.0 MiB，在 RAW 测试中为 510.2 → 512.5 MiB。[v0.7.5 更新说明、测试方法与详细数据](docs/RELEASE-v0.7.5.md)
 
 ## 本地目录浏览
+
+**从最近打开的文件夹续看。** 在 **「文件 → 最近打开…」** 中点击文件夹，回到上次显示的图片。点击 **「从头打开」** 则从第一张开始。浏览中改名会更新续看位置。上次图片在关窗后改名或被删除时，从第一张开始。新图还未显示就关窗，会保留上次的位置。[v0.7.4 更新说明](docs/RELEASE-v0.7.4.md)
 
 **在本地文件夹快速跳图。** 单图查看时移到窗口顶边，打开工具栏的 **「跳页…」**，按文件名或当前浏览序号找图。跳转后，左右键从这张图继续翻看。Windows 实测包含在万张 JPEG 目录中跳到第 6,800 张。[v0.7.2 更新说明与实测数据](docs/RELEASE-v0.7.2.md)
 
@@ -65,7 +69,7 @@
 | **看 Photoshop 文档** | 直接读取本地及 ZIP／RAR／7z 内 PSD/PSB 保存的合成图，支持超过 512 MiB 的大源文件。合成图不可用时可显示带标记的内嵌预览。 |
 | **浏览超大 TIFF** | 对符合条件的本地金字塔 TIFF／BigTIFF，先显示全景，放大后按需读取细节分块。 |
 | **识别二维码和图片文字** | 后台扫码并自动识字，可在图上拖选文字，也可手动识别整图或选区。[二维码说明](docs/RELEASE-v0.6.8.md) |
-| **接纳现代格式** | 常见图片、LibRaw 支持的相机 RAW、苹果 ProRAW DNG，以及由内置引擎读取的 HEIC/HEIF、AVIF、JPEG XL。 |
+| **接纳现代格式** | 常见图片、静态 SVG、LibRaw 支持的相机 RAW、苹果 ProRAW DNG，以及由内置引擎读取的 HEIC/HEIF、AVIF、JPEG XL。 |
 | **平滑缩放与比较** | 保持鼠标指向位置缩放，拖动平移，按可见区域上传细节；最多四图独立或联动查看。 |
 | **完整动画** | GIF/WebP 按帧时序、透明合成与循环信息播放；支持整段动画导出。 |
 | **从原始源处理** | RAW 调节、裁剪、尺寸、色彩、锐化、文字与水印；导出真正的 16 位 PNG/TIFF，保存处理记录与预设。 |
@@ -112,7 +116,7 @@ v0.4.0 对[本地及ZIP／RAR／7z内的PSD/PSB](docs/PSD.md)提供源文件例�
 
 ## 下载与运行
 
-1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.4/RustView-0.7.4-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.7.4/RustView-0.7.4-win-x64-offline.zip.sha256)
+1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.5/RustView-0.7.5-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.7.5/RustView-0.7.5-win-x64-offline.zip.sha256)
 2. 完整解压，双击 `RustView.exe` 或 `Start-RustView.cmd`。图像引擎、运行库、Tesseract 和简体中文及英文模型均随包提供，首次启动即可离线看图和识别文字。
 3. 打开或拖入文件夹、图片、ZIP／RAR／7z。请保留完整目录。
 
@@ -155,7 +159,7 @@ pwsh -File .\tools\build.ps1 -Offline
 
 ## 验证到哪一步
 
-发行检查覆盖静态图与压缩包、GIF/WebP 动画、PSD/PSB 合成图、缩略图和大型加密 RAR 的取消清理。v0.7.4 在 Windows 桌面验证了文件夹续看、从头打开、改名、删除和出图前关窗。与 v0.7.3 对照测试了 OneDrive 桌面及本地目录的 JPEG／PNG、万张 JPEG 和混合相机 RAW。[v0.7.4 更新说明与实测数据](docs/RELEASE-v0.7.4.md) · [历次验证记录](docs/VALIDATION.md)
+发行检查覆盖静态图与压缩包、GIF/WebP 动画、PSD/PSB 合成图、缩略图和大型加密 RAR 的取消清理。v0.7.5 在 Windows 桌面验证了 SVG 本地打开、拖入、缩略图、透明棋盘格、放大后补清晰，以及加密 ZIP／RAR／7z 的打开和翻图。实测在 SVG 渲染时取消或关闭窗口，未发现残留工作进程或临时文件。[v0.7.5 更新说明与实测数据](docs/RELEASE-v0.7.5.md) · [历次验证记录](docs/VALIDATION.md)
 
 真实相机样本包括 Nikon Z6、Sony a7 III、Canon EOS R、iPhone 12 Pro ProRAW 和 HEIC。原生窗口、显示和打印测试的范围见验证记录。反馈时请提供版本、格式或相机型号、预期行为和最小复现样本。[报告问题](https://github.com/walker1911/RustView/issues)
 

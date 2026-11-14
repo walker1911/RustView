@@ -167,6 +167,7 @@ impl Viewer {
         self.current = None;
         self.current_key = None;
         self.pyramid = None;
+        self.svg = Default::default();
         self.embedded_psd_preview = false;
         self.overview = None;
         self.tiles.clear();
@@ -264,6 +265,7 @@ impl Viewer {
             preview_height: 0,
             note: output.reply.note,
             record: output.reply.editing_record.map(Arc::new),
+            svg_size: None,
         });
         let texture = ctx.load_texture(
             format!("compare-{slot}-{generation}"),
@@ -618,6 +620,7 @@ impl Viewer {
                     preview_height: 0,
                     note: String::new(),
                     record: None,
+                    svg_size: None,
                 };
                 let full =
                     Rect::from_min_max(Pos2::ZERO, egui::pos2(s.width as f32, s.height as f32));

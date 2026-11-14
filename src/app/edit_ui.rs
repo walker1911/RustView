@@ -11,6 +11,12 @@ impl Viewer {
             self.status = "分块 TIFF 以查看模式打开，暂不编辑整张图片".into();
             return;
         }
+        if self.current.as_ref().is_some_and(|image| image.svg_size.is_some())
+            && self.current_key.map(|key| key.0) == self.selected
+        {
+            self.status = "静态 SVG 以查看模式打开".into();
+            return;
+        }
         if self.current_key.map(|k| k.0) != self.selected {
             if let Some(index) = self.selected.filter(|i| {
                 self.entries

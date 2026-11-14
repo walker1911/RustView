@@ -1,14 +1,14 @@
 {
-  "application": "rust-viewer 0.6.8",
+  "application": "rust-viewer 0.7.5",
   "target": "x86_64-pc-windows-msvc",
-  "cargo_lock_sha256": "558d1860c40c99b5b1c5e67b08fe8534bf804d298c6aa55d025c7104febb2328",
+  "cargo_lock_sha256": "35680d672d01dfd14a423cbda047b6f72032e92a10666f396a5d4eb656f044a7",
   "selection_command": "cargo metadata --offline --locked --filter-platform x86_64-pc-windows-msvc --format-version 1",
-  "package_count": 213,
-  "document_count": 427,
+  "package_count": 243,
+  "document_count": 480,
   "role_counts": {
     "build/proc-macro": 39,
     "build/proc-macro, runtime": 3,
-    "runtime": 171
+    "runtime": 201
   },
   "development_only_packages": 0,
   "missing_license_texts": [],
@@ -297,6 +297,28 @@
       ]
     },
     {
+      "name": "arrayref",
+      "version": "0.3.9",
+      "license": "BSD-2-Clause",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/droundy/arrayref",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "76a2e8124351fda1ef8aaaa3bbd7ebbcb486bbcd4225aca0aa0d84bb2db8fecb",
+      "authors": [
+        "David Roundy <roundyd@physics.oregonstate.edu>"
+      ],
+      "documents": [
+        {
+          "path": "LICENSE",
+          "source": "crate archive",
+          "sha256": "1bc7e6f475b3ec99b7e2643411950ae2368c250dd4c5c325f80f9811362a94a1",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
       "name": "arrayvec",
       "version": "0.7.8",
       "license": "MIT OR Apache-2.0",
@@ -378,6 +400,34 @@
           "path": "LICENSE-MIT",
           "source": "crate archive",
           "sha256": "27995d58ad5c1145c1a8cd86244ce844886958a35eb2b78c6b772748669999ac",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
+      "name": "base64",
+      "version": "0.23.1",
+      "license": "MIT OR Apache-2.0",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/marshallpierce/rust-base64",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5",
+      "authors": [
+        "Marshall Pierce <marshall@mpierce.org>"
+      ],
+      "documents": [
+        {
+          "path": "LICENSE-APACHE",
+          "source": "crate archive",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "source": "crate archive",
+          "sha256": "ab499c75a0f0da8e0fe83bf9ba3a27e5c39705310f07107c6c66b69958d2401c",
           "kind": "license-document"
         }
       ]
@@ -768,6 +818,34 @@
           "path": "LICENSE-ZLIB",
           "source": "crate archive",
           "sha256": "01e533bd94e8f1c32b2c2531e2c398de7d35d7804add3d574b4e1fe581d53537",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
+      "name": "data-url",
+      "version": "0.3.2",
+      "license": "MIT OR Apache-2.0",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/servo/rust-url",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376",
+      "authors": [
+        "Simon Sapin <simon.sapin@exyr.org>"
+      ],
+      "documents": [
+        {
+          "path": "LICENSE-APACHE",
+          "source": "crate archive",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "source": "crate archive",
+          "sha256": "b38f11f6096706e6de553dabe2a7ed142d59b6fa8c97e290c67496154745cdd5",
           "kind": "license-document"
         }
       ]
@@ -1200,6 +1278,40 @@
       ]
     },
     {
+      "name": "euclid",
+      "version": "0.22.14",
+      "license": "MIT OR Apache-2.0",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/servo/euclid",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "f1a05365e3b1c6d1650318537c7460c6923f1abdd272ad6842baa2b509957a06",
+      "authors": [
+        "The Servo Project Developers"
+      ],
+      "documents": [
+        {
+          "path": "COPYRIGHT",
+          "source": "crate archive",
+          "sha256": "ec82b96487e9e778ee610c7ab245162464782cfa1f555c2299333f8dbe5c036a",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-APACHE",
+          "source": "crate archive",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "source": "crate archive",
+          "sha256": "62065228e42caebca7e7d7db1204cbb867033de5982ca4009928915e4095f3a3",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
       "name": "fallible-iterator",
       "version": "0.3.0",
       "license": "MIT/Apache-2.0",
@@ -1389,6 +1501,28 @@
       ]
     },
     {
+      "name": "float-cmp",
+      "version": "0.9.0",
+      "license": "MIT",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/mikedilger/float-cmp",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "98de4bbd547a563b716d8dfa9aad1cb19bfab00f4fa09a6a4ed21dbcf44ce9c4",
+      "authors": [
+        "Mike Dilger <mike@mikedilger.com>"
+      ],
+      "documents": [
+        {
+          "path": "LICENSE",
+          "source": "crate archive",
+          "sha256": "40be1e77825d7e49485a2e43d89bed29dfff29f8f529e71d3c683656021f0d08",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
       "name": "foldhash",
       "version": "0.1.5",
       "license": "Zlib",
@@ -1428,6 +1562,60 @@
           "path": "LICENSE",
           "source": "crate archive",
           "sha256": "b1181a40b2a7b25cf66fd01481713bc1005df082c53ef73e851e55071b102744",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
+      "name": "font-types",
+      "version": "0.12.7",
+      "license": "MIT OR Apache-2.0",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/googlefonts/fontations",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "835ae9d781464a79026cde387f9cbc650c9a4909d7cf7e658b127e3c35d2f35d",
+      "authors": [],
+      "documents": [
+        {
+          "path": "LICENSE-APACHE",
+          "source": "crate archive",
+          "sha256": "eba684204073ed715c4abb48129acdfd2bff8ae48339e6a7da3b341d3027b7f0",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "source": "crate archive",
+          "sha256": "7b4c9a3946dfcea7967582760e963e27799e225dcf20565c8ef55324bb017427",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
+      "name": "fontdb",
+      "version": "0.24.0",
+      "license": "MIT",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/RazrFalcon/fontdb",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "2660c5e9157bf76d2db1294e4a9feba604ef610819a3b591088d0d8392a3290f",
+      "authors": [
+        "Yevhenii Reizner <razrfalcon@gmail.com>"
+      ],
+      "documents": [
+        {
+          "path": "LICENSE",
+          "source": "crate archive",
+          "sha256": "59a1fdac3bd550043599bd159fd70f09a1108c2b09e3751d39b11e1ff8e51f00",
+          "kind": "license-document"
+        },
+        {
+          "path": "tests/fonts/LICENSE.txt",
+          "source": "crate archive",
+          "sha256": "b84fdd2c3da5db56385cdbb639795e90aa3e035c53bc3591135f18df3331451f",
           "kind": "license-document"
         }
       ]
@@ -1758,6 +1946,26 @@
           "path": "LICENSE-MIT",
           "source": "crate archive",
           "sha256": "508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
+      "name": "harfrust",
+      "version": "0.15.0",
+      "license": "MIT",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/harfbuzz/harfrust",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "865dcc4105d51c323d8fedbb2d75b5e9c8ecddf5613f74c82f851d0afbc97114",
+      "authors": [],
+      "documents": [
+        {
+          "path": "LICENSE",
+          "source": "crate archive",
+          "sha256": "3a7c3f0b887abb7c638faf022d29257418458614c6724b120ceeffb279f9c7d2",
           "kind": "license-document"
         }
       ]
@@ -2155,6 +2363,28 @@
       ]
     },
     {
+      "name": "imagesize",
+      "version": "0.15.0",
+      "license": "MIT",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/Roughsketch/imagesize",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "65b27460c2c92b037f3f94c538ed9a3342f3fdf923606781629ccb35f82d042a",
+      "authors": [
+        "Maid Dog <maiddogsrl@gmail.com>"
+      ],
+      "documents": [
+        {
+          "path": "LICENSE",
+          "source": "crate archive",
+          "sha256": "fa0d694967d5c279e70a5c7b7e4b9929e4c1c8c1b8506998e66fc2f1547b200a",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
       "name": "immutable-chunkmap",
       "version": "2.1.5",
       "license": "Apache-2.0 OR MIT",
@@ -2387,6 +2617,32 @@
           "source": "crate archive",
           "sha256": "eac51b81804aa36aa7a4bbf6824f03c7cc8ad0ba30148549fc5849c38496c423",
           "kind": "source-notice"
+        }
+      ]
+    },
+    {
+      "name": "kurbo",
+      "version": "0.13.1",
+      "license": "Apache-2.0 OR MIT",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/linebender/kurbo",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "4b60dfc32f652b926df6192e55525b16d186c69d47876c3ead4da5cc9f8450e2",
+      "authors": [],
+      "documents": [
+        {
+          "path": "LICENSE-APACHE",
+          "source": "crate archive",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "source": "crate archive",
+          "sha256": "23c23145f6eac25c28cdcc03d38506a5712a9a8cffb5bd5301457f6173ea696e",
+          "kind": "license-document"
         }
       ]
     },
@@ -3040,6 +3296,28 @@
       ]
     },
     {
+      "name": "pico-args",
+      "version": "0.5.0",
+      "license": "MIT",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/RazrFalcon/pico-args",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "5be167a7af36ee22fe3115051bc51f6e6c7054c9348e28deb4f49bd6f705a315",
+      "authors": [
+        "Yevhenii Reizner <razrfalcon@gmail.com>"
+      ],
+      "documents": [
+        {
+          "path": "LICENSE",
+          "source": "crate archive",
+          "sha256": "f71452d91682fdae0ca948b18cfed53a953d1237740dd80371c76a5c1c7bbe91",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
       "name": "pin-project-lite",
       "version": "0.2.17",
       "license": "Apache-2.0 OR MIT",
@@ -3145,6 +3423,32 @@
           "path": "LICENSE-MIT",
           "source": "crate archive",
           "sha256": "cc02a53316678ca2575cc69d12daa7b1833935d4b7742c31fbab7bd74a481077",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
+      "name": "polycool",
+      "version": "0.4.0",
+      "license": "MIT OR Apache-2.0",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/linebender/kurbo",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "50596ddc09eb5ad5f75cacd40209568e66df71baf86e1499a0e99c4cff12a5a6",
+      "authors": [],
+      "documents": [
+        {
+          "path": "LICENSE-APACHE",
+          "source": "crate archive",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "source": "crate archive",
+          "sha256": "23c23145f6eac25c28cdcc03d38506a5712a9a8cffb5bd5301457f6173ea696e",
           "kind": "license-document"
         }
       ]
@@ -3398,6 +3702,32 @@
       ]
     },
     {
+      "name": "read-fonts",
+      "version": "0.46.0",
+      "license": "MIT OR Apache-2.0",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/googlefonts/fontations",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "bdaa4fffe9ff3ca2c353fa9729792805b9b3e324695ff5a081f860612e81b330",
+      "authors": [],
+      "documents": [
+        {
+          "path": "LICENSE-APACHE",
+          "source": "crate archive",
+          "sha256": "eba684204073ed715c4abb48129acdfd2bff8ae48339e6a7da3b341d3027b7f0",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "source": "crate archive",
+          "sha256": "7b4c9a3946dfcea7967582760e963e27799e225dcf20565c8ef55324bb017427",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
       "name": "renderdoc-sys",
       "version": "1.1.0",
       "license": "MIT OR Apache-2.0",
@@ -3426,6 +3756,32 @@
       ]
     },
     {
+      "name": "resvg",
+      "version": "0.50.0",
+      "license": "Apache-2.0 OR MIT",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/linebender/resvg",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "77bb4b284cf8a5c8ae721594af53387fb755d2196fddb32b2acfb4fa9251fa0c",
+      "authors": [],
+      "documents": [
+        {
+          "path": "LICENSE-APACHE",
+          "source": "crate archive",
+          "sha256": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "source": "crate archive",
+          "sha256": "f5d934dc281b44e0003ee461ac740b18b6629a454decd872c774d34e4ee0b21d",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
       "name": "rfd",
       "version": "0.15.4",
       "license": "MIT",
@@ -3443,6 +3799,57 @@
           "path": "LICENSE",
           "source": "crate archive",
           "sha256": "65fc947f4bac882a2cd104ef73c246b1b037059df9f2b3a58b7f77f0b9e56071",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
+      "name": "rgb",
+      "version": "0.8.53",
+      "license": "MIT",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/kornelski/rust-rgb",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "47b34b781b31e5d73e9fbc8689c70551fd1ade9a19e3e28cfec8580a79290cc4",
+      "authors": [
+        "Kornel Lesiński <kornel@geekhood.net>",
+        "James Forster <james.forsterer@gmail.com>"
+      ],
+      "documents": [
+        {
+          "path": "LICENSE",
+          "source": "crate archive",
+          "sha256": "457b464bc0fba8a3d67d2458569104f5611869f0c1563a1a12d9c51a0bca9261",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
+      "name": "roxmltree",
+      "version": "0.21.2",
+      "license": "MIT OR Apache-2.0",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/RazrFalcon/roxmltree",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "9da7f59328b09405b181fee1018925fad50f157afb43c0c0f5c522c256dd5907",
+      "authors": [
+        "Yevhenii Reizner <razrfalcon@gmail.com>"
+      ],
+      "documents": [
+        {
+          "path": "LICENSE-APACHE",
+          "source": "crate archive",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "source": "crate archive",
+          "sha256": "fffe218c1e349e1d482a05677f2ce850502f88298174d77f6ac7c04821db7899",
           "kind": "license-document"
         }
       ]
@@ -3750,6 +4157,114 @@
       ]
     },
     {
+      "name": "simplecss",
+      "version": "0.2.2",
+      "license": "Apache-2.0 OR MIT",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/linebender/simplecss",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "7a9c6883ca9c3c7c90e888de77b7a5c849c779d25d74a1269b0218b14e8b136c",
+      "authors": [],
+      "documents": [
+        {
+          "path": "LICENSE-APACHE",
+          "source": "crate archive",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "source": "crate archive",
+          "sha256": "0b5f24524360e15bcf9fb79bca875f5aa62f01f94f2988e23238c7ec0e6e8784",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
+      "name": "siphasher",
+      "version": "1.0.4",
+      "license": "MIT OR Apache-2.0",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/jedisct1/rust-siphash",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256",
+      "authors": [
+        "Frank Denis <github@pureftpd.org>"
+      ],
+      "documents": [
+        {
+          "path": "COPYING",
+          "source": "crate archive",
+          "sha256": "c962ee4d1d05ddc138b202b2540219ebc57893fcf97b364852094a9a94ce1365",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-APACHE",
+          "source": "crate archive",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "source": "crate archive",
+          "sha256": "f9c4c77baa3828004ee54b8a4f2db2e88ed44a6237a493965bf551fac0fcb62d",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
+      "name": "skrifa",
+      "version": "0.49.0",
+      "license": "MIT OR Apache-2.0",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/googlefonts/fontations",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "a7459fb60888ad9a5f367dd293fa2fb9df142cb451aa6bfd6cd66a7d6a9b739d",
+      "authors": [],
+      "documents": [
+        {
+          "path": "LICENSE-APACHE",
+          "source": "crate archive",
+          "sha256": "eba684204073ed715c4abb48129acdfd2bff8ae48339e6a7da3b341d3027b7f0",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "source": "crate archive",
+          "sha256": "7b4c9a3946dfcea7967582760e963e27799e225dcf20565c8ef55324bb017427",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
+      "name": "slotmap",
+      "version": "1.1.1",
+      "license": "Zlib",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/orlp/slotmap",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "bdd58c3c93c3d278ca835519292445cb4b0d4dc59ccfdf7ceadaab3f8aeb4038",
+      "authors": [
+        "Orson Peters <orsonpeters@gmail.com>"
+      ],
+      "documents": [
+        {
+          "path": "LICENSE",
+          "source": "crate archive",
+          "sha256": "6cec81441b2ab2b5090954c1fb5d0bcca81b86487b5849061fa8952d20ef67d4",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
       "name": "smallvec",
       "version": "1.16.5",
       "license": "MIT OR Apache-2.0",
@@ -3884,6 +4399,28 @@
       ]
     },
     {
+      "name": "strict-num",
+      "version": "0.1.1",
+      "license": "MIT",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/RazrFalcon/strict-num",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "6637bab7722d379c8b41ba849228d680cc12d0a45ba1fa2b48f2a30577a06731",
+      "authors": [
+        "Yevhenii Reizner <razrfalcon@gmail.com>"
+      ],
+      "documents": [
+        {
+          "path": "LICENSE",
+          "source": "crate archive",
+          "sha256": "3085885678bb161f6c472bbd331f66a2550b555eb76128f7f8247779128199c0",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
       "name": "strum",
       "version": "0.26.3",
       "license": "MIT",
@@ -3923,6 +4460,32 @@
           "path": "LICENSE",
           "source": "crate archive",
           "sha256": "8bce3b45e49ecd1461f223b46de133d8f62cd39f745cfdaf81bee554b908bd42",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
+      "name": "svgtypes",
+      "version": "0.16.2",
+      "license": "Apache-2.0 OR MIT",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/linebender/svgtypes",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "9f12b12995e3638c70618c1facb1ce65302f6a6f706b675f07c58a5d7391120e",
+      "authors": [],
+      "documents": [
+        {
+          "path": "LICENSE-APACHE",
+          "source": "crate archive",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "source": "crate archive",
+          "sha256": "f3c9fe731c701ed77fd5fbaac573872af04dc5869385eb9bd5e3c73c42713814",
           "kind": "license-document"
         }
       ]
@@ -4211,6 +4774,50 @@
       ]
     },
     {
+      "name": "tiny-skia",
+      "version": "0.12.0",
+      "license": "BSD-3-Clause",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/linebender/tiny-skia",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "47ffee5eaaf5527f630fb0e356b90ebdec84d5d18d937c5e440350f88c5a91ea",
+      "authors": [
+        "Yevhenii Reizner <razrfalcon@gmail.com>"
+      ],
+      "documents": [
+        {
+          "path": "LICENSE",
+          "source": "crate archive",
+          "sha256": "6d41e05f1d54fe726997cb0334ec539f1dff50600b1d5d90462ec2b392770ced",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
+      "name": "tiny-skia-path",
+      "version": "0.12.0",
+      "license": "BSD-3-Clause",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/linebender/tiny-skia/tree/master/path",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "edca365c3faccca67d06593c5980fa6c57687de727a03131735bb85f01fdeeb9",
+      "authors": [
+        "Yevhenii Reizner <razrfalcon@gmail.com>"
+      ],
+      "documents": [
+        {
+          "path": "LICENSE",
+          "source": "crate archive",
+          "sha256": "6d41e05f1d54fe726997cb0334ec539f1dff50600b1d5d90462ec2b392770ced",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
       "name": "tinystr",
       "version": "0.8.5",
       "license": "Unicode-3.0",
@@ -4228,6 +4835,40 @@
           "path": "LICENSE",
           "source": "crate archive",
           "sha256": "f367c1b8e1aa262435251e442901da4607b4650e0e63a026f5044473ecfb90f2",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
+      "name": "tinyvec",
+      "version": "1.13.3",
+      "license": "Zlib OR Apache-2.0 OR MIT",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/Lokathor/tinyvec",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee",
+      "authors": [
+        "Lokathor <zefria@gmail.com>"
+      ],
+      "documents": [
+        {
+          "path": "LICENSE-APACHE.md",
+          "source": "crate archive",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-MIT.md",
+          "source": "crate archive",
+          "sha256": "fd80a26fbb3f644af1fa994134446702932968519797227e07a1368dea80f0bc",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-ZLIB.md",
+          "source": "crate archive",
+          "sha256": "84b34dd7608f7fb9b17bd588a6bf392bf7de504e2716f024a77d89f1b145a151",
           "kind": "license-document"
         }
       ]
@@ -4395,6 +5036,40 @@
       ]
     },
     {
+      "name": "unicode-bidi",
+      "version": "0.3.18",
+      "license": "MIT OR Apache-2.0",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/servo/unicode-bidi",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "5c1cb5db39152898a79168971543b1cb5020dff7fe43c8dc468b0885f5e29df5",
+      "authors": [
+        "The Servo Project Developers"
+      ],
+      "documents": [
+        {
+          "path": "COPYRIGHT",
+          "source": "crate archive",
+          "sha256": "edb20b474f6cbd4f4db066b54a9e0f687d0009d309412a63431189b59b8e2a07",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-APACHE",
+          "source": "crate archive",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "source": "crate archive",
+          "sha256": "7b63ecd5f1902af1b63729947373683c32745c16a10e8e6292e2e2dcd7e90ae0",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
       "name": "unicode-ident",
       "version": "1.0.27",
       "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
@@ -4424,6 +5099,34 @@
           "path": "LICENSE-UNICODE",
           "source": "crate archive",
           "sha256": "f7db81051789b729fea528a63ec4c938fdcb93d9d61d97dc8cc2e9df6d47f2a1",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
+      "name": "unicode-script",
+      "version": "0.5.9",
+      "license": "MIT OR Apache-2.0",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/unicode-rs/unicode-script",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "aa04c955db05429d464c74d495c1ee677e1866e783a4c3747f9c0cef7756cabf",
+      "authors": [
+        "Manish Goregaokar <manishsmail@gmail.com>"
+      ],
+      "documents": [
+        {
+          "path": "LICENSE-APACHE",
+          "source": "crate archive",
+          "sha256": "7cbb56d1b5d83d735056b363ab20958524120afafc4ad8206e6be98cdec5d737",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "source": "crate archive",
+          "sha256": "7ad3ea8ca3caf894db98c3f31d5d4949173ffa93c883ef19a9e529ad48960f8c",
           "kind": "license-document"
         }
       ]
@@ -4459,6 +5162,34 @@
           "path": "LICENSE-MIT",
           "source": "crate archive",
           "sha256": "7b63ecd5f1902af1b63729947373683c32745c16a10e8e6292e2e2dcd7e90ae0",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
+      "name": "unicode-vo",
+      "version": "0.1.0",
+      "license": "MIT/Apache-2.0",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/RazrFalcon/unicode-vo",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "b1d386ff53b415b7fe27b50bb44679e2cc4660272694b7b6f3326d8480823a94",
+      "authors": [
+        "Evgeniy Reizner <razrfalcon@gmail.com>"
+      ],
+      "documents": [
+        {
+          "path": "LICENSE-APACHE",
+          "source": "crate archive",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "source": "crate archive",
+          "sha256": "0b5f24524360e15bcf9fb79bca875f5aa62f01f94f2988e23238c7ec0e6e8784",
           "kind": "license-document"
         }
       ]
@@ -4558,6 +5289,32 @@
           "path": "LICENSE-MIT",
           "source": "crate archive",
           "sha256": "b38f11f6096706e6de553dabe2a7ed142d59b6fa8c97e290c67496154745cdd5",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
+      "name": "usvg",
+      "version": "0.50.0",
+      "license": "Apache-2.0 OR MIT",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/linebender/resvg",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "bdb896f04730b97805bbc3191fc57e4bf03face0f14577dd42e783c4d8c98802",
+      "authors": [],
+      "documents": [
+        {
+          "path": "LICENSE-APACHE",
+          "source": "crate archive",
+          "sha256": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9",
+          "kind": "license-document"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "source": "crate archive",
+          "sha256": "f5d934dc281b44e0003ee461ac740b18b6629a454decd872c774d34e4ee0b21d",
           "kind": "license-document"
         }
       ]
@@ -5597,6 +6354,28 @@
           "path": "LICENSE",
           "source": "crate archive",
           "sha256": "0dc18d924dc0a5f41172a393012843a5eaaef338e795b3645da9cc3b6068220b",
+          "kind": "license-document"
+        }
+      ]
+    },
+    {
+      "name": "xmlwriter",
+      "version": "0.1.0",
+      "license": "MIT",
+      "roles": [
+        "runtime"
+      ],
+      "repository": "https://github.com/RazrFalcon/xmlwriter",
+      "crate_source": "registry+https://github.com/rust-lang/crates.io-index",
+      "crate_sha256": "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9",
+      "authors": [
+        "Evgeniy Reizner <razrfalcon@gmail.com>"
+      ],
+      "documents": [
+        {
+          "path": "LICENSE",
+          "source": "crate archive",
+          "sha256": "2cdce1ff4ca8f455ef169691ea493407e23c32ecdea5fd9b3a6fc82be5b49b5a",
           "kind": "license-document"
         }
       ]

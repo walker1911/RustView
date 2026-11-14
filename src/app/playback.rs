@@ -116,6 +116,7 @@ impl Viewer {
             preview_height: output.reply.preview_height,
             note,
             record: output.reply.editing_record.map(Arc::new),
+            svg_size: None,
         });
         if reloading {
             self.set_reloaded_current(index, full_raw, image.clone());

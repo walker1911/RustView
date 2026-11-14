@@ -2,10 +2,11 @@
 
 RustView's original application code is MIT licensed. Dependency versions are fixed in Cargo.lock. This project reuses libraries and native engines; it does not claim to be an official ACDSee build.
 
-Full Rust dependency license and copyright texts are distributed in [licenses/RUST-DEPENDENCIES.txt](licenses/RUST-DEPENDENCIES.txt), with a [package and source-document inventory](licenses/RUST-DEPENDENCIES.json). The Windows graph contains 210 third-party packages, including 38 build/procedural-macro-only packages and three used in both build and runtime paths. The bundle preserves license alternatives, notices and embedded font licenses; it records the one supplemental standard CC0 text where hexf-parse omits a license document. The Rust 1.99.1 standard library's complete upstream attribution document is included in [licenses/RUST-STANDARD-LIBRARY.html](licenses/RUST-STANDARD-LIBRARY.html).
+Full Rust dependency license and copyright texts are distributed in [licenses/RUST-DEPENDENCIES.txt](licenses/RUST-DEPENDENCIES.txt), with a [package and source-document inventory](licenses/RUST-DEPENDENCIES.json). The Windows graph contains 243 third-party packages, including 39 build/procedural-macro-only packages and three used in both build and runtime paths. The bundle preserves license alternatives, notices and embedded font licenses; it records the one supplemental standard CC0 text where hexf-parse omits a license document. The Rust 1.99.1 standard library's complete upstream attribution document is included in [licenses/RUST-STANDARD-LIBRARY.html](licenses/RUST-STANDARD-LIBRARY.html).
 
 - egui / eframe / wgpu: https://github.com/emilk/egui and https://github.com/gfx-rs/wgpu — MIT / Apache-2.0.
 - image and image-webp: https://github.com/image-rs — MIT / Apache-2.0; see the locked packages for individual notices.
+- resvg / usvg and tiny-skia: https://github.com/linebender/resvg and https://github.com/linebender/tiny-skia — Apache-2.0 or MIT for resvg and usvg, BSD-3-Clause for tiny-skia. The licenses and notices for SVG rendering and text shaping are included in the Rust dependency inventory.
 - gif, png and tiff: https://github.com/image-rs — MIT / Apache-2.0; animation metadata, actual output bit depths and multipage TIFF decoding.
 - rusqlite: https://github.com/rusqlite/rusqlite — MIT. The bundled SQLite engine is public domain: https://sqlite.org/copyright.html .
 - windows / windows-sys: https://github.com/microsoft/windows-rs — MIT / Apache-2.0; keyboard, clipboard, printing and desktop wallpaper interfaces.
