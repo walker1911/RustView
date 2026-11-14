@@ -21,6 +21,7 @@ mod commands;
 mod compare;
 mod coverflow;
 mod directory;
+mod directory_watch;
 mod edit_ui;
 mod floating_toolbar;
 mod floating_toolbar_glass;
@@ -151,6 +152,10 @@ enum Operation {
         full_raw: bool,
         preload: bool,
     },
+    Reload {
+        index: usize,
+        full_raw: bool,
+    },
 }
 struct Task {
     id: u64,
@@ -170,6 +175,7 @@ struct Running {
     preview: Option<(usize, Receiver<worker::ContinuityPreview>)>,
     preload: Option<(usize, bool)>,
     promoted: bool,
+    reload: bool,
 }
 
 struct DeferredImage {
@@ -455,7 +461,7 @@ impl Viewer {
         if let Some(active) = &self.running {
             active.cancel.store(true, Ordering::Relaxed);
         }
-        self.directory_scan.cancel();
+        self.directory_scan.cancel_scan();
         self.stop_animation();
         self.suspend_coverflow_thumbnails();
         self.extra.presentation.cancel_target();
@@ -466,10 +472,11 @@ impl Viewer {
         if ctx.input(|i| i.viewport().close_requested()) { self.request_close(ctx); }
         if !self.closing { return false; }
         self.poll(ctx);
+        self.poll_directory_refresh(ctx);
         let covers_finished = self.poll_cancelled_coverflow(ctx);
         let recognition_finished = self.recognition.drained();
         if self.running.is_none() && self.pending.is_none() && self.extra.retiring.is_none()
-            && covers_finished && recognition_finished && self.directory_scan.is_idle()
+            && covers_finished && recognition_finished && self.directory_scan.drained()
             && self.pyramid.as_ref().is_none_or(pyramid_view::View::drained)
             && self.extra.writing.is_none() && self.extra.pending_write.is_none() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -772,6 +779,33 @@ impl Viewer {
         }
     }
 
+    fn reload_directory_image(&mut self, index: usize, full_raw: bool) {
+        let Some(request) = self.make_view_load(index, full_raw) else { return; };
+        if let Some(view) = &mut self.pyramid { view.freeze(); }
+        self.recognition.reset();
+        self.queue(request, Operation::Reload { index, full_raw });
+    }
+
+    fn set_reloaded_current(&mut self, index: usize, full_raw: bool, image: Arc<Pixels>) {
+        let resized = self.current.as_ref().is_some_and(|old| {
+            (old.width, old.height) != (image.width, image.height)
+        });
+        let (fit, mut pan, rotation, flip_x, flip_y) =
+            (self.fit, self.pan, self.rotation, self.flip_x, self.flip_y);
+        if resized {
+            let (width, height) = if rotation % 2 == 0 {
+                (image.width, image.height)
+            } else {
+                (image.height, image.width)
+            };
+            let limit = egui::vec2(width as f32, height as f32) * (self.target_scale * 0.5);
+            pan = pan.clamp(-limit, limit);
+        }
+        self.recognition.reset();
+        self.set_current(index, full_raw, image);
+        (self.fit, self.pan, self.rotation, self.flip_x, self.flip_y) = (fit, pan, rotation, flip_x, flip_y);
+    }
+
     fn schedule_preload(&mut self) {
         if self.cache.budget == 0
             || self.cache.bytes > self.cache.budget / 2
@@ -847,8 +881,12 @@ impl Viewer {
             Some(Err(mpsc::TryRecvError::Disconnected)) => {
                 if let Some(running) = self.running.take() {
                     if running.id == self.serial {
-                        self.status = "后台任务意外结束，可以重新打开文件".into();
-                        self.error = Some(self.status.clone());
+                        if running.reload {
+                            self.status = "更新图片失败：后台任务意外结束".into();
+                        } else {
+                            self.status = "后台任务意外结束，可以重新打开文件".into();
+                            self.error = Some(self.status.clone());
+                        }
                     }
                 }
                 None
@@ -874,7 +912,9 @@ impl Viewer {
                                 event.operation,
                                 Operation::Load { preload: true, .. } | Operation::Thumbnail { .. }
                             );
-                            if !preload {
+                            if matches!(event.operation, Operation::Reload { .. }) {
+                                self.status = format!("更新图片失败：{error}");
+                            } else if !preload {
                                 self.status = error.clone();
                                 if output.reply.password_required {
                                     self.retry = Some((event.request, event.operation));
@@ -986,11 +1026,10 @@ impl Viewer {
                                         );
                                     }
                                 }
-                                Operation::Load {
-                                    index,
-                                    full_raw,
-                                    preload,
-                                } => {
+                                operation @ (Operation::Load { index, full_raw, .. }
+                                    | Operation::Reload { index, full_raw }) => {
+                                    let reloading = matches!(operation, Operation::Reload { .. });
+                                    let preload = matches!(operation, Operation::Load { preload: true, .. });
                                     if !preload {
                                         self.extra.page_index = output.reply.page_index;
                                         self.extra.page_total = output.reply.page_total.max(1);
@@ -1019,10 +1058,16 @@ impl Viewer {
                                         if view.is_some() || embedded {
                                             self.extra.pending_edit_id = None;
                                         }
-                                        self.set_current(index, full_raw, image);
+                                        if reloading {
+                                            self.set_reloaded_current(index, full_raw, image);
+                                        } else {
+                                            self.set_current(index, full_raw, image);
+                                        }
                                         self.embedded_psd_preview = embedded;
                                         if let Some(view) = view {
-                                            (self.rotation, self.flip_x, self.flip_y) = view.orientation();
+                                            if !reloading {
+                                                (self.rotation, self.flip_x, self.flip_y) = view.orientation();
+                                            }
                                             self.status = self.current.as_ref().unwrap().note.clone();
                                             self.pyramid = Some(view);
                                         }
@@ -1042,7 +1087,9 @@ impl Viewer {
                         if let Operation::Metadata { ref key } = event.operation {
                             self.metadata_error(key.clone(), error.clone());
                         }
-                        if !matches!(
+                        if matches!(event.operation, Operation::Reload { .. }) {
+                            if error != "已取消" { self.status = format!("更新图片失败：{error}"); }
+                        } else if !matches!(
                             event.operation,
                             Operation::Load { preload: true, .. } | Operation::Thumbnail { .. }
                         ) && error != "已取消"
@@ -1084,7 +1131,7 @@ impl Viewer {
             if let Some(task) = self.pending.take() {
                 if Self::is_animation_candidate(&task.request)
                     && !self.browser
-                    && matches!(task.operation, Operation::Load { preload: false, .. })
+                    && matches!(task.operation, Operation::Load { preload: false, .. } | Operation::Reload { .. })
                 {
                     self.start_animation(task, ctx);
                     return;
@@ -1107,6 +1154,7 @@ impl Viewer {
         let cancel = Arc::new(AtomicBool::new(false));
         let thread_cancel = cancel.clone();
         let id = task.id;
+        let reload = matches!(task.operation, Operation::Reload { .. });
         std::thread::spawn(move || {
             let repaint = || {
                 if let Some(ctx) = &context {
@@ -1128,7 +1176,7 @@ impl Viewer {
         self.running = Some(Running {
             id, cancel, receiver,
             preview: preview_index.map(|index| (index, preview_rx)),
-            preload, promoted: false,
+            preload, promoted: false, reload,
         });
     }
 
@@ -2240,6 +2288,7 @@ impl eframe::App for Viewer {
         if self.finish_deferred_image(ctx) || self.pending.is_some() && self.running.is_none() {
             self.start_pending_task(ctx);
         }
+        self.poll_directory_refresh(ctx);
         if self.draw_direct_startup(ctx) {
             self.update_window_title(ctx);
             return;
@@ -2548,7 +2597,7 @@ mod tests {
         let (preview_tx, preview_rx) = mpsc::sync_channel(1);
         let cancel = Arc::new(AtomicBool::new(false));
         viewer.running = Some(Running { id: task.id, cancel: cancel.clone(), receiver,
-            preview: Some((1, preview_rx)), preload: Some((1, false)), promoted: false });
+            preview: Some((1, preview_rx)), preload: Some((1, false)), promoted: false, reload: false });
         viewer.load_index(1, false);
         assert!(viewer.pending.is_none() && viewer.running.as_ref().unwrap().promoted);
         assert_eq!(viewer.serial, task.id);
@@ -2592,7 +2641,7 @@ mod tests {
             let (sender, receiver) = mpsc::sync_channel(1);
             let cancel = Arc::new(AtomicBool::new(false));
             viewer.running = Some(Running { id: 1, cancel: cancel.clone(), receiver,
-                preview: None, preload: None, promoted: false });
+                preview: None, preload: None, promoted: false, reload: false });
             viewer.serial = 2;
             viewer.pending = Some(Task { id: 2, request: request.clone(), operation: operation.clone() });
             let ctx = egui::Context::default();
@@ -2810,6 +2859,34 @@ mod tests {
         assert!(!viewer.fit);
         viewer.perform(Action::ZoomOut, &ctx);
         assert_eq!(viewer.target_scale, 0.5);
+    }
+
+    #[test]
+    fn local_reload_retains_placement_and_old_pixels_until_success() {
+        let folder = tempfile::tempdir().unwrap();
+        let mut viewer = browser_ui::tests::viewer(vec![Entry {
+            name: "sample.psd".into(), size: 64, directory: false, archive: false, modified: None,
+        }]);
+        viewer.source = Some(folder.path().to_owned());
+        viewer.browser = false;
+        let old = pixels(16);
+        viewer.set_current(0, false, old.clone());
+        viewer.fit = false;
+        viewer.pan = Vec2::new(12.0, -8.0);
+        viewer.target_scale = 3.0;
+        viewer.scale = 2.5;
+        viewer.rotation = 1;
+        viewer.flip_y = true;
+        viewer.reload_directory_image(0, false);
+        assert!(matches!(viewer.pending.as_ref().unwrap().operation, Operation::Reload { index: 0, .. }));
+        assert!(Arc::ptr_eq(viewer.current.as_ref().unwrap(), &old));
+
+        viewer.set_reloaded_current(0, false, pixels(16));
+        assert!(!Arc::ptr_eq(viewer.current.as_ref().unwrap(), &old));
+        assert!(!viewer.fit);
+        assert_eq!(viewer.pan, Vec2::new(12.0, -8.0));
+        assert_eq!((viewer.rotation, viewer.flip_y), (1, true));
+        assert_eq!((viewer.target_scale, viewer.scale), (3.0, 2.5));
     }
 
     #[test]

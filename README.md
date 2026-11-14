@@ -8,9 +8,13 @@
 
 An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, Photoshop composites, and pictures inside compressed archives. Read QR codes and copy text from pictures while staying in the viewer.
 
-[Download v0.6.9](https://github.com/walker1911/RustView/releases/tag/v0.6.9) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+[Download v0.7.0](https://github.com/walker1911/RustView/releases/tag/v0.7.0) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
 
-## New in v0.6.9
+## New in v0.7.0
+
+**Stay on the same spot when a file is saved.** RustView watches the active local folder and refreshes after images are added, removed, renamed, or saved from another program. A changed photo reloads in place with its zoom and pan intact. While a file is still being written, the previous view stays visible. During held-arrow browsing, folder changes wait for a pause. [v0.7.0 release notes and benchmarks](docs/RELEASE-v0.7.0.md)
+
+## Text, TIFF, and Photoshop previews
 
 **Select text directly on the image.** Pause on a still image to let offline OCR prepare the text. When the text cursor appears, drag across words or lines and press `Ctrl+C`. Simplified Chinese and English models come with the viewer. Whole-image and selected-area OCR are still available from the right-click menu. [OCR result screenshot](assets/readme/ocr-result.png)
 
@@ -34,6 +38,7 @@ Graphite is the default background. Under **视图 → 看图背景 → 照片�
 |---|---|
 | **Browse archives** | Read ZIP / RAR / 7z images on demand with password prompts, resume from the last image shown, and jump by filename, path, or number. |
 | **Reopen recent items** | Return to up to 20 recently opened images, folders, or archives from the File menu. History stays in the local catalog. |
+| **Follow local changes** | Refresh the open local folder automatically and reload the current image in place when another program saves it. |
 | **Keep browsing** | Left/right changes images and up/down zooms. Tap to load the full image or hold an arrow key for quick previews of uncached local JPEGs and eligible RAWs. A flat, animated filmstrip keeps the selected photo centered, with a filename and `1/84` counter. |
 | **View modern formats** | Common images, LibRaw-supported RAW and ProRAW DNG, plus HEIC/HEIF, AVIF, and JPEG XL. |
 | **Open Photoshop documents** | View saved PSD/PSB composites locally or inside ZIP/RAR/7z, including sources larger than 512 MiB. Use a labeled embedded preview if the full composite is unavailable and the document includes a usable thumbnail. |
@@ -79,7 +84,7 @@ v0.4.0 permits [local and ZIP/RAR/7z-contained PSD/PSB](docs/PSD.md) sources up 
 
 ## Download and use
 
-1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.9/RustView-0.6.9-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.6.9/RustView-0.6.9-win-x64-offline.zip.sha256)
+1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.0/RustView-0.7.0-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.7.0/RustView-0.7.0-win-x64-offline.zip.sha256)
 2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. The package includes the image engines, runtime libraries, and Tesseract with Simplified Chinese and English models. Viewing and OCR work offline from the first launch.
 3. Open or drag in a folder, picture, or archive. Keep the complete extracted folder.
 
@@ -120,7 +125,7 @@ pwsh -File .\tools\build.ps1 -Offline
 
 See [BUILDING.md](BUILDING.md) for checksums and validation steps.
 
-Release checks cover static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnails, and large encrypted-RAR cancellation. The v0.6.9 development builds were checked on the Windows desktop for text selection, click-versus-hold browsing, and panning and zooming a 108,199 × 81,503 BigTIFF. [v0.6.9 release notes and measurements](docs/RELEASE-v0.6.9.md) · [Validation results and scope](docs/VALIDATION.md)
+Release checks cover static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnails, and large encrypted-RAR cancellation. Windows desktop checks for v0.7.0 covered folder changes, PSD saves without a change in viewport geometry, and browsing while many files were being added or removed. In a paired test against v0.6.9, median first-image time in a 10,000-JPEG folder was 698 → 684 ms. [v0.7.0 release notes and benchmarks](docs/RELEASE-v0.7.0.md) · [Prior validation](docs/VALIDATION.md)
 
 Real-camera samples include Nikon Z6, Sony a7 III, Canon EOS R, iPhone 12 Pro ProRAW and HEIC. See the validation record for the scope of native-window, display, and print checks.
 

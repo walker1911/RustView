@@ -148,6 +148,13 @@ impl Default for State {
     }
 }
 impl State {
+    pub(super) fn remap_directory(&mut self, indices: &[Option<usize>]) {
+        let remap = |index: usize| indices.get(index).copied().flatten();
+        self.selection_anchor = self.selection_anchor.and_then(remap);
+        self.scroll_target = self.scroll_target.and_then(remap);
+        self.invalidate();
+    }
+
     pub fn invalidate(&mut self) {
         self.generation = self.generation.wrapping_add(1);
         self.dirty = true;

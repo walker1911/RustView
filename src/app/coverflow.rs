@@ -64,6 +64,18 @@ impl State {
         self.wanted.clear();
     }
 
+    pub(super) fn remap_directory(&mut self, indices: &[Option<usize>]) {
+        self.cancel();
+        self.epoch = self.epoch.wrapping_add(1);
+        let remap = |index: usize| indices.get(index).copied().flatten();
+        self.textures = self.textures.drain().filter_map(|(i, value)| remap(i).map(|i| (i, value))).collect();
+        self.previews = self.previews.drain().filter_map(|(i, value)| remap(i).map(|i| (i, value))).collect();
+        for queue in [&mut self.recent, &mut self.failed, &mut self.unavailable_psd_previews] {
+            *queue = queue.drain(..).filter_map(remap).collect();
+        }
+        self.invalidate_sequence();
+    }
+
     fn ensure_sequence(&mut self, entries: &[Entry], visible: &[usize], selection: &BTreeSet<usize>) {
         if !self.dirty { return; }
         self.sequence.clear();

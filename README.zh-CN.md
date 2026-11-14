@@ -8,9 +8,13 @@
 
 面向 **Windows x64** 的 Rust 看图项目。用熟悉的快捷键、Picasa 式胶片带和平滑缩放浏览相机 RAW、GIF/WebP 动画、Photoshop 合成图及 ZIP／RAR／7z 里的照片。看图时也能直接读二维码、复制图片里的文字。
 
-[下载 v0.6.9](https://github.com/walker1911/RustView/releases/tag/v0.6.9) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
+[下载 v0.7.0](https://github.com/walker1911/RustView/releases/tag/v0.7.0) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
 
-## v0.6.9 新功能
+## v0.7.0 新功能
+
+**外部保存后，接着看同一个位置。** RustView 会自动刷新正在浏览的本地目录。添加、移走、重命名或保存图片后，文件列表和缩略图会跟着更新。当前图被重新保存时，会在原位置重读，保留缩放和平移。文件尚未写完时先保留原画面，长按翻图时等浏览停下来再更新目录。[v0.7.0 更新说明与实测数据](docs/RELEASE-v0.7.0.md)
+
+## 图上选字、超大 TIFF 与 Photoshop 预览
 
 **直接在图片上选字。** 在静态图上停留片刻，RustView 会在后台离线识字。鼠标移到文字上出现文本光标后，可拖选一段或多行，再按 `Ctrl+C`。包内提供简体中文和英文模型，右键仍可调用整图、框选识别。[OCR 结果实拍](assets/readme/ocr-result.png)
 
@@ -36,6 +40,7 @@
 |---|---|
 | **直接看包内图片** | 按需读取 ZIP／RAR／7z 里的图片，需要时输入密码。可续看到上次显示的位置，也可按文件名、路径或序号跳页。 |
 | **最近打开** | 从文件菜单重新打开最近的图片、文件夹或压缩包，最多显示 20 项。历史保存在本地目录库。 |
+| **自动刷新本地目录** | 更新当前目录的文件列表与缩略图，当前图被其他软件保存后原位重读。 |
 | **连续翻图** | 左右键切换，上下键缩放。点按读取完整图，按住左右键可快速预览未缓存的本地 JPEG 和符合条件的 RAW。平直胶片带平滑跟随，当前图居中并显示文件名和 `1/84` 序号。 |
 | **看 Photoshop 文档** | 直接读取本地及 ZIP／RAR／7z 内 PSD/PSB 保存的合成图，支持超过 512 MiB 的大源文件。合成图不可用时可显示带标记的内嵌预览。 |
 | **浏览超大 TIFF** | 对符合条件的本地金字塔 TIFF／BigTIFF，先显示全景，放大后按需读取细节分块。 |
@@ -85,7 +90,7 @@ v0.4.0 对[本地及ZIP／RAR／7z内的PSD/PSB](docs/PSD.md)提供源文件例�
 
 ## 下载与运行
 
-1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.6.9/RustView-0.6.9-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.6.9/RustView-0.6.9-win-x64-offline.zip.sha256)
+1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.0/RustView-0.7.0-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.7.0/RustView-0.7.0-win-x64-offline.zip.sha256)
 2. 完整解压，双击 `RustView.exe` 或 `Start-RustView.cmd`。图像引擎、运行库、Tesseract 和简体中文及英文模型均随包提供，首次启动即可离线看图和识别文字。
 3. 打开或拖入文件夹、图片、ZIP／RAR／7z。请保留完整目录。
 
@@ -128,7 +133,7 @@ pwsh -File .\tools\build.ps1 -Offline
 
 ## 验证到哪一步
 
-发行检查覆盖静态图与压缩包、GIF/WebP 动画、PSD/PSB 合成图、缩略图和大型加密 RAR 的取消清理。v0.6.9 的开发版在 Windows 桌面验证了图上选字、点按与长按翻图，以及一份 108,199 × 81,503 BigTIFF 的平移和缩放。[v0.6.9 更新说明与实测数据](docs/RELEASE-v0.6.9.md) · [验证结果与范围](docs/VALIDATION.md)
+发行检查覆盖静态图与压缩包、GIF/WebP 动画、PSD/PSB 合成图、缩略图和大型加密 RAR 的取消清理。v0.7.0 在 Windows 桌面验证了本地目录变更、PSD 保存后的原位刷新，以及大批文件变动时的长按翻图。同机对照 v0.6.9，万张 JPEG 图库的首图耗时中位数为 698 → 684 毫秒。[v0.7.0 更新说明与实测数据](docs/RELEASE-v0.7.0.md) · [历次验证记录](docs/VALIDATION.md)
 
 真实相机样本包括 Nikon Z6、Sony a7 III、Canon EOS R、iPhone 12 Pro ProRAW 和 HEIC。原生窗口、显示和打印测试的范围见验证记录。反馈时请提供版本、格式或相机型号、预期行为和最小复现样本。[报告问题](https://github.com/walker1911/RustView/issues)
 

@@ -288,6 +288,7 @@ mod tests {
                 preview: None,
                 preload: None,
                 promoted: false,
+                reload: false,
             });
             // The unit test process cannot launch itself as an image worker.
             viewer.closing = true;

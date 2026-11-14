@@ -55,6 +55,19 @@ impl Viewer {
         self.extra.animation_deadline = Instant::now();
         self.extra.animation = Some(Session::start(task.request, ctx.clone()));
     }
+
+    pub(super) fn remap_directory_animation(&mut self, indices: &[Option<usize>]) {
+        let Some((_, operation)) = &mut self.extra.animation_operation else { return; };
+        let index = match operation {
+            Operation::Load { index, .. } | Operation::Reload { index, .. } => index,
+            _ => return,
+        };
+        if let Some(next) = indices.get(*index).copied().flatten() {
+            *index = next;
+        } else {
+            self.stop_animation();
+        }
+    }
     pub(super) fn toggle_animation(&mut self) {
         if self.extra.animation_ended {
             if let Some((request, operation)) = self.extra.animation_operation.clone() {
@@ -80,14 +93,11 @@ impl Viewer {
     }
     pub(super) fn display_animation_frame(&mut self, packet: Packet, ctx: &egui::Context) {
         self.extra.exposure_texture = None;
-        let Some((
-            request,
-            Operation::Load {
-                index, full_raw, ..
-            },
-        )) = self.extra.animation_operation.clone()
-        else {
-            return;
+        let Some((request, operation)) = self.extra.animation_operation.clone() else { return; };
+        let (index, full_raw, reloading) = match operation {
+            Operation::Load { index, full_raw, .. } => (index, full_raw, false),
+            Operation::Reload { index, full_raw } => (index, full_raw, true),
+            _ => return,
         };
         let first = self.current_key != Some((index, full_raw));
         let output = packet.output;
@@ -107,7 +117,10 @@ impl Viewer {
             note,
             record: output.reply.editing_record.map(Arc::new),
         });
-        if first {
+        if reloading {
+            self.set_reloaded_current(index, full_raw, image.clone());
+            self.extra.animation_operation = Some((request.clone(), Operation::Load { index, full_raw, preload: false }));
+        } else if first {
             self.set_current(index, full_raw, image.clone());
         } else {
             self.current = Some(image.clone());
@@ -167,13 +180,16 @@ impl Viewer {
             }) => {
                 let retry = self.extra.animation_operation.clone();
                 self.stop_animation();
-                self.status = message.clone();
-                if password_required {
+                if matches!(&retry, Some((_, Operation::Reload { .. }))) {
+                    self.status = format!("更新图片失败：{message}");
+                } else if password_required {
+                    self.status = message;
                     self.retry = retry;
                     self.password_dialog = true;
                     self.password_focus = true;
                     self.password_input.clear();
                 } else {
+                    self.status = message.clone();
                     self.error = Some(message);
                 }
             }

@@ -100,6 +100,17 @@ impl State {
         self.target = None;
     }
 
+    pub(super) fn remap_directory(&mut self, old_current: Option<usize>, new_current: Option<usize>) {
+        self.cancel_target();
+        let Some(frame) = self.frame.as_mut() else { return; };
+        if let Some(index) = new_current.filter(|_| frame.epoch == self.epoch && old_current == Some(frame.index)) {
+            frame.index = index;
+        } else {
+            // Keep the drawn overview for continuity, but no longer use it as a cover.
+            self.epoch = self.epoch.wrapping_add(1);
+        }
+    }
+
     pub fn begin_target(&mut self, index: usize, name: String) {
         self.target = Some(Target { index, name, started: Instant::now(), immediate: false, local_psd: false, preview: None });
     }

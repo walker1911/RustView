@@ -61,6 +61,13 @@ impl View {
         self.in_flight.clear();
     }
 
+    pub(super) fn freeze(&mut self) {
+        // Existing tiles belong to the displayed revision. The file may already
+        // contain a different pyramid, so keep them without fetching new tiles.
+        self.failed = true;
+        self.cancel();
+    }
+
     pub(super) fn close(&self) {
         if let Some(tiles) = &self.tiles {
             tiles.cancel();

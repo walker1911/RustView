@@ -228,6 +228,20 @@ pub fn is_archive(path: &Path) -> bool {
     )
 }
 
+pub fn local_entry(name: String, metadata: fs::Metadata) -> Option<Entry> {
+    let directory = metadata.is_dir();
+    let archive = is_archive(Path::new(&name));
+    (directory || archive || crate::imaging::is_supported_image(&name)).then(|| Entry {
+        name,
+        size: metadata.len(),
+        directory,
+        archive,
+        modified: metadata.modified().ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .and_then(|duration| i64::try_from(duration.as_secs()).ok()),
+    })
+}
+
 pub(crate) fn archive_error(error: crate::archive::ArchiveError) -> Reply {
     use crate::archive::ArchiveError::*;
     let (password_required, message) = match error {
@@ -1158,27 +1172,14 @@ fn handle_request(request: Request, output: &Path, publish_preview: bool) -> Rep
                         Ok(m) => m,
                         Err(_) => continue,
                     };
-                    let name = item.file_name().to_string_lossy().into_owned();
-                    let directory = metadata.is_dir();
-                    let archive = is_archive(&item.path());
-                    if directory || archive || crate::imaging::is_supported_image(&name) {
+                    if let Some(entry) = local_entry(item.file_name().to_string_lossy().into_owned(), metadata) {
                         if entries.len() == MAX_ENTRIES {
                             return Reply {
                                 error: Some("目录超过十万条，当前版本请打开更小的子目录".into()),
                                 ..Default::default()
                             };
                         }
-                        entries.push(Entry {
-                            name,
-                            size: metadata.len(),
-                            directory,
-                            archive,
-                            modified: metadata
-                                .modified()
-                                .ok()
-                                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                                .and_then(|d| i64::try_from(d.as_secs()).ok()),
-                        });
+                        entries.push(entry);
                     }
                 }
             } else if is_archive(&path) {
