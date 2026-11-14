@@ -36,7 +36,7 @@ try {
             Copy-Item -LiteralPath $_.FullName -Destination $target -Force
         }
     }
-    foreach ($file in @('README.md','README.zh-CN.md','THIRD-PARTY-NOTICES.md','LICENSE','BUILDING.md','OFFLINE.md')) {
+    foreach ($file in @('README.md','README.en.md','README.zh-CN.md','THIRD-PARTY-NOTICES.md','LICENSE','BUILDING.md','OFFLINE.md')) {
         $source = Join-Path $projectRoot $file
         if (Test-Path -LiteralPath $source -PathType Leaf) { Copy-Item -LiteralPath $source -Destination (Join-Path $package $file) -Force }
     }

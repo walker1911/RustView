@@ -8,7 +8,9 @@
 
 面向 **Windows x64** 的 Rust 看图项目。用熟悉的快捷键、Picasa 式胶片带和平滑缩放浏览相机 RAW、GIF/WebP 动画、Photoshop 合成图及 ZIP／RAR／7z 里的照片。看图时也能直接读二维码、复制图片里的文字。
 
-[下载 v0.7.2](https://github.com/walker1911/RustView/releases/tag/v0.7.2) · [English](README.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
+[下载已发布的 v0.7.2](https://github.com/walker1911/RustView/releases/tag/v0.7.2) · [English](README.en.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
+
+**当前源码（v0.7.3）。** Windows 上双击图片启动时，RustView 优先尝试兼容的硬件 OpenGL，必要时回退到 Vulkan 或默认渲染方式。
 
 ## v0.7.2 新功能
 

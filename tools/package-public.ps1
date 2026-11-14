@@ -30,7 +30,7 @@ try {
         }
     }
     Copy-Item -LiteralPath (Find-ReleaseExe $projectRoot) -Destination (Join-Path $package 'RustView.exe') -Force
-    foreach ($file in @('README.md','README.zh-CN.md','THIRD-PARTY-NOTICES.md','LICENSE','BUILDING.md')) {
+    foreach ($file in @('README.md','README.en.md','README.zh-CN.md','THIRD-PARTY-NOTICES.md','LICENSE','BUILDING.md')) {
         $source = Join-Path $projectRoot $file
         if (Test-Path -LiteralPath $source -PathType Leaf) { Copy-Item -LiteralPath $source -Destination (Join-Path $package $file) -Force }
     }

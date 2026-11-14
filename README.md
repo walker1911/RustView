@@ -1,124 +1,132 @@
 # RustView
 
-<img src="assets/rustview-icon.png" width="112" height="112" alt="RustView's official lotus icon">
+<img src="assets/rustview-icon.png" width="112" height="112" alt="RustView 正式莲花图标">
 
-[![Windows x64 CI](https://github.com/walker1911/RustView/actions/workflows/ci.yml/badge.svg)](https://github.com/walker1911/RustView/actions/workflows/ci.yml)
+[![Windows x64 构建与测试](https://github.com/walker1911/RustView/actions/workflows/ci.yml/badge.svg)](https://github.com/walker1911/RustView/actions/workflows/ci.yml)
 
-**Open the archive. Keep the flow.**
+**打开压缩包，接着看。**
 
-An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, Photoshop composites, and pictures inside compressed archives. Read QR codes and copy text from pictures while staying in the viewer.
+面向 **Windows x64** 的 Rust 看图项目。用熟悉的快捷键、Picasa 式胶片带和平滑缩放浏览相机 RAW、GIF/WebP 动画、Photoshop 合成图及 ZIP／RAR／7z 里的照片。看图时也能直接读二维码、复制图片里的文字。
 
-[Download v0.7.2](https://github.com/walker1911/RustView/releases/tag/v0.7.2) · [简体中文](README.zh-CN.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+[下载已发布的 v0.7.2](https://github.com/walker1911/RustView/releases/tag/v0.7.2) · [English](README.en.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
 
-## New in v0.7.2
+**当前源码（v0.7.3）。** Windows 上双击图片启动时，RustView 优先尝试兼容的硬件 OpenGL，必要时回退到 Vulkan 或默认渲染方式。
 
-**Jump to an image in a local folder.** In single-image view, show the top toolbar and click **跳页…** (Jump to image). Search by filename or enter a number in the current browsing order. Continue with Left and Right from the selected image. The Windows desktop checks included jumping to image 6,800 in a folder of 10,000 JPEGs. [v0.7.2 release notes and benchmarks](docs/RELEASE-v0.7.2.md)
+## v0.7.2 新功能
 
-**Flip to the next photo sooner.** Double-clicking a local photo still loads that photo first. RustView then finds up to eight neighbors on either side and makes them available while the full folder index finishes. It keeps an early arrow press until the adjacent photo is available. In the same 10,000-JPEG folder, a single Left or Right press immediately after the first photo appeared worked in all eight v0.7.1 trials, compared with zero of eight on v0.7.0. [v0.7.1 release notes and benchmarks](docs/RELEASE-v0.7.1.md)
+**在本地文件夹快速跳图。** 单图查看时移到窗口顶边，打开工具栏的 **「跳页…」**，按文件名或当前浏览序号找图。跳转后，左右键从这张图继续翻看。Windows 实测包含在万张 JPEG 目录中跳到第 6,800 张。[v0.7.2 更新说明与实测数据](docs/RELEASE-v0.7.2.md)
 
-**Stay on the same spot when a file is saved.** RustView watches the active local folder and refreshes after images are added, removed, renamed, or saved from another program. A changed photo reloads in place with its zoom and pan intact. While a file is still being written, the previous view stays visible. During held-arrow browsing, folder changes wait for a pause. [v0.7.0 release notes and benchmarks](docs/RELEASE-v0.7.0.md)
+**首图出现后，能更早翻到旁边的照片。** 双击本地图片时仍先出首图。RustView 先让前后各最多 8 张图片可翻，再完成全目录的排序和索引。按得早也会暂存方向键操作，等相邻图片可用后切换。在同一万张 JPEG 目录里，首图刚出现时只按一次左键或右键，v0.7.1 成功 8／8 次，v0.7.0 为 0／8 次。[v0.7.1 更新说明与实测数据](docs/RELEASE-v0.7.1.md)
 
-## Text, TIFF, and Photoshop previews
+**外部保存后，接着看同一个位置。** RustView 会自动刷新正在浏览的本地目录。添加、移走、重命名或保存图片后，文件列表和缩略图会跟着更新。当前图被重新保存时，会在原位置重读，保留缩放和平移。文件尚未写完时先保留原画面，长按翻图时等浏览停下来再更新目录。[v0.7.0 更新说明与实测数据](docs/RELEASE-v0.7.0.md)
 
-**Select text directly on the image.** Pause on a still image to let offline OCR prepare the text. When the text cursor appears, drag across words or lines and press `Ctrl+C`. Simplified Chinese and English models come with the viewer. Whole-image and selected-area OCR are still available from the right-click menu. [OCR result screenshot](assets/readme/ocr-result.png)
+## 图上选字、超大 TIFF 与 Photoshop 预览
 
-**Zoom into huge local TIFFs.** Open a supported tiled pyramidal TIFF or BigTIFF and start with its embedded overview. Zoom and pan to load only the detail tiles you can see. Very large files open in read-only viewing mode. [Supported TIFF layouts](docs/COMPATIBILITY.md)
+**直接在图片上选字。** 在静态图上停留片刻，RustView 会在后台离线识字。鼠标移到文字上出现文本光标后，可拖选一段或多行，再按 `Ctrl+C`。包内提供简体中文和英文模型，右键仍可调用整图、框选识别。[OCR 结果实拍](assets/readme/ocr-result.png)
 
-**Better Photoshop previews and smoother browsing.** PSD/PSB reads now handle ZIP-compressed composites, including ZIP prediction. If a complex document has no usable composite, RustView can show its embedded JPEG with a preview label. A tap can show a small JPEG directly at full quality. When browsing large local PSD/PSB files, the viewer can show the selected document's own embedded preview while it loads the composite. [v0.6.9 release notes](docs/RELEASE-v0.6.9.md)
+**缩放超大 TIFF。** 打开符合条件的本地金字塔 TIFF 或 BigTIFF，先看内嵌全景，再随着缩放和平移按需读取视野内的细节分块。超出常规预算的文件进入只读查看模式。[TIFF 支持范围](docs/COMPATIBILITY.md)
 
-## Quiet view
+**改进 PSD 预览和翻图。** PSD/PSB 可读取 ZIP 压缩的合成图，包括带预测编码的文件。复杂文档缺少可用的合成图时，如有内嵌 JPEG，可显示带标记的预览。点按翻图时，小 JPEG 可直接显示清晰图；遇到较大的本地 PSD/PSB，读取期间可先显示目标图自己的内嵌预览。[v0.6.9 更新说明](docs/RELEASE-v0.6.9.md)
 
-![RustView with the photo and filmstrip visible and the menus tucked away](assets/readme/viewer.png)
+## 清爽看图
 
-Move the pointer to the top edge or drag the window by its title bar to reveal the menus, file path, and status. The photo and filmstrip stay in place as the controls fade in and out. Move the pointer over the photo to bring up a separate translucent toolbar with previous and next, zoom out and in, actual size, and clockwise rotation. [Menus revealed](assets/readme/viewer-controls.png)
+![RustView 清爽看图，照片和胶片带可见，菜单默认收起](assets/readme/viewer.png)
 
-Graphite is the default background. Under **视图 → 看图背景 → 照片柔焦** (View → Background → Photo Soft Focus), the space around the photo takes on a subdued blur drawn from the image. RustView remembers the choice across launches. [Photo Soft Focus screenshot](assets/readme/photo-soft-focus.png)
+将鼠标移到窗口顶边，或拖动标题栏，菜单、文件路径和状态栏就会浮现。显隐时，照片和底部缩略图都留在原位。在照片上移动鼠标，还会唤出半透明浮动工具栏，可翻图、缩小、放大、看原始尺寸或顺时针旋转。[菜单浮现实拍](assets/readme/viewer-controls.png)
 
-![RustView's translucent floating toolbar just above the filmstrip](assets/readme/floating-toolbar.png)
+背景默认使用石墨灰。选择 **「视图 → 看图背景 → 照片柔焦」** 后，照片周围的留白会换成取自当前照片的低饱和模糊背景。下次打开时会记住选择。[照片柔焦实拍](assets/readme/photo-soft-focus.png)
 
-## Start with the pictures
+![RustView 的半透明工具栏浮在胶片带上方](assets/readme/floating-toolbar.png)
 
-| Capability | What you can do |
+## 从照片出发
+
+一整个压缩包的照片、一组相机 RAW、一个想仔细看清的动画，都应该能顺手打开。RustView 保留经典桌面看图的操作节奏：打开、翻图、缩放、比较，再继续下一张。
+
+| 能力 | 可以做什么 |
 |---|---|
-| **Browse archives** | Read ZIP / RAR / 7z images on demand with password prompts, resume from the last image shown, and jump by filename, path, or number. |
-| **Jump within a local folder** | Find a picture by name or by its number in the current browsing order. |
-| **Reopen recent items** | Return to up to 20 recently opened images, folders, or archives from the File menu. History stays in the local catalog. |
-| **Follow local changes** | Refresh the open local folder automatically and reload the current image in place when another program saves it. |
-| **Keep browsing** | Left/right changes images and up/down zooms. Tap to load the full image or hold an arrow key for quick previews of uncached local JPEGs and eligible RAWs. A flat, animated filmstrip keeps the selected photo centered, with a filename and `1/84` counter. |
-| **View modern formats** | Common images, LibRaw-supported RAW and ProRAW DNG, plus HEIC/HEIF, AVIF, and JPEG XL. |
-| **Open Photoshop documents** | View saved PSD/PSB composites locally or inside ZIP/RAR/7z, including sources larger than 512 MiB. Use a labeled embedded preview if the full composite is unavailable and the document includes a usable thumbnail. |
-| **Browse huge TIFFs** | View supported local tiled pyramidal TIFF/BigTIFF files using their overview and on-demand detail tiles. |
-| **Read QR codes and image text** | Scan the current image for QR codes, drag to select automatically recognized text, or request whole-image and selected-area OCR. [QR support](docs/RELEASE-v0.6.8.md) |
-| **Zoom and compare** | Pointer-anchored zoom, panning, visible detail tiles, and up to four linked or independent comparison views. |
-| **Play and export animation** | Stream GIF/WebP with timing, disposal, and loop handling; export complete animations. |
-| **Work from the source** | RAW adjustments, crop, resize, color, sharpening, text/watermarks, real 16-bit PNG/TIFF, processing records, and presets. |
-| **Manage a collection** | Rename previews, folder/XMP moves, ratings, labels, explicit EXIF/IPTC/XMP editing, and contact sheets. |
+| **直接看包内图片** | 按需读取 ZIP／RAR／7z 里的图片，需要时输入密码。可续看到上次显示的位置，也可按文件名、路径或序号跳页。 |
+| **本地文件夹跳图** | 按文件名或当前浏览序号查找图片。 |
+| **最近打开** | 从文件菜单重新打开最近的图片、文件夹或压缩包，最多显示 20 项。历史保存在本地目录库。 |
+| **自动刷新本地目录** | 更新当前目录的文件列表与缩略图，当前图被其他软件保存后原位重读。 |
+| **连续翻图** | 左右键切换，上下键缩放。点按读取完整图，按住左右键可快速预览未缓存的本地 JPEG 和符合条件的 RAW。平直胶片带平滑跟随，当前图居中并显示文件名和 `1/84` 序号。 |
+| **看 Photoshop 文档** | 直接读取本地及 ZIP／RAR／7z 内 PSD/PSB 保存的合成图，支持超过 512 MiB 的大源文件。合成图不可用时可显示带标记的内嵌预览。 |
+| **浏览超大 TIFF** | 对符合条件的本地金字塔 TIFF／BigTIFF，先显示全景，放大后按需读取细节分块。 |
+| **识别二维码和图片文字** | 后台扫码并自动识字，可在图上拖选文字，也可手动识别整图或选区。[二维码说明](docs/RELEASE-v0.6.8.md) |
+| **接纳现代格式** | 常见图片、LibRaw 支持的相机 RAW、苹果 ProRAW DNG，以及由内置引擎读取的 HEIC/HEIF、AVIF、JPEG XL。 |
+| **平滑缩放与比较** | 保持鼠标指向位置缩放，拖动平移，按可见区域上传细节；最多四图独立或联动查看。 |
+| **完整动画** | GIF/WebP 按帧时序、透明合成与循环信息播放；支持整段动画导出。 |
+| **从原始源处理** | RAW 调节、裁剪、尺寸、色彩、锐化、文字与水印；导出真正的 16 位 PNG/TIFF，保存处理记录与预设。 |
+| **整理与输出** | 批量改名前预览、文件夹与 XMP 伴随迁移、评级和标签、显式读写 EXIF/IPTC/XMP，以及接触表排版。 |
 
-![RustView's native Windows management grid with a selected image and its preview](assets/readme/management.png)
+![RustView Windows 管理视图，显示缩略图网格和所选图片的预览](assets/readme/management.png)
 
-![Archive browsing flow](assets/readme/archive-flow.svg)
+![压缩包浏览流程](assets/readme/archive-flow.svg)
 
-In single-image view of a local folder, move the pointer to the top edge and click **跳页…** (Jump to image) after the initial folder scan completes. Search by partial filename (case-insensitive) or by number starting at 1 in the current browsing order. Press Enter when there is one clear best match. If several results are equally strong, choose the intended file in the list. The next and previous image keys continue from that file in the same browsing order.
+在本地文件夹的单图查看中，等首次目录扫描完成，把鼠标移到窗口顶边，再点 **「跳页…」**。可输入文件名的一部分（不区分大小写），或从 1 开始的当前浏览序号。有唯一最佳结果时按回车，多个结果同样匹配时在列表中选一张。跳转后，左右键沿当前顺序继续翻图。
 
-For archives, **跳页…** also accepts the full path inside the archive. When filenames repeat, use the path to select the intended entry. In **文件 → 最近打开…** (File → Recent), select an archive to resume or use **从头打开** (Open from start) to begin at its first image. Encrypted archives prompt for the password again when reopened. [Archive resume and jump](docs/RELEASE-v0.6.0.md)
+打开压缩包时，**「跳页…」** 也接受完整包内路径。文件名重复时，可按包内路径选择。在 **「文件 → 最近打开…」** 中，点击压缩包可续看，也可点 **「从头打开」** 回到包内第一张图。重新打开加密包时会再次询问密码。[压缩包续看与跳页](docs/RELEASE-v0.6.0.md)
 
-During rapid navigation, RustView can reuse a matching read in progress. Cached images display directly. The previous image's clear overview stays visible, with both images identified, until the target has pixels to show. Opening an individual image starts the read before directory scanning. For a static image opened at launch, the supervised read can also overlap graphics initialization. Once the scan has seen the filenames, it can make the first neighboring photos available ahead of the full folder sort. [Browsing behavior](docs/PICASA-BROWSING.md)
+快速翻图时，可复用已经在读取的目标任务。命中缓存的图片直接显示。目标有可用像素前，保留上一张的清晰概览，并同时标出目标文件和暂时显示的文件。直接打开单张图片时，先读取该图片，再扫描同目录。以静态图启动程序时，受限解码进程还可与图形初始化并行。遍历完文件名后，可在全目录排序前先翻到相邻图片。[浏览说明](docs/PICASA-BROWSING.md)
 
-ZIP and 7z updates create a backup. RAR is read-only. RAW metadata uses XMP sidecars.
+处理步骤保存为记录，常用参数保存为预设。导出会重新读取源数据计算，界面中的 RGBA8 显示预览不作为 RAW／高位输出的来源。
 
-## Memory has a budget
+压缩包密码仅用于当前会话。ZIP／7z 改包保留备份，RAR 保持只读。源图元数据与 RustView 自己的目录库分别存储；RAW 元数据写入 XMP 伴随文件。
 
-Decoding uses a separate, memory-limited Windows process tree. Failed records can be bypassed to view the original.
+## 内存有预算，读取按需进行
 
-| Resource | Limit |
+图像缓存有上限，读取和写入按队列进行；解码超时或超限以错误提示收尾。大图缩放优先上传屏幕可见的分块，减少一次性上传整图的等待。
+
+缓存不会随浏览过的图片无限保留。解码使用独立、受限的 Windows 工作进程树；静态大图按可见范围上传细节，动画保留当前帧和一个预读帧。处理记录恢复失败时，可暂不应用记录而查看原图，记录仍保留。
+
+| 资源 | 上限 |
 |---|---:|
-| Recent still-image cache for the current folder or archive | 0–2048 MiB, adjustable in Options |
-| GPU detail tiles | 256 MiB |
-| Image worker process tree | 2 GiB |
-| Large TIFF detail worker process tree | 512 MiB |
-| OCR process tree | 256 MiB |
-| Ordinary input / static RGBA output | 512 MiB each |
-| Validated PSD/PSB source, local or archived | 64 GiB; pixel budgets still apply |
-| Animation | Current frame + one prefetched frame |
+| 当前文件夹或压缩包的最近静态图片缓存 | 0–2048 MiB，可在选项中调整 |
+| GPU 细节分块 | 256 MiB |
+| 图像工作进程树 | 2 GiB |
+| 大 TIFF 细节工作进程树 | 512 MiB |
+| OCR 工作进程树 | 256 MiB |
+| 普通格式输入／静态 RGBA 输出 | 各 512 MiB |
+| 验证后的本地及包内 PSD/PSB 源文件 | 64 GiB；像素预算继续生效 |
+| 动画驻留 | 当前帧＋一个预读帧 |
 
-Press `Alt+O` to adjust the recent still-image cache. The initial limit is based on your computer's physical memory. Set it to 0 to disable the cache, or select the recommended value to restore it. Save options to keep the setting across launches.
+按 `Alt+O` 可调整「最近图片缓存上限」。默认使用按本机物理内存计算的推荐值，设为 0 可关闭，也可点击「使用推荐值」恢复。点击「保存选项与快捷键」后，下次启动会使用保存的数值。
 
-![Memory and worker architecture](assets/readme/memory.svg)
+![内存与工作进程结构](assets/readme/memory.svg)
 
-**Subsystem budgets** exclude GUI, driver, and preview overhead. Oversized inputs may be refused. [Validation details](docs/VALIDATION.md).
+这些是各层预算，**不是整个软件的总内存上限**。字体、驱动、概览纹理等还有额外开销；超限输入可能被拒绝。具体限额和实测范围见[验证记录](docs/VALIDATION.md)。
 
-v0.4.0 permits [local and ZIP/RAR/7z-contained PSD/PSB](docs/PSD.md) sources up to 64 GiB. It seeks directly to local composites or streams only the selected archive entry to temporary disk and cleans it after the task. RGBA and process-memory budgets remain unchanged. Very large composites can still exceed the pixel budget. Archive extraction needs space for the selected entry plus a 2 GiB reserve; solid archives may take longer to reach it.
+v0.4.0 对[本地及ZIP／RAR／7z内的PSD/PSB](docs/PSD.md)提供源文件例外：最多64 GiB。本地源直接定位合成图，包内所选项自动流式提取到临时盘并在任务结束后清理；RGBA和进程内存预算保持原值。极大的合成画布仍可能超限；包内提取需要临时盘容纳所选条目并额外保留 2 GiB，Solid 压缩包可能需要较长的顺序解压。
 
-## Download and use
+## 下载与运行
 
-1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.2/RustView-0.7.2-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.7.2/RustView-0.7.2-win-x64-offline.zip.sha256)
-2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. The package includes the image engines, runtime libraries, and Tesseract with Simplified Chinese and English models. Viewing and OCR work offline from the first launch.
-3. Open or drag in a folder, picture, or archive. Keep the complete extracted folder.
+1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.2/RustView-0.7.2-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.7.2/RustView-0.7.2-win-x64-offline.zip.sha256)
+2. 完整解压，双击 `RustView.exe` 或 `Start-RustView.cmd`。图像引擎、运行库、Tesseract 和简体中文及英文模型均随包提供，首次启动即可离线看图和识别文字。
+3. 打开或拖入文件夹、图片、ZIP／RAR／7z。请保留完整目录。
 
-The offline ZIP is the only download needed for viewing. The source guide lists the archives for rebuilding the bundled engines. [Offline guide](OFFLINE.md) · [Native sources](docs/NATIVE-SOURCES.md)
+日常看图只需下载离线 ZIP。重编随包引擎所需的源码归档见源码说明。[离线版说明](OFFLINE.md) · [原生引擎源码](docs/NATIVE-SOURCES.md)
 
-The interface is currently primarily Chinese; a complete English UI is not yet available. See the [full keyboard reference](docs/KEYBOARD.md).
+设置、目录库和处理记录保存在程序旁的 `RustView-data` 中。普通运行不修改全局 PATH 或文件关联。可选运行 `Setup-File-Associations.cmd` 注册图片候选关联，以及 ZIP／RAR／7z 的 **Open with RustView** 右键入口；图片默认程序由 Windows 设置确认，压缩软件默认关联保持原样。详见[文件关联说明](docs/WINDOWS-INTEGRATION.md)。
 
-Data stays in `RustView-data` beside the executable. Ordinary viewing needs no PATH or registry changes. Optionally run `Setup-File-Associations.cmd` to register image candidates and an **Open with RustView** context-menu entry for ZIP/RAR/7z. Windows Default Apps confirms image defaults; archive defaults remain unchanged. [Windows integration](docs/WINDOWS-INTEGRATION.md).
+### 顺手的快捷键
 
-### A few familiar keys
+管理、查看、比较模式分别使用对应键位；数字键盘与主键盘数字区分别识别。支持自定义快捷键及可识别的 JSON／REG 配置导入。查看方向键不接管文本框或管理网格；若导入过完整旧配置，可在快捷键设置中补上新增方向键。
 
-Mode-aware bindings distinguish numpad keys and support customization with recognized JSON/REG imports. View arrows do not take over text fields or the management grid. An imported complete legacy shortcut set may need the new arrow bindings added in shortcut settings.
-
-| Action | Default keys |
+| 操作 | 默认按键 |
 |---|---|
-| Open | `Ctrl+O` |
-| Enter View / return to Manage | `Enter` / `Enter`, `Esc`, `Ctrl+W` |
-| Previous / next image | `←` / `→`; `PageUp` / `PageDown`; `Backspace` / `Space` |
-| Smooth zoom in / out | `↑` / `↓` |
-| Zoom / fit / actual pixels | Numpad `+` and `−` / `*` / `/` |
-| Pause, resume, or replay GIF/WebP | `G` |
-| Rename / compare selection | `F2` / `Ctrl+Alt+R` |
-| Properties / shortcut settings | `Alt+Enter` / `Alt+O` |
+| 打开 | `Ctrl+O` |
+| 进入查看／返回管理 | `Enter`／`Enter`、`Esc`、`Ctrl+W` |
+| 上／下一张 | `←`／`→`；`PageUp`／`PageDown`；`Backspace`／`Space` |
+| 平滑放大／缩小 | `↑`／`↓` |
+| 缩放／适应／实际像素 | 数字键盘 `+`、`−`／`*`／`/` |
+| GIF/WebP 暂停、继续、重播 | `G` |
+| 重命名／比较所选图片 | `F2`／`Ctrl+Alt+R` |
+| 属性／快捷键选项 | `Alt+Enter`／`Alt+O` |
 
-## Build, test, contribute
+完整默认键位见[快捷键参考](docs/KEYBOARD.md)。当前界面主要为中文；英文介绍不代表已经提供完整英文界面。
 
-Build on Windows x64 with Rust MSVC, C++ Build Tools and Windows SDK, CMake, Ninja, and PowerShell 7. Prepare the pinned image engines and OCR helper first.
+## 从源码构建
+
+需要 Windows x64、Rust MSVC 工具链、包含 Windows SDK 的 C++ Build Tools、CMake、Ninja 和 PowerShell 7。测试、打包前先准备固定版本的图像引擎和 OCR 程序。
 
 ```powershell
 git clone https://github.com/walker1911/RustView.git
@@ -130,16 +138,16 @@ cargo test --locked -- --test-threads=2
 pwsh -File .\tools\build.ps1 -Offline
 ```
 
-See [BUILDING.md](BUILDING.md) for checksums and validation steps.
+依赖、校验和与复现步骤见 [BUILDING.md](BUILDING.md)。
 
-Release checks cover static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnails, and large encrypted-RAR cancellation. Windows desktop checks for v0.7.2 covered name and number jumps, a rename while the dialog was open, and paired JPEG and RAW browsing tests. [v0.7.2 release notes and benchmarks](docs/RELEASE-v0.7.2.md) · [Prior validation](docs/VALIDATION.md)
+## 验证到哪一步
 
-Real-camera samples include Nikon Z6, Sony a7 III, Canon EOS R, iPhone 12 Pro ProRAW and HEIC. See the validation record for the scope of native-window, display, and print checks.
+发行检查覆盖静态图与压缩包、GIF/WebP 动画、PSD/PSB 合成图、缩略图和大型加密 RAR 的取消清理。v0.7.2 在 Windows 桌面验证了按文件名和序号跳图、弹窗打开时的文件改名，以及 JPEG 和 RAW 翻图对照。[v0.7.2 更新说明与实测数据](docs/RELEASE-v0.7.2.md) · [历次验证记录](docs/VALIDATION.md)
 
-[Report an issue](https://github.com/walker1911/RustView/issues) with the version, format/camera, expected behavior, and a minimal reproduction.
+真实相机样本包括 Nikon Z6、Sony a7 III、Canon EOS R、iPhone 12 Pro ProRAW 和 HEIC。原生窗口、显示和打印测试的范围见验证记录。反馈时请提供版本、格式或相机型号、预期行为和最小复现样本。[报告问题](https://github.com/walker1911/RustView/issues)
 
-## Scope and license
+## 保持清楚的边界
 
-RustView's scope excludes split and self-extracting archives, RAR writing, and imports of ACDSee's private database and development records. Unconfirmed legacy commands stay inactive. Slideshows, calendars, disc burning, online services, and audio/video playback are outside the project scope. [Compatibility limits](docs/COMPATIBILITY.md)
+不支持分卷、自解压包或 RAR 写入；不导入 ACDSee 私有数据库与开发记录，未确认语义的旧命令保持停用。幻灯片、日历、刻录篮子、在线服务与音视频播放不在项目范围内。详细行为差异见[兼容说明](docs/COMPATIBILITY.md)。
 
-RustView is independent of ACD Systems. Application code is [MIT licensed](LICENSE). Reused components, including the Tesseract OCR engine and its models, retain their licenses. [Third-party notices](THIRD-PARTY-NOTICES.md)
+RustView 是独立项目，与 ACD Systems 无隶属关系。应用代码采用 [MIT 许可](LICENSE)；界面与解码复用 egui/wgpu、image、LibRaw、7-Zip、ImageMagick、ExifTool，各原生引擎保留自己的许可，详见[第三方声明](THIRD-PARTY-NOTICES.md)。

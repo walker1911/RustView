@@ -74,12 +74,33 @@ fn main() -> eframe::Result {
     options.wgpu_options.desired_maximum_frame_latency = Some(1);
     #[cfg(windows)]
     if direct_image && eframe::wgpu::Backends::from_env().is_none() {
-        // Avoid probing unrelated graphics backends on the direct-image path.
-        let mut preferred = options.clone();
-        if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) =
-            &mut preferred.wgpu_options.wgpu_setup
-        {
-            setup.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN;
+        use eframe::wgpu::{Backends, DeviceType};
+
+        for backend in [Backends::GL, Backends::VULKAN] {
+            let mut preferred = options.clone();
+            let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) =
+                &mut preferred.wgpu_options.wgpu_setup
+            else {
+                break;
+            };
+            setup.instance_descriptor.backends = backend;
+            if backend == Backends::GL {
+                // Use the adapter already enumerated by egui-wgpu. Software GL can
+                // open a window but makes later zooming and tile uploads expensive.
+                setup.native_adapter_selector = Some(std::sync::Arc::new(|adapters, surface| {
+                    adapters
+                        .iter()
+                        .find(|adapter| {
+                            let info = adapter.get_info();
+                            info.device_type != DeviceType::Cpu
+                                && info.vendor != 0
+                                && surface.is_none_or(|surface| adapter.is_surface_supported(surface))
+                                && opengl_supports_vsync(adapter)
+                        })
+                        .cloned()
+                        .ok_or_else(|| "No compatible hardware OpenGL adapter".into())
+                }));
+            }
             let result = run_viewer(preferred, &mut viewer);
             // If renderer initialization failed, the factory has not consumed the Viewer.
             if !matches!(result, Err(eframe::Error::Wgpu(_))) || viewer.is_none() {
@@ -88,6 +109,43 @@ fn main() -> eframe::Result {
         }
     }
     run_viewer(options, &mut viewer)
+}
+
+#[cfg(windows)]
+fn opengl_supports_vsync(adapter: &eframe::wgpu::Adapter) -> bool {
+    use std::ffi::{c_char, CStr};
+    use windows::Win32::Graphics::{Gdi::HDC, OpenGL::*};
+
+    // egui-wgpu configures the surface before calling our app factory. Check
+    // WGL swap control while we can still reject the adapter with a regular error.
+    unsafe {
+        adapter.as_hal::<eframe::wgpu::hal::api::Gles, _, _>(|adapter| {
+            let Some(adapter) = adapter else { return false };
+            let _context = adapter.adapter_context().lock();
+            let Some(extensions) = wglGetProcAddress(windows::core::s!("wglGetExtensionsStringARB"))
+            else {
+                return false;
+            };
+            let Some(swap_interval) = wglGetProcAddress(windows::core::s!("wglSwapIntervalEXT"))
+            else {
+                return false;
+            };
+            if [extensions as usize, swap_interval as usize]
+                .into_iter()
+                .any(|address| address <= 3 || address == usize::MAX)
+            {
+                return false;
+            }
+            let extensions: unsafe extern "system" fn(HDC) -> *const c_char =
+                std::mem::transmute(extensions);
+            let extensions = extensions(wglGetCurrentDC());
+            !extensions.is_null()
+                && CStr::from_ptr(extensions)
+                    .to_bytes()
+                    .split(|byte| *byte == b' ')
+                    .any(|name| name == b"WGL_EXT_swap_control")
+        })
+    }
 }
 
 fn run_viewer(options: eframe::NativeOptions, viewer: &mut Option<app::Viewer>) -> eframe::Result {

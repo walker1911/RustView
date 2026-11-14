@@ -2672,7 +2672,7 @@ dependencies = [
 
 [[package]]
 name = "rust-viewer"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "arboard",
  "eframe",
