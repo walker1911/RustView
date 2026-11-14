@@ -1536,18 +1536,17 @@ impl Viewer {
                     }
                 });
             });
-            if self.is_archive_source()
+            if self.source.is_some()
                 && !self.browser
                 && self.extra.compare == 0
                 && self.extra.edit_dialog.is_none()
             {
-                let available =
-                    !self.password_dialog && !self.browse_entries().1.is_empty();
+                let available = self.jump_available();
                 if ui
                     .add_enabled(available, egui::Button::new("跳页…"))
                     .clicked()
                 {
-                    self.open_archive_jump();
+                    self.open_image_jump();
                 }
             }
             let is_raw = self
@@ -2046,7 +2045,7 @@ impl Viewer {
     }
 
     fn dialogs(&mut self, ctx: &egui::Context) {
-        self.draw_archive_jump(ctx);
+        self.draw_image_jump(ctx);
         self.draw_recent_ui(ctx);
         if self.password_dialog {
             let mut submit = false;
