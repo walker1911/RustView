@@ -8,9 +8,13 @@
 
 An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, static SVG, Photoshop composites, and pictures inside compressed archives. Read QR codes and copy text from pictures while staying in the viewer.
 
-[Download v0.7.5](https://github.com/walker1911/RustView/releases/tag/v0.7.5) · [简体中文](README.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+[Download v0.7.6](https://github.com/walker1911/RustView/releases/tag/v0.7.6) · [简体中文](README.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
 
-## New in v0.7.5
+## Compatibility fix in v0.7.6
+
+**Open static SVG 1.1 files with a `DOCTYPE`.** Declarations without an internal DTD subset are accepted, including common `PUBLIC` and `SYSTEM` declarations. The viewer opens these files offline, skips external DTDs and resources, and blocks custom XML entity expansion. [v0.7.6 release notes](docs/RELEASE-v0.7.6.md)
+
+## Static SVG and v0.7.5 benchmarks
 
 **View static SVGs.** Double-click a local `.svg` associated with RustView or drag it into the window. View SVGs and their thumbnails in folders and ZIP, RAR, or 7z archives, with password prompts for encrypted archives. Transparent areas use a fixed checkerboard.
 
@@ -110,7 +114,7 @@ v0.4.0 permits [local and ZIP/RAR/7z-contained PSD/PSB](docs/PSD.md) sources up 
 
 ## Download and use
 
-1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.5/RustView-0.7.5-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.7.5/RustView-0.7.5-win-x64-offline.zip.sha256)
+1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.6/RustView-0.7.6-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.7.6/RustView-0.7.6-win-x64-offline.zip.sha256)
 2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. The package includes the image engines, runtime libraries, and Tesseract with Simplified Chinese and English models. Viewing and OCR work offline from the first launch.
 3. Open or drag in a folder, picture, or archive. Keep the complete extracted folder.
 

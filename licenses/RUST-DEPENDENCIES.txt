@@ -1,6 +1,6 @@
 RUSTVIEW: RUST DEPENDENCY LICENSES AND NOTICES
 
-Application: rust-viewer 0.7.5 (RustView.exe)
+Application: rust-viewer 0.7.6 (RustView.exe)
 Target: x86_64-pc-windows-msvc
 Selection: cargo metadata --offline --locked --filter-platform
            x86_64-pc-windows-msvc --format-version 1

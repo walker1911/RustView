@@ -40,14 +40,7 @@ pub(crate) fn render(
         return Err("SVG 文件超过 8 MiB".into());
     }
     let text = std::str::from_utf8(&data).map_err(|_| "SVG 文件需要使用 UTF-8 编码")?;
-    let xml = usvg::roxmltree::Document::parse_with_options(
-        text,
-        usvg::roxmltree::ParsingOptions {
-            nodes_limit: MAX_XML_NODES,
-            ..Default::default()
-        },
-    )
-    .map_err(|error| format!("无法解析 SVG：{error}"))?;
+    let xml = parse_svg_xml(text).map_err(|error| format!("无法解析 SVG：{error}"))?;
 
     let image_skipped = AtomicBool::new(false);
     let mut options = usvg::Options {
@@ -116,6 +109,63 @@ pub(crate) fn render(
         },
         intrinsic.map(|edge| edge.round().max(1.0) as u32),
     ))
+}
+
+fn parse_svg_xml(text: &str) -> Result<usvg::roxmltree::Document<'_>, usvg::roxmltree::Error> {
+    use usvg::roxmltree::{Document, Error, ParsingOptions};
+
+    let parse = |allow_dtd| {
+        Document::parse_with_options(
+            text,
+            ParsingOptions {
+                allow_dtd,
+                nodes_limit: MAX_XML_NODES,
+                ..Default::default()
+            },
+        )
+    };
+    match parse(false) {
+        Err(Error::DtdDetected) if doctype_has_no_internal_subset(text) => {
+            // The parser validates but does not load the external identifier.
+            // Require a declaration without an internal subset to disallow entities.
+            parse(true)
+        }
+        result => result,
+    }
+}
+
+fn doctype_has_no_internal_subset(text: &str) -> bool {
+    let mut prolog = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let mut declaration = loop {
+        prolog = prolog.trim_start_matches([' ', '\t', '\r', '\n']);
+        if let Some(declaration) = prolog.strip_prefix("<!DOCTYPE") {
+            break declaration;
+        }
+        let end_marker = if prolog.starts_with("<!--") {
+            "-->"
+        } else if prolog.starts_with("<?") {
+            "?>"
+        } else {
+            return false;
+        };
+        let Some((_, rest)) = prolog.split_once(end_marker) else {
+            return false;
+        };
+        prolog = rest;
+    };
+    while let Some(index) = declaration.find(['>', '[', '\'', '"']) {
+        match declaration.as_bytes()[index] {
+            b'>' => return true,
+            b'[' => return false,
+            quote => {
+                let Some((_, rest)) = declaration[index + 1..].split_once(char::from(quote)) else {
+                    return false;
+                };
+                declaration = rest;
+            }
+        }
+    }
+    false
 }
 
 fn raster_size(
@@ -284,9 +334,39 @@ mod tests {
     }
 
     #[test]
-    fn svg_rejects_dtd_and_can_bound_the_file_read() {
-        let xml = r#"<!DOCTYPE svg [<!ENTITY test "x">]><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">&test;</svg>"#;
-        assert!(render_fixture(xml, 20, 20).is_err());
+    fn svg_renders_with_an_external_doctype_declaration() {
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="20pt" height="10pt">
+            <defs><path id="mark" d="M0 0H10V10H0Z" fill="red"/></defs>
+            <use xlink:href="#mark"/>
+        </svg>"##;
+        let prolog = "\u{feff}<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!-- <!DOCTYPE svg [ignored]> -->\n";
+        for declaration in [
+            "<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\"\n  \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\">",
+            "<!DOCTYPE svg SYSTEM 'https://example.invalid/[a]>b.dtd'>",
+        ] {
+            let xml = format!("{prolog}{declaration}{svg}");
+            let (image, _) = render_fixture(&xml, 40, 20).unwrap();
+            assert_eq!((image.width, image.height), (40, 20));
+            assert_eq!(&image.rgba[..4], &[255, 0, 0, 255]);
+        }
+    }
+
+    #[test]
+    fn svg_rejects_custom_entities() {
+        for declaration in [
+            r#"<!DOCTYPE svg [<!ENTITY test "x">]>"#,
+            r#"<!DOCTYPE svg SYSTEM "https://example.invalid/a>b.dtd" [<!ENTITY test "x">]>"#,
+            r#"<!DOCTYPE svg SYSTEM "https://example.invalid/test.dtd">"#,
+        ] {
+            let xml = format!(
+                r#"{declaration}<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">&test;</svg>"#
+            );
+            assert!(render_fixture(&xml, 20, 20).is_err());
+        }
+    }
+
+    #[test]
+    fn svg_bounds_the_file_read() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("large.svg");
         File::create(&path)

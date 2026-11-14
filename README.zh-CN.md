@@ -8,9 +8,13 @@
 
 面向 **Windows x64** 的 Rust 看图项目。用熟悉的快捷键、Picasa 式胶片带和平滑缩放浏览相机 RAW、静态 SVG、GIF/WebP 动画、Photoshop 合成图及 ZIP／RAR／7z 里的照片。看图时也能直接读二维码、复制图片里的文字。
 
-[下载 v0.7.5](https://github.com/walker1911/RustView/releases/tag/v0.7.5) · [English](README.en.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
+[下载 v0.7.6](https://github.com/walker1911/RustView/releases/tag/v0.7.6) · [English](README.en.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
 
-## v0.7.5 新功能
+## v0.7.6 兼容性修复
+
+**打开带 `DOCTYPE` 的静态 SVG 1.1。** 接受不含内部 DTD 子集的声明，常见的 `PUBLIC` 和 `SYSTEM` 声明均可离线打开。外部 DTD 和资源不会加载，自定义 XML 实体不会展开。[v0.7.6 更新说明](docs/RELEASE-v0.7.6.md)
+
+## 静态 SVG 与 v0.7.5 实测
 
 **直接看静态 SVG。** 双击已关联的本地 `.svg`，或拖入窗口即可打开。文件夹和 ZIP／RAR／7z 中的 SVG 均可浏览和预览缩略图，加密压缩包按需输入密码。透明区域使用固定棋盘格。
 
@@ -116,7 +120,7 @@ v0.4.0 对[本地及ZIP／RAR／7z内的PSD/PSB](docs/PSD.md)提供源文件例�
 
 ## 下载与运行
 
-1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.5/RustView-0.7.5-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.7.5/RustView-0.7.5-win-x64-offline.zip.sha256)
+1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.6/RustView-0.7.6-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.7.6/RustView-0.7.6-win-x64-offline.zip.sha256)
 2. 完整解压，双击 `RustView.exe` 或 `Start-RustView.cmd`。图像引擎、运行库、Tesseract 和简体中文及英文模型均随包提供，首次启动即可离线看图和识别文字。
 3. 打开或拖入文件夹、图片、ZIP／RAR／7z。请保留完整目录。
 
