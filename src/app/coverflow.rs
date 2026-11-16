@@ -100,7 +100,11 @@ impl State {
         { self.sequence_builds += 1; }
     }
 
-    fn position(&self, selected: Option<usize>) -> Option<usize> {
+    pub(super) fn order(&self) -> (u64, &[usize]) {
+        (self.sequence_revision, &self.sequence)
+    }
+
+    pub(super) fn position(&self, selected: Option<usize>) -> Option<usize> {
         self.positions.get(selected?).copied().filter(|&position| position != usize::MAX)
     }
 
@@ -286,14 +290,14 @@ fn paint_cover(ui: &mut egui::Ui, rect: Rect, opacity: f32,
 }
 
 impl Viewer {
-    fn ensure_browse_sequence(&mut self) {
+    pub(super) fn ensure_browse_sequence(&mut self) {
         self.extra.coverflow.ensure_sequence(&self.entries, &self.extra.visible, &self.extra.selection);
     }
 
     pub(super) fn browse_entries(&mut self) -> (u64, &[usize], &[Entry]) {
         self.ensure_browse_sequence();
-        let order = &self.extra.coverflow;
-        (order.sequence_revision, &order.sequence, &self.entries)
+        let (revision, order) = self.extra.coverflow.order();
+        (revision, order, &self.entries)
     }
 
     pub(super) fn navigation_target(&mut self, forward: bool, end: bool) -> Option<usize> {
@@ -339,6 +343,12 @@ impl Viewer {
 
     pub(super) fn coverflow_preview(&mut self, index: usize) -> Option<TextureHandle> {
         self.extra.coverflow.texture(index)
+            .or_else(|| self.extra.thumbnails.get(&index).cloned())
+            .or_else(|| self.extra.presentation.texture_for(index))
+    }
+
+    pub(super) fn cached_coverflow_preview(&self, index: usize) -> Option<TextureHandle> {
+        self.extra.coverflow.textures.get(&index).cloned()
             .or_else(|| self.extra.thumbnails.get(&index).cloned())
             .or_else(|| self.extra.presentation.texture_for(index))
     }
@@ -527,6 +537,8 @@ impl Viewer {
         }
         let height = (ctx.available_rect().height() * 0.24).clamp(82.0, 160.0);
         let mut clicked = None;
+        let mut jump_clicked = false;
+        let archive = self.is_archive_source();
         let enabled = !self.password_dialog && self.extra.dialog.is_none() && !self.properties
             && !self.extra.settings_ui.open && !self.extra.print_ui.open && !self.help
             && !self.quiet_chrome.menu_open
@@ -588,8 +600,15 @@ impl Viewer {
                     } else {
                         format!("{} / {}", position + 1, total)
                     };
-                    ui.label(egui::RichText::new(count)
-                        .small().strong().color(theme::TEXT));
+                    let count = egui::RichText::new(count).small().strong().color(theme::TEXT);
+                    if archive {
+                        jump_clicked = ui.add_enabled(enabled && !self.archive_jump.open,
+                            egui::Button::new(count).small().frame(false).sense(egui::Sense::CLICK))
+                            .on_hover_cursor(egui::CursorIcon::PointingHand)
+                            .on_hover_text("压缩包跳页").clicked();
+                    } else {
+                        ui.label(count);
+                    }
                     if let Some(index) = self.selected {
                         if let Some(entry) = self.entries.get(index) {
                             ui.add(egui::Label::new(egui::RichText::new(&entry.name)
@@ -599,7 +618,9 @@ impl Viewer {
                     }
                 });
             });
-        if let Some(index) = clicked {
+        if jump_clicked {
+            self.open_image_jump();
+        } else if let Some(index) = clicked {
             self.cancel_coverflow_thumbnail();
             self.load_index(index, false);
         } else if !self.coverflow_thumbnail_blocked(ctx) && self.extra.coverflow.running.is_none()

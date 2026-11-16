@@ -1,5 +1,5 @@
-use super::{Entry, Viewer};
-use std::borrow::Cow;
+use super::{Entry, Operation, Viewer};
+use std::{borrow::Cow, path::PathBuf, sync::atomic::Ordering};
 
 const MAX_VISIBLE_MATCHES: usize = 48;
 
@@ -7,9 +7,34 @@ const MAX_VISIBLE_MATCHES: usize = 48;
 pub(super) struct State {
     pub(super) open: bool,
     focus: bool,
+    source: Option<PathBuf>,
     query: String,
     revision: Option<u64>,
     results: Results,
+    scrub: Option<usize>,
+}
+
+impl State {
+    fn update_scrub(&mut self, response: &egui::Response, page: usize, order_changed: bool) -> Option<usize> {
+        let primary = egui::PointerButton::Primary;
+        let interrupted = order_changed || response.ctx.input(|input| {
+            !input.focused || input.key_pressed(egui::Key::Escape)
+                || input.events.iter().any(|event| matches!(event, egui::Event::WindowFocused(false)))
+        });
+        if interrupted {
+            self.scrub = None;
+            if response.dragged_by(primary) {
+                response.ctx.stop_dragging();
+            }
+        } else if response.drag_stopped_by(primary) {
+            return self.scrub.take().map(|_| page);
+        } else if response.drag_started_by(primary) || self.scrub.is_some() && response.dragged_by(primary) {
+            self.scrub = Some(page);
+        } else {
+            self.scrub = None;
+        }
+        None
+    }
 }
 
 #[derive(Default)]
@@ -136,8 +161,18 @@ impl Viewer {
             self.archive_jump = State {
                 open: true,
                 focus: true,
+                source: self.source.clone(),
                 ..State::default()
             };
+            if self.is_archive_source() {
+                self.cancel_coverflow_thumbnail();
+                if self.pending.as_ref().is_some_and(|task| matches!(task.operation, Operation::Load { preload: true, .. })) {
+                    self.pending = None;
+                }
+                if let Some(task) = self.running.as_ref().filter(|task| task.preload.is_some() && !task.promoted) {
+                    task.cancel.store(true, Ordering::Relaxed);
+                }
+            }
         }
     }
 
@@ -147,14 +182,19 @@ impl Viewer {
         }
         let archive = self.is_archive_source();
         let query_id = egui::Id::new("image-jump-query");
-        if self.source.is_none() || self.password_dialog || (!archive && self.directory_listing()) {
+        if self.source.is_none() || self.source != self.archive_jump.source
+            || self.password_dialog || (!archive && self.directory_listing()) {
             self.archive_jump = State::default();
             ctx.memory_mut(|memory| memory.surrender_focus(query_id));
             return;
         }
 
         let mut state = std::mem::take(&mut self.archive_jump);
-        let (revision, order, entries) = self.browse_entries();
+        self.ensure_browse_sequence();
+        let (revision, order) = self.extra.coverflow.order();
+        let entries = &self.entries;
+        // A refresh can replace the match under the pointer or at the same ordinal.
+        let order_changed = state.revision.is_some_and(|previous| previous != revision);
         let mut target = None;
         let modal = egui::Modal::new(egui::Id::new("image-jump")).show(ctx, |ui| {
             ui.set_width((ctx.screen_rect().width() - 48.0).clamp(180.0, 500.0));
@@ -170,8 +210,6 @@ impl Viewer {
                 response.request_focus();
                 state.focus = false;
             }
-            // A refresh can replace the match under the pointer or at the same ordinal.
-            let order_changed = state.revision.is_some_and(|previous| previous != revision);
             if response.changed() || state.revision != Some(revision) {
                 state.results = Results::search(&state.query, order, entries);
                 state.revision = Some(revision);
@@ -224,6 +262,39 @@ impl Viewer {
                             }
                         });
                 }
+            }
+            if archive && order.len() > 1 {
+                let current_page = self.extra.coverflow.position(self.selected).unwrap_or(0) + 1;
+                let mut page = state.scrub.unwrap_or(current_page);
+                let track = ui.scope(|ui| {
+                    ui.spacing_mut().slider_width = (ui.available_width() - 88.0).max(60.0);
+                    ui.add(egui::Slider::new(&mut page, 1..=order.len())
+                        .show_value(false).smart_aim(false).text("拖动跳页"))
+                }).inner;
+                if let Some(page) = state.update_scrub(&track, page, order_changed) {
+                    target = order.get(page - 1).copied();
+                }
+
+                let preview_page = state.scrub.unwrap_or(current_page);
+                let index = order[preview_page - 1];
+                let name = &entries[index].name;
+                let texture = self.cached_coverflow_preview(index);
+                ui.horizontal(|ui| {
+                    let (bounds, _) = ui.allocate_exact_size(egui::vec2(88.0, 58.0), egui::Sense::hover());
+                    if let Some(texture) = texture {
+                        let size = texture.size_vec2();
+                        let scale = (bounds.width() / size.x).min(bounds.height() / size.y);
+                        let rect = egui::Rect::from_center_size(bounds.center(), size * scale);
+                        let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
+                        ui.painter().image(texture.id(), rect, uv, egui::Color32::WHITE);
+                    }
+                    ui.vertical(|ui| {
+                        ui.strong(format!("{preview_page} / {}", order.len()));
+                        ui.add(egui::Label::new(name).truncate()).on_hover_text(name);
+                    });
+                });
+            } else {
+                state.scrub = None;
             }
             ui.horizontal(|ui| {
                 let clicked = ui.push_id(revision, |ui| {
@@ -314,7 +385,6 @@ mod tests {
 
     #[test]
     fn local_jump_waits_for_full_order_and_uses_the_arrow_sequence() {
-        use std::path::PathBuf;
         let mut viewer = Viewer::empty();
         viewer.open_local_image(PathBuf::from("gallery/1.jpg"));
         assert!(!viewer.jump_available());
@@ -334,5 +404,117 @@ mod tests {
         viewer.selected = Some(index);
         assert_eq!(viewer.navigation_target(false, false), Some(2));
         assert_eq!(viewer.navigation_target(true, false), Some(0));
+    }
+
+    #[test]
+    fn dragging_an_archive_opens_only_the_released_page_and_uses_its_cached_cover() {
+        let mut viewer = archive_viewer();
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let last = *viewer.browse_entries().1.last().unwrap();
+        let texture = ctx.load_texture("last-archive-cover", egui::ColorImage::new([8, 4], egui::Color32::WHITE), egui::TextureOptions::LINEAR);
+        viewer.extra.thumbnails.insert(last, texture.clone());
+        viewer.schedule_preload();
+        assert!(matches!(viewer.pending.as_ref().map(|task| &task.operation), Some(Operation::Load { preload: true, .. })));
+
+        let output = jump_frame(&mut viewer, &ctx, true, vec![]);
+        let count = widget_bounds(&output, egui::accesskit::Role::Button, "1 / 3").center();
+        jump_frame(&mut viewer, &ctx, true, pointer(count, true));
+        jump_frame(&mut viewer, &ctx, true, pointer(count, false));
+        assert!(viewer.archive_jump.open);
+        assert!(viewer.pending.is_none());
+        let output = jump_frame(&mut viewer, &ctx, true, vec![]);
+        let track = widget_bounds(&output, egui::accesskit::Role::Slider, "拖动跳页");
+        let start = egui::pos2(track.left() + 1.0, track.center().y);
+        let end = egui::pos2(track.right() - 1.0, track.center().y);
+        let original = viewer.selected;
+        let revision = viewer.browse_entries().0;
+
+        jump_frame(&mut viewer, &ctx, true, pointer(start, true));
+        jump_frame(&mut viewer, &ctx, true, vec![egui::Event::PointerMoved(track.center())]);
+        assert_eq!(viewer.archive_jump.scrub, Some(2));
+        let output = jump_frame(&mut viewer, &ctx, true, vec![egui::Event::PointerMoved(end)]);
+        assert_eq!(viewer.archive_jump.scrub, Some(3));
+        assert_eq!(viewer.selected, original);
+        assert!(viewer.pending.is_none() && viewer.running.is_none());
+        assert_eq!(viewer.browse_entries().0, revision);
+        assert!(output.shapes.iter().any(|clip| matches!(&clip.shape,
+            egui::Shape::Mesh(mesh) if mesh.texture_id == texture.id() && mesh.calc_bounds().top() < track.top() + 100.0)));
+
+        jump_frame(&mut viewer, &ctx, true, pointer(end, false));
+        assert!(!viewer.archive_jump.open);
+        assert_eq!(viewer.selected, Some(last));
+        assert!(matches!(viewer.pending.as_ref().map(|task| &task.operation),
+            Some(Operation::Load { index, preload: false, .. }) if *index == last));
+        assert!(viewer.navigation_target(false, false).is_some());
+    }
+
+    #[test]
+    fn interrupted_archive_drag_cannot_load_on_release() {
+        for interruption in ["escape", "focus", "order", "source"] {
+            let mut viewer = archive_viewer();
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            viewer.open_image_jump();
+            jump_frame(&mut viewer, &ctx, true, vec![]);
+            let output = jump_frame(&mut viewer, &ctx, true, vec![]);
+            let track = widget_bounds(&output, egui::accesskit::Role::Slider, "拖动跳页");
+            let end = egui::pos2(track.right() - 1.0, track.center().y);
+            jump_frame(&mut viewer, &ctx, true, pointer(end, true));
+            assert_eq!(viewer.archive_jump.scrub, Some(3));
+            let original = viewer.selected;
+
+            let mut release = pointer(end, false);
+            match interruption {
+                "escape" => release.push(egui::Event::Key {
+                    key: egui::Key::Escape, physical_key: None, pressed: true,
+                    repeat: false, modifiers: egui::Modifiers::NONE,
+                }),
+                "focus" => release.push(egui::Event::WindowFocused(false)),
+                "order" => {
+                    viewer.extra.descending = true;
+                    viewer.rebuild_visible();
+                }
+                "source" => viewer.source = Some(PathBuf::from("different.zip")),
+                _ => unreachable!(),
+            }
+            jump_frame(&mut viewer, &ctx, interruption != "focus", release);
+            assert_eq!(viewer.archive_jump.scrub, None, "{interruption}");
+            assert_eq!(viewer.selected, original, "{interruption}");
+            assert!(viewer.pending.is_none() && viewer.running.is_none(), "{interruption}");
+        }
+    }
+
+    fn archive_viewer() -> Viewer {
+        let mut viewer = Viewer::empty();
+        viewer.install_source(PathBuf::from("fixture.zip"), None,
+            ["a/image.jpg", "b/image.jpg", "c/image.jpg"].map(entry).to_vec());
+        viewer.browser = false;
+        viewer.selected = Some(0);
+        viewer
+    }
+
+    fn jump_frame(viewer: &mut Viewer, ctx: &egui::Context, focused: bool, events: Vec<egui::Event>) -> egui::FullOutput {
+        ctx.run(egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 900.0))),
+            focused, events, ..Default::default()
+        }, |ctx| {
+            viewer.draw_coverflow(ctx);
+            viewer.draw_image_jump(ctx);
+        })
+    }
+
+    fn widget_bounds(output: &egui::FullOutput, role: egui::accesskit::Role, label: &str) -> egui::Rect {
+        let update = output.platform_output.accesskit_update.as_ref().unwrap();
+        let bounds = update.nodes.iter().find_map(|(_, node)| {
+            (node.role() == role && node.label() == Some(label)).then(|| node.bounds()).flatten()
+        }).unwrap();
+        egui::Rect::from_min_max(egui::pos2(bounds.x0 as f32, bounds.y0 as f32), egui::pos2(bounds.x1 as f32, bounds.y1 as f32))
+    }
+
+    fn pointer(pos: egui::Pos2, pressed: bool) -> Vec<egui::Event> {
+        vec![egui::Event::PointerMoved(pos), egui::Event::PointerButton {
+            pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE,
+        }]
     }
 }

@@ -8,7 +8,21 @@
 
 An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, static SVG, Photoshop composites, and pictures inside compressed archives. Read QR codes and copy text from pictures while staying in the viewer.
 
-[Download v0.7.8](https://github.com/walker1911/RustView/releases/tag/v0.7.8) · [简体中文](README.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+[Download v0.7.9](https://github.com/walker1911/RustView/releases/tag/v0.7.9) · [简体中文](README.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+
+## v0.7.9 adds drag-to-jump navigation inside archives
+
+Open a ZIP, RAR, or 7z archive, click the counter below the picture, and drag the slider in **压缩包跳页** (Jump within archive). The dialog shows the target number, filename, and thumbnail when cached. The current picture stays visible while you drag. Release to load the selected page on demand, then continue with the left and right arrow keys. [v0.7.9 release notes](docs/RELEASE-v0.7.9.md#english)
+
+| Same-PC comparison, v0.7.8 → v0.7.9 | Median to first sharp image | Median held arrow to visible target | Sampled process-tree peak |
+|---|---:|---:|---:|
+| Large ZIP | 1,303 → 1,318 ms | 341 → 347 ms | 590.8 → 560.8 MiB |
+| Encrypted solid RAR | 851 → 859 ms | 658 → 657 ms | 629.2 → 598.1 MiB |
+| Encrypted solid 7z | 1,259 → 1,270 ms | 1,797 → 1,808 ms | 615.0 → 627.6 MiB |
+| 10,000 JPEGs | 626 → 623 ms | 20.0 → 20.7 ms | 473.8 → 435.0 MiB |
+| Mixed RAW | 612 → 621 ms | 11.3 → 11.7 ms | 447.4 → 430.9 MiB |
+
+First-image timing for encrypted archives starts at password submission. **JPEG startup times still vary.** P95 time to the first sharp image in the 10,000-JPEG test went from 661.5 to 744.0 ms. The investigation found that a synchronous topmost-window call in the test harness could block for roughly 190–289 ms. With corrected capture, median time to the first visible image from the same JPEG was 383 → 368 ms from a local folder and 385 → 373 ms from the OneDrive Desktop, where the file was already available locally. One v0.7.9 local run still showed slow renderer initialization. [Full results and test method](docs/RELEASE-v0.7.9.md#english)
 
 ## v0.7.8 adds pinned locations, earlier ZIP previews, and lower RAW decode memory
 
@@ -77,7 +91,7 @@ Graphite is the default background. Under **视图 → 看图背景 → 照片�
 
 | Capability | What you can do |
 |---|---|
-| **Browse archives** | Read ZIP / RAR / 7z images on demand with password prompts, resume from the last image shown, and jump by filename, path, or number. |
+| **Browse archives** | Read ZIP / RAR / 7z images on demand with password prompts, resume from the last image shown, and jump by filename, path, number, or by clicking the counter and dragging the slider. |
 | **Jump within a local folder** | Find a picture by name or by its number in the current browsing order. |
 | **Reopen recent items** | Return to up to 20 recently opened images, folders, or archives from the File menu. Resume a folder or archive, or open its first image. History stays in the local catalog. |
 | **Pin locations** | Pin frequent folders or ZIP, RAR, and 7z archives. Resume after restarting or open from the first image. |
@@ -129,7 +143,7 @@ v0.4.0 permits [local and ZIP/RAR/7z-contained PSD/PSB](docs/PSD.md) sources up 
 
 ## Download and use
 
-1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.8/RustView-0.7.8-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.7.8/RustView-0.7.8-win-x64-offline.zip.sha256)
+1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.9/RustView-0.7.9-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.7.9/RustView-0.7.9-win-x64-offline.zip.sha256)
 2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. The package includes the image engines, runtime libraries, and Tesseract with Simplified Chinese and English models. Viewing and OCR work offline from the first launch.
 3. Open or drag in a folder, picture, or archive. Keep the complete extracted folder.
 
@@ -169,6 +183,8 @@ pwsh -File .\tools\build.ps1 -Offline
 ```
 
 See [BUILDING.md](BUILDING.md) for checksums and validation steps.
+
+v0.7.9 passed 301 unit tests. Windows desktop checks exercised drag-to-jump, cancelling mid-read, and closing mid-read in a large ZIP and encrypted solid RAR and 7z archives. [v0.7.9 validation](docs/VALIDATION.md#v079-windows-x64)
 
 Release checks cover static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnails, and large encrypted-RAR cancellation. Windows desktop checks for v0.7.5 covered local SVG opens, drag and drop, thumbnails, checkerboard transparency, detail after zoom, and browsing SVGs in encrypted ZIP, RAR, and 7z archives. Cancelling or closing during SVG rendering left no worker processes or temporary files in these tests. [v0.7.5 release notes and benchmarks](docs/RELEASE-v0.7.5.md) · [Prior validation](docs/VALIDATION.md)
 

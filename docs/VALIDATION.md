@@ -1,5 +1,15 @@
 # Validation / 验证记录
 
+## v0.7.9 Windows x64
+
+本地 Windows x64 单测通过 **301 项**，默认跳过 3 项可选测试。原生窗口测试用三个 241 页的压缩包验证了底部页码入口、拖动时的目标信息和缓存缩略图、松手后的目标读取，以及左右键继续翻图。ZIP、加密固实 RAR 和 7z 各自都在拖动期间保持零提取，松手后提取目标页一次。Esc、读取途中点击「取消」和关窗测试均通过，续看位置仍为最后实际显示的图片，观测到的工作进程已退出，临时目录为空。
+
+在同一套离线运行库下交替测试 v0.7.8 和 v0.7.9。三个压缩包各 6 对，万张 JPEG 和混合 RAW 各 12 对，另有本地目录和 OneDrive 桌面上同一份在本地可用的 JPEG 的启动跟踪，各 8 对。同步置顶窗口给旧测试脚本带来约 190–289 毫秒的采样开销。修正采样后，仍观察到偶发 JPEG 首图慢样本。[v0.7.9 更新说明与实测数据](RELEASE-v0.7.9.md)
+
+The local Windows x64 suite passed **301 unit tests**, with three optional tests skipped by default. Native-window tests used three 241-page archives to check the bottom counter, target information and cached thumbnails during dragging, the read on release, and continued arrow-key browsing. Dragging started zero extractions in the ZIP, encrypted solid RAR, and encrypted solid 7z. Each release extracted the selected page once. Tests for Esc, Cancel during a read, and closing mid-read kept the resume position on the last image actually shown. All observed workers exited and the temporary directories were empty.
+
+Alternating runs used the same offline runtime for v0.7.8 and v0.7.9. There were six pairs per archive, 12 pairs each for 10,000 JPEGs and mixed RAW, and eight startup-trace pairs each from a local folder and the OneDrive Desktop with the JPEG available locally. A synchronous topmost-window call added about 190–289 ms in the earlier capture harness. Occasional slow JPEG startup samples remained after correcting capture. [v0.7.9 release notes and benchmarks](RELEASE-v0.7.9.md#english)
+
 ## v0.7.8 Windows x64
 
 本地 Windows x64 单测通过 **299 项**，默认跳过 3 项可选测试。桌面实测覆盖文件夹、ZIP、加密 RAR 和加密 7z 的置顶、重启后续看、从头打开和取消置顶。ZIP 在预览中反向翻图、取消读取和关窗后，所观测的工作进程均已退出，临时目录为空。
