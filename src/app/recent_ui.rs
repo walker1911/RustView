@@ -14,6 +14,7 @@ const MAX_PENDING_FOLDERS: usize = 20;
 pub(super) struct State {
     pub(super) open: bool,
     rows: Vec<Recent>,
+    pinned: Vec<Recent>,
     error: Option<String>,
     opening: Option<Opening>,
     opened: Option<Opening>,
@@ -41,6 +42,14 @@ struct FolderWrite {
     viewed_at: SystemTime,
     due: Instant,
     record_open: bool,
+}
+
+enum PanelAction {
+    Open(Recent, bool),
+    Pin(PathBuf, RecentKind),
+    Unpin(PathBuf),
+    PickFolder,
+    PickArchive,
 }
 
 impl State {
@@ -296,6 +305,7 @@ impl Viewer {
         self.save_recent_folder(true);
         self.recent_ui.open = true;
         self.recent_ui.rows.clear();
+        self.recent_ui.pinned.clear();
         self.recent_ui.error = None;
         self.recent_ui.loading_rows = !self.recent_folder_drained();
         if !self.recent_ui.loading_rows {
@@ -316,6 +326,31 @@ impl Viewer {
             }
             None => self.recent_ui.error = Some("无法访问本地目录库。".into()),
         }
+        self.read_pinned_rows();
+    }
+
+    fn read_pinned_rows(&mut self) {
+        if let Some(catalog) = self.extra.catalog.as_ref() {
+            match catalog.pinned_sources() {
+                Ok(pinned) => self.recent_ui.pinned = pinned,
+                Err(error) => self.recent_ui.error = Some(format!("无法读取常用位置：{error}")),
+            }
+        }
+    }
+
+    fn change_pin(&mut self, path: &Path, kind: Option<RecentKind>) {
+        let Some(catalog) = self.extra.catalog.as_mut() else {
+            self.recent_ui.error = Some("无法访问本地目录库。".into());
+            return;
+        };
+        let result = match kind {
+            Some(kind) => catalog.pin_source(path, kind),
+            None => catalog.unpin_source(path),
+        };
+        self.recent_ui.error = result.err();
+        if self.recent_ui.error.is_none() {
+            self.read_pinned_rows();
+        }
     }
 
     pub(super) fn draw_recent_ui(&mut self, ctx: &egui::Context) {
@@ -333,74 +368,89 @@ impl Viewer {
         let modal = egui::Modal::new(egui::Id::new("recent-open")).show(ctx, |ui| {
             ui.set_width((ctx.screen_rect().width() - 48.0).clamp(180.0, 520.0));
             ui.heading("最近打开");
-            let mut target = None;
+            let mut action = None;
             if let Some(error) = &self.recent_ui.error {
                 ui.label(error);
             }
             if self.recent_ui.loading_rows {
                 ui.label("正在读取最近打开记录…");
-            } else if self.recent_ui.rows.is_empty() && self.recent_ui.error.is_none() {
-                ui.label("还没有最近打开的图片、文件夹或压缩包。");
+            } else {
+                egui::ScrollArea::vertical()
+                    .max_height(360.0)
+                    .show(ui, |ui| {
+                        ui.strong("常用位置");
+                        ui.horizontal_wrapped(|ui| {
+                            if ui.button("添加文件夹…").clicked() {
+                                action = Some(PanelAction::PickFolder);
+                            }
+                            if ui.button("添加压缩包…").clicked() {
+                                action = Some(PanelAction::PickArchive);
+                            }
+                        });
+                        for pinned in &self.recent_ui.pinned {
+                            if let Some(clicked) = draw_location_row(ui, pinned, true) {
+                                action = Some(clicked);
+                            }
+                        }
+                        ui.add_space(8.0);
+                        ui.strong("最近记录");
+                        let mut any_recent = false;
+                        for recent in &self.recent_ui.rows {
+                            if !self
+                                .recent_ui
+                                .pinned
+                                .iter()
+                                .any(|pin| pin.path == recent.path)
+                            {
+                                any_recent = true;
+                                if let Some(clicked) = draw_location_row(ui, recent, false) {
+                                    action = Some(clicked);
+                                }
+                            }
+                        }
+                        if !any_recent && self.recent_ui.error.is_none() {
+                            ui.label("没有其他最近打开的项目。");
+                        }
+                    });
             }
-            egui::ScrollArea::vertical()
-                .max_height(360.0)
-                .show(ui, |ui| {
-                    for (index, recent) in self.recent_ui.rows.iter().enumerate() {
-                        let path = display_path(&recent.path);
-                        let name = recent
-                            .path
-                            .file_name()
-                            .and_then(|name| name.to_str())
-                            .unwrap_or(&path);
-                        let kind = match recent.kind {
-                            RecentKind::Image => "图片",
-                            RecentKind::Folder => "文件夹",
-                            RecentKind::Archive => "压缩包",
-                        };
-                        let label = format!("{name}  ·  {kind}");
-                        if ui
-                            .add(egui::Button::new(label).truncate())
-                            .on_hover_text(&path)
-                            .clicked()
-                        {
-                            target = Some((index, false));
-                        }
-                        if recent.kind != RecentKind::Image {
-                            ui.horizontal(|ui| {
-                                if ui
-                                    .add(egui::Button::new("从头打开").small())
-                                    .on_hover_text(format!("从第一张图片打开 {name}"))
-                                    .clicked()
-                                {
-                                    target = Some((index, true));
-                                }
-                                if let Some(entry) = &recent.entry {
-                                    ui.add(
-                                        egui::Label::new(
-                                            egui::RichText::new(format!("上次看到 {entry}"))
-                                                .small(),
-                                        )
-                                        .truncate(),
-                                    )
-                                    .on_hover_text(entry);
-                                }
-                            });
-                        }
-                    }
-                });
             close = ui.button("关闭").clicked();
-            target
+            action
         });
         if close || modal.should_close() {
             self.recent_ui.open = false;
         }
-        if let Some((index, from_start)) = modal.inner {
-            self.activate_recent_row(index, from_start);
+        match modal.inner {
+            Some(PanelAction::Open(recent, from_start)) => {
+                self.activate_recent_row(&recent, from_start);
+            }
+            Some(PanelAction::Pin(path, kind)) => self.change_pin(&path, Some(kind)),
+            Some(PanelAction::Unpin(path)) => self.change_pin(&path, None),
+            Some(PanelAction::PickFolder) => {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_title("添加常用文件夹")
+                    .pick_folder()
+                {
+                    self.change_pin(&path, Some(RecentKind::Folder));
+                }
+            }
+            Some(PanelAction::PickArchive) => {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_title("添加常用压缩包")
+                    .add_filter("压缩包", &["zip", "rar", "7z", "cbz", "cbr", "cb7"])
+                    .pick_file()
+                {
+                    if super::worker::is_archive(&path) {
+                        self.change_pin(&path, Some(RecentKind::Archive));
+                    } else {
+                        self.recent_ui.error = Some("请选择 ZIP、RAR 或 7z 压缩包。".into());
+                    }
+                }
+            }
+            None => {}
         }
     }
 
-    fn activate_recent_row(&mut self, index: usize, from_start: bool) {
-        let recent = &self.recent_ui.rows[index];
+    fn activate_recent_row(&mut self, recent: &Recent, from_start: bool) {
         let available = match recent.kind {
             RecentKind::Folder => recent.path.is_dir(),
             RecentKind::Image | RecentKind::Archive => recent.path.is_file(),
@@ -428,6 +478,62 @@ impl Viewer {
             self.open_path_with_start(path, from_start);
         }
     }
+}
+
+fn draw_location_row(ui: &mut egui::Ui, recent: &Recent, pinned: bool) -> Option<PanelAction> {
+    let path = display_path(&recent.path);
+    let name = recent
+        .path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(&path);
+    let kind = match recent.kind {
+        RecentKind::Image => "图片",
+        RecentKind::Folder => "文件夹",
+        RecentKind::Archive => "压缩包",
+    };
+    let label = format!("{name}  ·  {kind}");
+    let tooltip = if recent.entry.is_some() {
+        format!("续看\n{path}")
+    } else {
+        path.clone()
+    };
+    let mut action = None;
+    if ui
+        .add(egui::Button::new(label).truncate())
+        .on_hover_text(tooltip)
+        .clicked()
+    {
+        let from_start = pinned && recent.kind == RecentKind::Folder && recent.entry.is_none();
+        action = Some(PanelAction::Open(recent.clone(), from_start));
+    }
+    if recent.kind != RecentKind::Image {
+        ui.horizontal(|ui| {
+            if ui
+                .add(egui::Button::new("从头打开").small())
+                .on_hover_text(format!("从第一张图片打开 {name}"))
+                .clicked()
+            {
+                action = Some(PanelAction::Open(recent.clone(), true));
+            }
+            let pin_label = if pinned { "取消置顶" } else { "置顶" };
+            if ui.add(egui::Button::new(pin_label).small()).clicked() {
+                action = Some(if pinned {
+                    PanelAction::Unpin(recent.path.clone())
+                } else {
+                    PanelAction::Pin(recent.path.clone(), recent.kind)
+                });
+            }
+            if let Some(entry) = &recent.entry {
+                ui.add(
+                    egui::Label::new(egui::RichText::new(format!("上次看到 {entry}")).small())
+                        .truncate(),
+                )
+                .on_hover_text(entry);
+            }
+        });
+    }
+    action
 }
 
 fn display_path(path: &Path) -> String {
@@ -510,12 +616,12 @@ mod tests {
             ("已删除.png", false, false),
         ] {
             let mut viewer = Viewer::empty();
-            viewer.recent_ui.rows.push(Recent {
+            let recent = Recent {
                 path: folder.path().to_owned(),
                 kind: RecentKind::Folder,
                 entry: Some(saved.to_owned()),
-            });
-            viewer.activate_recent_row(0, from_start);
+            };
+            viewer.activate_recent_row(&recent, from_start);
             let task = viewer.pending.as_ref().unwrap();
             if expect_direct {
                 assert!(matches!(task.operation, Operation::Load { index: 0, .. }));
@@ -529,6 +635,40 @@ mod tests {
                         ..
                     }
                 ));
+            }
+        }
+    }
+
+    #[test]
+    fn pinned_archives_use_the_requested_start_without_a_saved_password() {
+        use super::super::{Operation, Request};
+
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("catalog.sqlite");
+        for extension in ["zip", "rar", "7z"] {
+            let archive = directory.path().join(format!("收藏.{extension}"));
+            std::fs::write(&archive, b"test archive identity").unwrap();
+            let mut catalog = Catalog::open(&database).unwrap();
+            catalog.pin_source(&archive, RecentKind::Archive).unwrap();
+            catalog
+                .remember_archive_resume(&archive, "第二章/封面.png", SystemTime::now())
+                .unwrap();
+
+            let mut viewer = Viewer::empty();
+            viewer.extra.catalog = Some(catalog);
+            viewer.open_recent_ui();
+            let pinned = viewer.recent_ui.pinned[0].clone();
+            assert_eq!(pinned.path, archive.canonicalize().unwrap());
+            assert_eq!(pinned.entry.as_deref(), Some("第二章/封面.png"));
+            for from_start in [false, true] {
+                viewer.activate_recent_row(&pinned, from_start);
+                let task = viewer.pending.take().unwrap();
+                assert!(
+                    matches!(task.request, Request::List { path, password: None } if path == pinned.path)
+                );
+                assert!(
+                    matches!(task.operation, Operation::List { from_start: start, management: false, .. } if start == from_start)
+                );
             }
         }
     }

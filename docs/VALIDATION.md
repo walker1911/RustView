@@ -1,5 +1,15 @@
 # Validation / 验证记录
 
+## v0.7.8 Windows x64
+
+本地 Windows x64 单测通过 **299 项**，默认跳过 3 项可选测试。桌面实测覆盖文件夹、ZIP、加密 RAR 和加密 7z 的置顶、重启后续看、从头打开和取消置顶。ZIP 在预览中反向翻图、取消读取和关窗后，所观测的工作进程均已退出，临时目录为空。
+
+用同一套离线依赖与 v0.7.7 交替运行。普通 ZIP 和预读转前台各 10 对，万张 JPEG 和混合 RAW 各 12 对，另外为 JPEG 首图做了 8 对启动跟踪。覆盖首图、长按预览、清晰图和进程树采样峰值。JPEG 首图仍有波动。详细 P50／P95、进程树和独立 RAW 解码结果见发布说明。[v0.7.8 更新说明](RELEASE-v0.7.8.md)
+
+The local Windows x64 suite passed **299 tests**, with three optional tests skipped by default. Native-window tests covered pinning, resuming after restart, opening from start, and unpinning for a local folder, ZIP, encrypted RAR, and encrypted 7z. After reversing direction, cancelling a read, or closing the viewer during ZIP preview, all observed workers exited and the temporary directory was empty.
+
+The same offline runtime was used for alternating runs against v0.7.7. There were 10 pairs each for ordinary ZIP and prefetched ZIP selection, 12 pairs each for 10,000 JPEGs and mixed RAW, and eight additional pairs for JPEG startup traces. The tests covered initial display, held-arrow previews, sharp images, and sampled process-tree peaks. JPEG startup times still varied. [v0.7.8 release notes and benchmark methods](RELEASE-v0.7.8.md#english)
+
 ## v0.6.0 Windows x64
 
 The local Windows suite passed **220 unit tests**, with two optional public-camera tests ignored by default. The new tests cover archive jump bounds and ordering, ambiguous filenames, exact entry identity, and reopening from the local catalog.

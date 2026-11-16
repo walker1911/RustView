@@ -10,6 +10,7 @@ const MAX_KEY_BYTES: usize = 32 * 1024;
 const MAX_CATEGORY_BYTES: usize = 4096;
 const MAX_RESUME_POSITIONS: i64 = 512;
 const MAX_RECENT_SOURCES: i64 = 20;
+const MAX_PINNED_SOURCES: i64 = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecentKind {
@@ -28,7 +29,7 @@ impl RecentKind {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Recent {
     pub path: PathBuf,
     pub kind: RecentKind,
@@ -112,6 +113,21 @@ fn child_filename(filename: &str) -> Result<(), String> {
         return Err("文件夹续看位置必须是文件名".into());
     }
     Ok(())
+}
+
+fn read_location_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Recent> {
+    let kind = match row.get_ref(1)?.as_str()? {
+        "image" => RecentKind::Image,
+        "folder" => RecentKind::Folder,
+        "archive" => RecentKind::Archive,
+        _ => return Err(rusqlite::Error::InvalidQuery),
+    };
+    let entry: Option<String> = row.get(2)?;
+    Ok(Recent {
+        path: PathBuf::from(row.get::<_, String>(0)?),
+        kind,
+        entry: entry.filter(|name| kind != RecentKind::Folder || child_filename(name).is_ok()),
+    })
 }
 
 fn read_record(connection: &Connection, key: &str) -> Result<Record, String> {
@@ -231,6 +247,10 @@ impl Catalog {
                source_key TEXT PRIMARY KEY NOT NULL,
                kind TEXT NOT NULL CHECK(kind IN ('image','folder','archive')),
                opened_at INTEGER NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS pinned_sources (
+               source_key TEXT PRIMARY KEY NOT NULL,
+               kind TEXT NOT NULL CHECK(kind IN ('folder','archive'))
              );",
             )
             .map_err(|error| format!("无法初始化图片元数据：{error}"))?;
@@ -323,6 +343,9 @@ impl Catalog {
             .execute(
                 "DELETE FROM archive_resume WHERE rowid IN (
                    SELECT rowid FROM archive_resume ORDER BY viewed_at DESC, rowid DESC LIMIT -1 OFFSET ?1
+                 ) AND NOT EXISTS (
+                   SELECT 1 FROM pinned_sources
+                   WHERE source_key=archive_resume.archive_key AND kind='archive'
                  )",
                 [MAX_RESUME_POSITIONS],
             )
@@ -371,6 +394,9 @@ impl Catalog {
             .execute(
                 "DELETE FROM folder_resume WHERE rowid IN (
                    SELECT rowid FROM folder_resume ORDER BY viewed_at DESC, rowid DESC LIMIT -1 OFFSET ?1
+                 ) AND NOT EXISTS (
+                   SELECT 1 FROM pinned_sources
+                   WHERE source_key=folder_resume.folder_key AND kind='folder'
                  )",
                 [MAX_RESUME_POSITIONS],
             )
@@ -400,23 +426,65 @@ impl Catalog {
             )
             .map_err(|error| error.to_string())?;
         let rows = query
-            .query_map([MAX_RECENT_SOURCES], |row| {
-                let kind = match row.get_ref(1)?.as_str()? {
-                    "image" => RecentKind::Image,
-                    "folder" => RecentKind::Folder,
-                    "archive" => RecentKind::Archive,
-                    _ => return Err(rusqlite::Error::InvalidQuery),
-                };
-                let entry: Option<String> = row.get(2)?;
-                Ok(Recent {
-                    path: PathBuf::from(row.get::<_, String>(0)?),
-                    kind,
-                    entry: entry
-                        .filter(|name| kind != RecentKind::Folder || child_filename(name).is_ok()),
-                })
-            })
+            .query_map([MAX_RECENT_SOURCES], read_location_row)
             .map_err(|error| error.to_string())?;
-        rows.collect::<Result<_, _>>().map_err(|error| error.to_string())
+        rows.collect::<Result<_, _>>()
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn pinned_sources(&self) -> Result<Vec<Recent>, String> {
+        let mut query = self
+            .connection
+            .prepare(
+                "SELECT pin.source_key,pin.kind,COALESCE(resume.entry_name,folder.file_name)
+                 FROM pinned_sources pin
+                 LEFT JOIN archive_resume resume
+                   ON pin.kind='archive' AND resume.archive_key=pin.source_key
+                 LEFT JOIN folder_resume folder
+                   ON pin.kind='folder' AND folder.folder_key=pin.source_key
+                 ORDER BY pin.rowid DESC LIMIT ?1",
+            )
+            .map_err(|error| error.to_string())?;
+        let rows = query
+            .query_map([MAX_PINNED_SOURCES], read_location_row)
+            .map_err(|error| error.to_string())?;
+        rows.collect::<Result<_, _>>()
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn pin_source(&mut self, source: &Path, kind: RecentKind) -> Result<(), String> {
+        let available = match kind {
+            RecentKind::Folder => source.is_dir(),
+            RecentKind::Archive => source.is_file(),
+            RecentKind::Image => false,
+        };
+        if !available {
+            return Err("请选择存在的文件夹或压缩包。".into());
+        }
+        let key = source_path_key(source)?;
+        let rows = self
+            .connection
+            .execute(
+                "INSERT INTO pinned_sources(source_key,kind)
+                 SELECT ?1,?2 WHERE (SELECT COUNT(*) FROM pinned_sources) < ?3
+                   OR EXISTS (SELECT 1 FROM pinned_sources WHERE source_key=?1)
+                 ON CONFLICT(source_key) DO UPDATE SET kind=excluded.kind",
+                params![key, kind.as_str(), MAX_PINNED_SOURCES],
+            )
+            .map_err(|error| error.to_string())?;
+        if rows == 0 {
+            return Err(format!("常用位置最多可置顶 {MAX_PINNED_SOURCES} 项。"));
+        }
+        Ok(())
+    }
+
+    pub fn unpin_source(&mut self, pinned_path: &Path) -> Result<(), String> {
+        // The caller supplies the stored canonical path, which still works after deletion.
+        let key = pinned_path.to_str().ok_or("文件路径无法保存")?;
+        self.connection
+            .execute("DELETE FROM pinned_sources WHERE source_key=?1", [key])
+            .map_err(|error| error.to_string())?;
+        Ok(())
     }
 
     pub fn remember_recent_source(&mut self, source: &Path, kind: RecentKind) -> Result<(), String> {
@@ -1078,6 +1146,109 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn pinned_locations_persist_and_read_current_resume_positions() {
+        let directory = tempfile::tempdir().unwrap();
+        let folder = directory.path().join("项目");
+        let archive = directory.path().join("图册.rar");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(&archive, []).unwrap();
+        let database = directory.path().join("catalog.sqlite");
+        let canonical_archive = archive.canonicalize().unwrap();
+        {
+            let mut catalog = Catalog::open(&database).unwrap();
+            catalog.pin_source(&folder, RecentKind::Folder).unwrap();
+            catalog.pin_source(&archive, RecentKind::Archive).unwrap();
+            catalog
+                .pin_source(&folder.join("."), RecentKind::Folder)
+                .unwrap();
+            assert!(catalog.pin_source(&archive, RecentKind::Image).is_err());
+            catalog
+                .remember_recent_source(&folder, RecentKind::Folder)
+                .unwrap();
+            catalog
+                .remember_folder_resume(&folder, "首页.jpg", UNIX_EPOCH)
+                .unwrap();
+            catalog
+                .remember_archive_resume(&archive, "章节/第二页.png", UNIX_EPOCH)
+                .unwrap();
+        }
+
+        let mut catalog = Catalog::open(&database).unwrap();
+        let pins = catalog.pinned_sources().unwrap();
+        assert_eq!(pins.len(), 2);
+        assert_eq!(pins[0].path, canonical_archive);
+        assert_eq!(pins[0].entry.as_deref(), Some("章节/第二页.png"));
+        assert_eq!(pins[1].path, folder.canonicalize().unwrap());
+        assert_eq!(pins[1].entry.as_deref(), Some("首页.jpg"));
+
+        std::fs::remove_file(archive).unwrap();
+        catalog.unpin_source(&canonical_archive).unwrap();
+        assert_eq!(catalog.pinned_sources().unwrap(), [pins[1].clone()]);
+        assert_eq!(catalog.recent_sources().unwrap()[0], pins[1]);
+    }
+
+    #[test]
+    fn pinned_locations_keep_resume_positions_past_history_limit() {
+        let directory = tempfile::tempdir().unwrap();
+        let folder = directory.path().join("项目");
+        let archive = directory.path().join("图册.7z");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(&archive, []).unwrap();
+        let mut catalog = Catalog::open(&directory.path().join("catalog.sqlite")).unwrap();
+        catalog.pin_source(&folder, RecentKind::Folder).unwrap();
+        catalog.pin_source(&archive, RecentKind::Archive).unwrap();
+        catalog
+            .remember_folder_resume(&folder, "首页.jpg", UNIX_EPOCH)
+            .unwrap();
+        catalog
+            .remember_archive_resume(&archive, "章节/第二页.png", UNIX_EPOCH)
+            .unwrap();
+        catalog
+            .connection
+            .execute_batch(
+                "INSERT INTO folder_resume VALUES('ordinary-folder','old.jpg',0);
+             INSERT INTO archive_resume VALUES('ordinary-archive','old.jpg',0);",
+            )
+            .unwrap();
+        for (table, column, filename) in [
+            ("folder_resume", "folder_key", "file_name"),
+            ("archive_resume", "archive_key", "entry_name"),
+        ] {
+            catalog
+                .connection
+                .execute(
+                    &format!(
+                        "WITH RECURSIVE sequence(i) AS (
+                     VALUES(1) UNION ALL SELECT i+1 FROM sequence WHERE i<?1
+                 ) INSERT INTO {table}({column},{filename},viewed_at)
+                   SELECT 'new-'||i,'photo.jpg',i FROM sequence"
+                    ),
+                    [MAX_RESUME_POSITIONS],
+                )
+                .unwrap();
+        }
+
+        catalog
+            .remember_folder_resume(&folder, "下一张.jpg", UNIX_EPOCH)
+            .unwrap();
+        catalog
+            .remember_archive_resume(&archive, "章节/第三页.png", UNIX_EPOCH)
+            .unwrap();
+        let pins = catalog.pinned_sources().unwrap();
+        assert_eq!(pins[0].entry.as_deref(), Some("章节/第三页.png"));
+        assert_eq!(pins[1].entry.as_deref(), Some("下一张.jpg"));
+        for table in ["folder_resume", "archive_resume"] {
+            let rows: i64 = catalog
+                .connection
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(rows, MAX_RESUME_POSITIONS + 1);
+        }
     }
 
     #[test]

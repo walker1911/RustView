@@ -699,7 +699,9 @@ impl Viewer {
         self.selected = Some(index);
         self.full_raw = full_raw;
         self.browser = false;
-        if self.held_archive_image.is_some() {
+        let promoted_zip_preload = self.running.as_ref().is_some_and(|active| active.promoted && active.id == self.serial)
+            && self.source.as_deref().and_then(Path::extension).is_some_and(|extension| extension.eq_ignore_ascii_case("zip"));
+        if self.held_archive_image.is_some() || promoted_zip_preload {
             self.extra.presentation.retain_drawn_target_preview();
         }
         self.extra.presentation.begin_target(index, self.entries[index].name.clone());
@@ -1232,6 +1234,8 @@ impl Viewer {
         let archive_release = self.held_archive_image.as_ref()
             .filter(|held| held.id == id)
             .map(|held| held.release.clone());
+        // A ZIP JPEG preload can become the active target before full decoding completes.
+        let zip_preload = preload.is_some() && worker::is_zip_jpeg_load(&task.request);
         let reload = matches!(task.operation, Operation::Reload { .. } | Operation::SvgRefine { .. });
         let startup_context = if context.is_none() {
             self.startup_image.as_ref().map(|startup| startup.repaint_context.clone())
@@ -1253,7 +1257,7 @@ impl Viewer {
             let result = if let Some(release) = archive_release {
                 worker::execute_with_held_preview(task.request, thread_cancel, release, send_preview)
             } else if preview_index.is_some() {
-                worker::execute_with_preview(task.request, thread_cancel, send_preview)
+                worker::execute_with_preview(task.request, thread_cancel, zip_preload, send_preview)
             } else {
                 worker::execute(task.request, thread_cancel)
             };
@@ -3119,6 +3123,39 @@ mod tests {
         assert!(release.load(Ordering::Relaxed));
         assert_eq!(viewer.pending.as_ref().unwrap().id, id);
         assert!(viewer.held_archive_image.is_none());
+    }
+
+    #[test]
+    fn next_zip_target_keeps_the_last_drawn_promoted_preview() {
+        let entries = ["a.jpg", "b.jpg", "c.jpg"].into_iter().map(|name| Entry {
+            name: name.into(), size: 1024, directory: false, archive: false, modified: None,
+        }).collect();
+        let mut viewer = browser_ui::tests::viewer(entries);
+        viewer.source = Some(PathBuf::from("photos.zip"));
+        viewer.browser = false;
+        viewer.selected = Some(0);
+        viewer.schedule_preload();
+        let task = viewer.pending.take().unwrap();
+        let (_sender, receiver) = mpsc::sync_channel(1);
+        let (preview_tx, preview_rx) = mpsc::sync_channel(1);
+        viewer.running = Some(Running { id: task.id, cancel: Arc::new(AtomicBool::new(false)), receiver,
+            preview: Some((1, preview_rx)), preload: Some((1, false)), promoted: false, reload: false });
+        let right = egui::Key::ArrowRight;
+        viewer.navigate_with_arrow(true, false, Some((right, true)));
+        assert!(viewer.running.as_ref().unwrap().promoted);
+        assert!(viewer.held_archive_image.is_none());
+        let preview = worker::ContinuityPreview::sample(1, 1, &[65, 77, 90, 255], 6000, 4000).unwrap();
+        preview_tx.send(preview).ok().unwrap();
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            viewer.poll(ctx);
+            egui::CentralPanel::default().show(ctx, |ui| viewer.draw_image(ui, ctx));
+        });
+        assert!(viewer.extra.presentation.has_drawn_target());
+        viewer.navigate_with_arrow(true, false, Some((right, true)));
+        assert_eq!(viewer.selected, Some(2));
+        assert!(viewer.extra.presentation.texture_for(1).is_some());
+        assert!(viewer.extra.presentation.texture_for(2).is_none());
     }
 
     #[test]

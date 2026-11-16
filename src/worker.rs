@@ -603,6 +603,16 @@ pub(crate) fn is_archive_jpeg_load(request: &Request) -> bool {
     archive_jpeg_color_management(request).is_some()
 }
 
+fn zip_jpeg_color_management(request: &Request) -> Option<bool> {
+    let (path, entry, managed) = jpeg_load(request)?;
+    (entry.is_some() && path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("zip")))
+        .then_some(managed)
+}
+
+pub(crate) fn is_zip_jpeg_load(request: &Request) -> bool {
+    zip_jpeg_color_management(request).is_some()
+}
+
 fn is_local_jpeg_load(request: &Request) -> bool {
     local_jpeg_load(request).is_some()
 }
@@ -1413,18 +1423,22 @@ fn write_image(
     })
 }
 
-fn held_archive_jpeg(request: &Request, output: &Path, managed: bool) -> Reply {
+fn archive_jpeg(request: &Request, output: &Path, managed: bool, hold: bool) -> Reply {
     let record = source_record(request);
     let input = match prepare_image(request, output) {
         Ok(input) => input,
         Err(reply) => return reply,
     };
-    let release = output.join(ARCHIVE_JPEG_RELEASE);
-    if record.is_none() && !release.is_file() {
-        let preview = crate::imaging::decode_jpeg_preview(
+    let release = hold.then(|| output.join(ARCHIVE_JPEG_RELEASE));
+    let released = || release.as_ref().is_some_and(|path| path.is_file());
+    let min_pixels = if hold { 0 } else { (CONTINUITY_MIN_BYTES / 4) as u64 + 1 };
+    let unedited = record.is_none();
+    let publish_preview = || {
+        if !unedited || released() { return false; }
+        crate::imaging::decode_jpeg_preview(
             &input,
             CONTINUITY_SIDE,
-            0,
+            min_pixels,
             200_000_000,
             MAX_IMAGE_BYTES,
             managed,
@@ -1432,22 +1446,36 @@ fn held_archive_jpeg(request: &Request, output: &Path, managed: bool) -> Reply {
         .and_then(|preview| ContinuityPreview::sample(
             preview.image.width, preview.image.height, &preview.image.rgba,
             preview.source_width, preview.source_height,
-        ));
-        if !release.is_file() && preview.is_some_and(|preview| preview.publish(output).is_ok()) {
-            // The process is supervised by the viewer's cancellable job. Only
-            // the verified compressed source and a small preview are held here.
-            while !release.is_file() {
+        ))
+        .is_some_and(|preview| !released() && preview.publish(output).is_ok())
+    };
+    let decode = || decode_prepared_with_record(request, &input, output, record);
+    let (decoded, preview_published) = if !hold && unedited {
+        // A ZIP preload might become the active image. Scale and decode the
+        // same verified extraction in the supervised worker without serial delay.
+        std::thread::scope(|scope| {
+            let preview = scope.spawn(publish_preview);
+            let decoded = decode();
+            (decoded, preview.join().unwrap_or(false))
+        })
+    } else {
+        let preview_published = hold && publish_preview();
+        if preview_published {
+            // Only the verified compressed source and a small preview are held
+            // in this cancellable job until the viewer releases it.
+            while !released() {
                 std::thread::sleep(Duration::from_millis(8));
             }
         }
-    }
+        (decode(), preview_published)
+    };
     // Unsupported previews and sources with edit records also use this input.
     // They fall back to the normal full decoder without delaying navigation.
-    let (decoded, record) = match decode_prepared_with_record(request, &input, output, record) {
+    let (decoded, record) = match decoded {
         Ok(image) => image,
         Err(reply) => return reply,
     };
-    write_source(output, decoded, false)
+    write_source(output, decoded, !hold && !preview_published)
         .map(|mut reply| {
             reply.editing_record = record;
             reply
@@ -1468,8 +1496,12 @@ pub fn worker_main() {
         Ok(_) => match serde_json::from_str::<Request>(&input) {
             Ok(request) => match mode.as_deref().and_then(|mode| mode.to_str()) {
                 Some("--hold-archive-jpeg") => match archive_jpeg_color_management(&request) {
-                    Some(managed) => held_archive_jpeg(&request, &output, managed),
+                    Some(managed) => archive_jpeg(&request, &output, managed, true),
                     None => handle_request(request, &output, false),
+                },
+                Some("--preview-zip-preload") => match zip_jpeg_color_management(&request) {
+                    Some(managed) => archive_jpeg(&request, &output, managed, false),
+                    None => handle_request(request, &output, true),
                 },
                 mode => handle_request(request, &output, mode == Some("--preview")),
             },
@@ -1558,15 +1590,16 @@ fn resource_limits(request: &Request) -> (usize, Duration) {
 }
 
 pub fn execute(request: Request, cancel: Arc<AtomicBool>) -> Result<Output, String> {
-    execute_task(request, cancel, None, None)
+    execute_task(request, cancel, None, None, false)
 }
 
 pub(crate) fn execute_with_preview(
     request: Request,
     cancel: Arc<AtomicBool>,
+    zip_preload: bool,
     mut on_preview: impl FnMut(ContinuityPreview),
 ) -> Result<Output, String> {
-    execute_task(request, cancel, Some(&mut on_preview), None)
+    execute_task(request, cancel, Some(&mut on_preview), None, zip_preload)
 }
 
 pub(crate) fn execute_with_held_preview(
@@ -1575,7 +1608,7 @@ pub(crate) fn execute_with_held_preview(
     release: Arc<AtomicBool>,
     mut on_preview: impl FnMut(ContinuityPreview),
 ) -> Result<Output, String> {
-    execute_task(request, cancel, Some(&mut on_preview), Some(&release))
+    execute_task(request, cancel, Some(&mut on_preview), Some(&release), false)
 }
 
 fn execute_task(
@@ -1583,6 +1616,7 @@ fn execute_task(
     cancel: Arc<AtomicBool>,
     on_preview: Option<&mut dyn FnMut(ContinuityPreview)>,
     release: Option<&AtomicBool>,
+    zip_preload: bool,
 ) -> Result<Output, String> {
     if cancel.load(Ordering::Relaxed) {
         return Err("已取消".into());
@@ -1591,7 +1625,7 @@ fn execute_task(
         .prefix("rustview-")
         .tempdir()
         .map_err(|e| e.to_string())?;
-    let result = execute_in_directory(request, cancel, directory.path(), on_preview, release);
+    let result = execute_in_directory(request, cancel, directory.path(), on_preview, release, zip_preload);
     // All process/job handles are dropped before deleting the private spool.
     // Windows can briefly retain native I/O handles after job termination.
     let directory_path = directory.path().to_owned();
@@ -1618,6 +1652,7 @@ fn execute_in_directory(
     directory: &Path,
     mut on_preview: Option<&mut dyn FnMut(ContinuityPreview)>,
     release: Option<&AtomicBool>,
+    zip_preload: bool,
 ) -> Result<Output, String> {
     let error_file =
         fs::File::create(directory.join("stderr.txt")).map_err(|e| e.to_string())?;
@@ -1635,7 +1670,7 @@ fn execute_in_directory(
     if release.is_some() {
         command.arg("--hold-archive-jpeg");
     } else if on_preview.is_some() {
-        command.arg("--preview");
+        command.arg(if zip_preload { "--preview-zip-preload" } else { "--preview" });
     }
     #[cfg(windows)]
     {
@@ -1940,7 +1975,7 @@ mod tests {
         };
         assert!(is_archive_jpeg_load(&request));
         let (preview, full_while_held, removed, reply) = std::thread::scope(|scope| {
-            let worker = scope.spawn(|| held_archive_jpeg(&request, &output, false));
+            let worker = scope.spawn(|| archive_jpeg(&request, &output, false, true));
             let until = Instant::now() + Duration::from_secs(10);
             let preview = loop {
                 let preview = ContinuityPreview::read(&output.join("continuity.rgba"));
@@ -1963,6 +1998,45 @@ mod tests {
         assert!(reply.error.is_none(), "{:?}", reply.error);
         assert_eq!((reply.width, reply.height), (960, 640));
         assert!(reply.note.contains("ICC颜色管理已关闭"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn zip_jpeg_preload_publishes_the_scaled_decode_and_finishes_without_release() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("target.jpg");
+        let output = directory.path().join("output");
+        fs::create_dir(&output).unwrap();
+        image::RgbImage::from_fn(2048, 1088, |x, _| {
+            if x % 32 < 16 { image::Rgb([208, 60, 12]) } else { image::Rgb([22, 154, 206]) }
+        }).save(&input).unwrap();
+        let scaled = crate::imaging::decode_jpeg_preview(
+            &input, CONTINUITY_SIDE, (CONTINUITY_MIN_BYTES / 4) as u64 + 1,
+            200_000_000, MAX_IMAGE_BYTES, false,
+        ).unwrap();
+        let expected = ContinuityPreview::sample(
+            scaled.image.width, scaled.image.height, &scaled.image.rgba,
+            scaled.source_width, scaled.source_height,
+        ).unwrap();
+        let engine = Path::new(env!("CARGO_MANIFEST_DIR")).join("native/7zip/7z.exe");
+        let packed = Command::new(engine).current_dir(directory.path())
+            .args(["a", "-tzip", "fixture.ZIP", "target.jpg"])
+            .output().unwrap();
+        assert!(packed.status.success(), "{:?}", packed);
+        let request = Request::Load {
+            path: directory.path().join("fixture.ZIP"), entry: Some("target.jpg".into()),
+            password: None, full_raw: false,
+        };
+        assert!(is_zip_jpeg_load(&request));
+        let reply = archive_jpeg(&request, &output, false, false);
+        assert!(reply.error.is_none(), "{:?}", reply.error);
+        assert_eq!((reply.width, reply.height), (2048, 1088));
+        let preview = ContinuityPreview::read(&output.join("continuity.rgba")).unwrap();
+        assert_eq!((preview.source_width, preview.source_height), (2048, 1088));
+        assert_eq!(preview.rgba, expected.rgba);
+        let full = fs::read(output.join("pixels.rgba")).unwrap();
+        let late = ContinuityPreview::sample(reply.width, reply.height, &full, reply.width, reply.height).unwrap();
+        assert_ne!(preview.rgba, late.rgba);
     }
 
     #[test]

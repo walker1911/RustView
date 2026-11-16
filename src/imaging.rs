@@ -260,7 +260,7 @@ fn decode_options(
             reader.set_format(format);
         }
     }
-    decode_reader_options(reader, max_pixels, max_output_bytes, managed).or_else(|error| {
+    decode_reader_options(reader, max_pixels, max_output_bytes, managed, false).or_else(|error| {
         if is_supported_image(&input.to_string_lossy()) {
             crate::precision::decode_fallback(input, max_pixels, max_output_bytes, managed)
                 .map_err(|fallback| format!("{error}；备用解码：{fallback}"))
@@ -275,7 +275,7 @@ fn decode_reader<R: BufRead + Seek>(
     max_pixels: u64,
     max_output_bytes: usize,
 ) -> Result<DecodedImage, String> {
-    decode_reader_options(reader, max_pixels, max_output_bytes, true)
+    decode_reader_options(reader, max_pixels, max_output_bytes, true, true)
 }
 
 fn decode_reader_options<R: BufRead + Seek>(
@@ -283,6 +283,7 @@ fn decode_reader_options<R: BufRead + Seek>(
     max_pixels: u64,
     max_output_bytes: usize,
     managed: bool,
+    reuse_raw_jpeg_buffer: bool,
 ) -> Result<DecodedImage, String> {
     let format = reader.format();
     let mut limits = Limits::default();
@@ -294,7 +295,7 @@ fn decode_reader_options<R: BufRead + Seek>(
         .into_decoder()
         .map_err(|error| format!("无法识别或打开图像：{error}"))?;
     let (width, height) = decoder.dimensions();
-    output_size(width, height, max_pixels, max_output_bytes)?;
+    let rgba_size = output_size(width, height, max_pixels, max_output_bytes)?;
 
     let mut notes = Vec::new();
     let orientation = match decoder.orientation() {
@@ -311,10 +312,29 @@ fn decode_reader_options<R: BufRead + Seek>(
             None
         }
     };
-    let mut image =
-        DynamicImage::from_decoder(decoder).map_err(|error| format!("图像解码失败：{error}"))?;
-    image.apply_orientation(orientation);
-    let mut image = image.into_rgba8();
+    let mut image = if reuse_raw_jpeg_buffer
+        && format == Some(ImageFormat::Jpeg)
+        && decoder.color_type() == image::ColorType::Rgb8
+        && orientation == image::metadata::Orientation::NoTransforms
+    {
+        // Large camera previews can otherwise keep a full RGB frame and its
+        // RGBA conversion alive together. Expand backwards in the same allocation.
+        let pixels = rgba_size / 4;
+        let mut rgba = vec![0; rgba_size];
+        decoder.read_image(&mut rgba[..pixels * 3])
+            .map_err(|error| format!("图像解码失败：{error}"))?;
+        for index in (0..pixels).rev() {
+            let offset = index * 3;
+            let pixel = [rgba[offset], rgba[offset + 1], rgba[offset + 2], 255];
+            rgba[index * 4..][..4].copy_from_slice(&pixel);
+        }
+        image::RgbaImage::from_raw(width, height, rgba).ok_or("JPEG 输出尺寸错误")?
+    } else {
+        let mut image = DynamicImage::from_decoder(decoder)
+            .map_err(|error| format!("图像解码失败：{error}"))?;
+        image.apply_orientation(orientation);
+        image.into_rgba8()
+    };
     output_size(image.width(), image.height(), max_pixels, max_output_bytes)?;
     if let Some(profile) = profile.filter(|_| managed) {
         match apply_icc(&profile, image.as_mut()) {
@@ -1077,6 +1097,8 @@ mod raw {
         let api = Api::load().ok()?;
         let session = Session::open(&api, input).ok()?;
         let thumbnail = session.thumbnail()?;
+        // The returned thumbnail is separately owned and cleared by dcraw_clear_mem.
+        drop(session);
         if unsafe { (*thumbnail.pointer).kind } != LIBRAW_IMAGE_JPEG {
             return None;
         }
@@ -1163,6 +1185,8 @@ mod raw {
             return Err("RAW 显影没有返回图像".into());
         }
         let image = Image { api: &api, pointer };
+        // Drop LibRaw's processing buffers before allocating the RGBA display.
+        drop(session);
         let mut decoded = image.decode(max_pixels, max_output_bytes)?;
         decoded.note = if full {
             format!("LibRaw {} 完整解码 · sRGB · 8 位显示", api.version)
@@ -1259,6 +1283,31 @@ mod tests {
     }
 
     #[test]
+    fn embedded_jpeg_reuses_rgb_buffer_without_changing_pixels_or_limits() {
+        use image::ImageEncoder;
+
+        let rgb = [255, 0, 0, 0, 255, 0, 0, 0, 255, 31, 75, 199, 80, 60, 20, 1, 2, 3];
+        let gray = [1, 51, 103, 171, 200, 255];
+        for (pixels, color_type) in [
+            (rgb.as_slice(), image::ExtendedColorType::Rgb8),
+            (gray.as_slice(), image::ExtendedColorType::L8),
+        ] {
+            let mut jpeg = Vec::new();
+            let mut encoder = image::codecs::jpeg::JpegEncoder::new(&mut jpeg);
+            encoder.set_icc_profile(ColorProfile::new_srgb().encode().unwrap()).unwrap();
+            encoder.encode(pixels, 3, 2, color_type).unwrap();
+            let reader = || ImageReader::with_format(Cursor::new(&jpeg), ImageFormat::Jpeg);
+            let legacy = decode_reader_options(reader(), 6, 24, true, false).unwrap();
+            let compact = decode_reader(reader(), 6, 24).unwrap();
+            assert_eq!((compact.width, compact.height), (3, 2));
+            assert_eq!(compact.rgba, legacy.rgba);
+            assert_eq!(compact.note, legacy.note);
+            assert!(decode_reader(reader(), 5, 24).is_err());
+            assert!(decode_reader(reader(), 6, 23).is_err());
+        }
+    }
+
+    #[test]
     fn jpeg_exif_orientation_is_applied() {
         let directory = tempfile::tempdir().unwrap();
         let mut jpeg = Vec::new();
@@ -1275,9 +1324,13 @@ mod tests {
         file.extend_from_slice(&exif);
         file.extend_from_slice(&jpeg[2..]);
         let path = directory.path().join("rotated.jpg");
-        std::fs::write(&path, file).unwrap();
+        std::fs::write(&path, &file).unwrap();
         let decoded = decode(&path, 6, 128, false).unwrap();
         assert_eq!((decoded.width, decoded.height), (3, 2));
+        let embedded = decode_reader(ImageReader::with_format(Cursor::new(file), ImageFormat::Jpeg),
+            6, 128).unwrap();
+        assert_eq!((embedded.width, embedded.height), (3, 2));
+        assert_eq!(embedded.rgba, decoded.rgba);
     }
 
     #[cfg(windows)]
