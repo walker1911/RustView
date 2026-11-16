@@ -20,6 +20,7 @@ pub const THUMBNAIL_SIDE: u32 = 128;
 pub const MAX_ENTRIES: usize = 100_000;
 pub(crate) const CONTINUITY_SIDE: u32 = 64;
 pub(crate) const CONTINUITY_MIN_BYTES: usize = 8 * 1024 * 1024;
+const ARCHIVE_JPEG_RELEASE: &str = "archive-jpeg-release";
 const SVG_WORKER_MEMORY: usize = 512 * 1024 * 1024;
 const SVG_WORKER_TIMEOUT: Duration = Duration::from_secs(12);
 
@@ -388,6 +389,13 @@ fn decode_source(
     request: &Request,
     output: &Path,
 ) -> Result<(crate::imaging::DecodedImage, u32, u32), Reply> {
+    decode_prepared_source(request, &prepare_image(request, output)?)
+}
+
+fn decode_prepared_source(
+    request: &Request,
+    input: &Path,
+) -> Result<(crate::imaging::DecodedImage, u32, u32), Reply> {
     fn settings(request: &Request) -> Result<(bool, bool, Option<(u32, bool)>), String> {
         match request {
             Request::Load { full_raw, .. } => Ok((*full_raw, true, None)),
@@ -411,11 +419,10 @@ fn decode_source(
         error: Some(error),
         ..Default::default()
     })?;
-    let input = prepare_image(request, output)?;
     let decoded = (|| -> Result<_, String> {
         let (mut image, index, total) = if let Some((index, last)) = page {
             let page = crate::pages::decode_with_options(
-                &input,
+                input,
                 index,
                 last,
                 MAX_IMAGE_BYTES,
@@ -439,7 +446,7 @@ fn decode_source(
                 crate::imaging::decode_unmanaged
             };
             (
-                decode(&input, 200_000_000, MAX_IMAGE_BYTES, full_raw)?,
+                decode(input, 200_000_000, MAX_IMAGE_BYTES, full_raw)?,
                 0,
                 1,
             )
@@ -567,18 +574,33 @@ fn source_record(request: &Request) -> Option<crate::recipes::EditRecord> {
     identity(request).and_then(|(path, entry)| crate::recipes::read_for(path, entry))
 }
 
-fn local_jpeg_load(request: &Request) -> Option<(&Path, bool)> {
+fn jpeg_load(request: &Request) -> Option<(&Path, Option<&str>, bool)> {
     let (source, managed) = match request {
         Request::ColorPreview { source, managed } => (source.as_ref(), *managed),
         _ => (request, true),
     };
-    let Request::Load { path, entry: None, full_raw: false, .. } = source else {
+    let Request::Load { path, entry, full_raw: false, .. } = source else {
         return None;
     };
-    path.extension().and_then(|extension| extension.to_str()).filter(|extension| {
+    let image_path = entry.as_deref().map(Path::new).unwrap_or(path);
+    image_path.extension().and_then(|extension| extension.to_str()).filter(|extension| {
         ["jpg", "jpeg", "jpe", "jfif"].iter().any(|suffix| extension.eq_ignore_ascii_case(suffix))
     })?;
-    Some((path, managed))
+    Some((path, entry.as_deref(), managed))
+}
+
+fn local_jpeg_load(request: &Request) -> Option<(&Path, bool)> {
+    let (path, entry, managed) = jpeg_load(request)?;
+    entry.is_none().then_some((path, managed))
+}
+
+fn archive_jpeg_color_management(request: &Request) -> Option<bool> {
+    let (path, entry, managed) = jpeg_load(request)?;
+    (entry.is_some() && is_archive(path)).then_some(managed)
+}
+
+pub(crate) fn is_archive_jpeg_load(request: &Request) -> bool {
+    archive_jpeg_color_management(request).is_some()
 }
 
 fn is_local_jpeg_load(request: &Request) -> bool {
@@ -817,10 +839,19 @@ fn decode_source_with_record(
     output: &Path,
     record: Option<crate::recipes::EditRecord>,
 ) -> Result<((crate::imaging::DecodedImage, u32, u32), Option<crate::recipes::EditRecord>), Reply> {
-    let Some(record) = record else {
-        return decode_source(request, output).map(|image| (image, None));
-    };
     let input = prepare_image(request, output)?;
+    decode_prepared_with_record(request, &input, output, record)
+}
+
+fn decode_prepared_with_record(
+    request: &Request,
+    input: &Path,
+    output: &Path,
+    record: Option<crate::recipes::EditRecord>,
+) -> Result<((crate::imaging::DecodedImage, u32, u32), Option<crate::recipes::EditRecord>), Reply> {
+    let Some(record) = record else {
+        return decode_prepared_source(request, input).map(|image| (image, None));
+    };
     let result = (|| -> Result<_, String> {
         fn has_page(request: &Request) -> bool {
             match request {
@@ -837,13 +868,13 @@ fn decode_source_with_record(
             }
         }
         let (index, total) = if has_page(request) {
-            let (_, index, total) = decode_source(request, output)
+            let (_, index, total) = decode_prepared_source(request, input)
                 .map_err(|r| r.error.unwrap_or_else(|| "读取编辑记录所在页失败".into()))?;
             (index, total)
         } else {
             (0, 1)
         };
-        let path = render_record_preview(&input, index, &record, output, false)?;
+        let path = render_record_preview(input, index, &record, output, false)?;
         let mut image = if managed(request) {
             crate::imaging::decode(&path, 200_000_000, MAX_IMAGE_BYTES, false)?
         } else {
@@ -1382,18 +1413,66 @@ fn write_image(
     })
 }
 
+fn held_archive_jpeg(request: &Request, output: &Path, managed: bool) -> Reply {
+    let record = source_record(request);
+    let input = match prepare_image(request, output) {
+        Ok(input) => input,
+        Err(reply) => return reply,
+    };
+    let release = output.join(ARCHIVE_JPEG_RELEASE);
+    if record.is_none() && !release.is_file() {
+        let preview = crate::imaging::decode_jpeg_preview(
+            &input,
+            CONTINUITY_SIDE,
+            0,
+            200_000_000,
+            MAX_IMAGE_BYTES,
+            managed,
+        )
+        .and_then(|preview| ContinuityPreview::sample(
+            preview.image.width, preview.image.height, &preview.image.rgba,
+            preview.source_width, preview.source_height,
+        ));
+        if !release.is_file() && preview.is_some_and(|preview| preview.publish(output).is_ok()) {
+            // The process is supervised by the viewer's cancellable job. Only
+            // the verified compressed source and a small preview are held here.
+            while !release.is_file() {
+                std::thread::sleep(Duration::from_millis(8));
+            }
+        }
+    }
+    // Unsupported previews and sources with edit records also use this input.
+    // They fall back to the normal full decoder without delaying navigation.
+    let (decoded, record) = match decode_prepared_with_record(request, &input, output, record) {
+        Ok(image) => image,
+        Err(reply) => return reply,
+    };
+    write_source(output, decoded, false)
+        .map(|mut reply| {
+            reply.editing_record = record;
+            reply
+        })
+        .unwrap_or_else(|error| Reply { error: Some(error), ..Default::default() })
+}
+
 pub fn worker_main() {
     let Some(output) = std::env::args_os().nth(2).map(PathBuf::from) else {
         return;
     };
-    let publish_preview = std::env::args_os().nth(3).is_some_and(|arg| arg == "--preview");
+    let mode = std::env::args_os().nth(3);
     let mut input = String::new();
     let reply = match std::io::stdin()
         .take(1024 * 1024)
         .read_to_string(&mut input)
     {
         Ok(_) => match serde_json::from_str::<Request>(&input) {
-            Ok(request) => handle_request(request, &output, publish_preview),
+            Ok(request) => match mode.as_deref().and_then(|mode| mode.to_str()) {
+                Some("--hold-archive-jpeg") => match archive_jpeg_color_management(&request) {
+                    Some(managed) => held_archive_jpeg(&request, &output, managed),
+                    None => handle_request(request, &output, false),
+                },
+                mode => handle_request(request, &output, mode == Some("--preview")),
+            },
             Err(e) => Reply {
                 error: Some(format!("无效的读取请求：{e}")),
                 ..Default::default()
@@ -1479,7 +1558,7 @@ fn resource_limits(request: &Request) -> (usize, Duration) {
 }
 
 pub fn execute(request: Request, cancel: Arc<AtomicBool>) -> Result<Output, String> {
-    execute_task(request, cancel, None)
+    execute_task(request, cancel, None, None)
 }
 
 pub(crate) fn execute_with_preview(
@@ -1487,13 +1566,23 @@ pub(crate) fn execute_with_preview(
     cancel: Arc<AtomicBool>,
     mut on_preview: impl FnMut(ContinuityPreview),
 ) -> Result<Output, String> {
-    execute_task(request, cancel, Some(&mut on_preview))
+    execute_task(request, cancel, Some(&mut on_preview), None)
+}
+
+pub(crate) fn execute_with_held_preview(
+    request: Request,
+    cancel: Arc<AtomicBool>,
+    release: Arc<AtomicBool>,
+    mut on_preview: impl FnMut(ContinuityPreview),
+) -> Result<Output, String> {
+    execute_task(request, cancel, Some(&mut on_preview), Some(&release))
 }
 
 fn execute_task(
     request: Request,
     cancel: Arc<AtomicBool>,
     on_preview: Option<&mut dyn FnMut(ContinuityPreview)>,
+    release: Option<&AtomicBool>,
 ) -> Result<Output, String> {
     if cancel.load(Ordering::Relaxed) {
         return Err("已取消".into());
@@ -1502,7 +1591,7 @@ fn execute_task(
         .prefix("rustview-")
         .tempdir()
         .map_err(|e| e.to_string())?;
-    let result = execute_in_directory(request, cancel, directory.path(), on_preview);
+    let result = execute_in_directory(request, cancel, directory.path(), on_preview, release);
     // All process/job handles are dropped before deleting the private spool.
     // Windows can briefly retain native I/O handles after job termination.
     let directory_path = directory.path().to_owned();
@@ -1528,6 +1617,7 @@ fn execute_in_directory(
     cancel: Arc<AtomicBool>,
     directory: &Path,
     mut on_preview: Option<&mut dyn FnMut(ContinuityPreview)>,
+    release: Option<&AtomicBool>,
 ) -> Result<Output, String> {
     let error_file =
         fs::File::create(directory.join("stderr.txt")).map_err(|e| e.to_string())?;
@@ -1542,7 +1632,9 @@ fn execute_in_directory(
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::from(error_file));
-    if on_preview.is_some() {
+    if release.is_some() {
+        command.arg("--hold-archive-jpeg");
+    } else if on_preview.is_some() {
         command.arg("--preview");
     }
     #[cfg(windows)]
@@ -1564,6 +1656,7 @@ fn execute_in_directory(
             return Err(e);
         }
     };
+    let mut release_path = release.map(|_| directory.join(ARCHIVE_JPEG_RELEASE));
     let json = serde_json::to_vec(&request).map_err(|e| e.to_string())?;
     if let Some(mut stdin) = child.stdin.take() {
         if let Err(e) = stdin.write_all(&json) {
@@ -1588,9 +1681,22 @@ fn execute_in_directory(
                 "读取超时，已停止后台任务".into()
             });
         }
+        if release.is_some_and(|release| release.load(Ordering::Relaxed)) {
+            if let Some(path) = release_path.take() {
+                if let Err(error) = fs::write(path, []) {
+                    #[cfg(windows)]
+                    _job.terminate();
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!("无法继续清晰图读取：{error}"));
+                }
+            }
+        }
         if let Some(callback) = &mut on_preview {
             if let Some(preview) = ContinuityPreview::read(&preview_path) {
-                callback(preview);
+                if !release.is_some_and(|release| release.load(Ordering::Relaxed)) {
+                    callback(preview);
+                }
                 on_preview = None;
             }
         }
@@ -1808,6 +1914,55 @@ mod tests {
         assert_eq!(result.rgba, [30, 100, 170, 128].repeat(64 * 16));
         fs::write(&path, vec![0; 16 + 64 * 64 * 4 + 1]).unwrap();
         assert!(ContinuityPreview::read(&path).is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn held_archive_jpeg_uses_the_same_input_for_the_preview_and_full_image() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("target.jpg");
+        let archive = directory.path().join("fixture.zip");
+        let output = directory.path().join("output");
+        fs::create_dir(&output).unwrap();
+        image::RgbImage::from_pixel(960, 640, image::Rgb([215, 43, 17]))
+            .save(&input).unwrap();
+        let engine = Path::new(env!("CARGO_MANIFEST_DIR")).join("native/7zip/7z.exe");
+        let packed = Command::new(engine).current_dir(directory.path())
+            .args(["a", "-tzip", "fixture.zip", "target.jpg"])
+            .output().unwrap();
+        assert!(packed.status.success(), "{:?}", packed);
+        fs::remove_file(input).unwrap();
+        let request = Request::ColorPreview {
+            source: Box::new(Request::Load {
+                path: archive.clone(), entry: Some("target.jpg".into()), password: None, full_raw: false,
+            }),
+            managed: false,
+        };
+        assert!(is_archive_jpeg_load(&request));
+        let (preview, full_while_held, removed, reply) = std::thread::scope(|scope| {
+            let worker = scope.spawn(|| held_archive_jpeg(&request, &output, false));
+            let until = Instant::now() + Duration::from_secs(10);
+            let preview = loop {
+                let preview = ContinuityPreview::read(&output.join("continuity.rgba"));
+                if preview.is_some() || worker.is_finished() || Instant::now() >= until {
+                    break preview;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            };
+            let full_while_held = output.join("pixels.rgba").exists();
+            // The final decode must work even after the extracted entry's original archive is gone.
+            let removed = fs::remove_file(archive);
+            fs::write(output.join(ARCHIVE_JPEG_RELEASE), []).unwrap();
+            (preview, full_while_held, removed, worker.join().unwrap())
+        });
+        removed.unwrap();
+        let preview = preview.expect("preview before the full decode");
+        assert!(!full_while_held);
+        assert_eq!((preview.source_width, preview.source_height), (960, 640));
+        assert!(preview.rgba[0] > 200 && preview.rgba[1] < 55 && preview.rgba[2] < 30);
+        assert!(reply.error.is_none(), "{:?}", reply.error);
+        assert_eq!((reply.width, reply.height), (960, 640));
+        assert!(reply.note.contains("ICC颜色管理已关闭"));
     }
 
     #[test]

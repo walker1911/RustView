@@ -197,6 +197,11 @@ struct DeferredImage {
     request: Request,
     arrow: egui::Key,
 }
+struct HeldArchiveImage {
+    id: u64,
+    arrow: egui::Key,
+    release: Arc<AtomicBool>,
+}
 struct Tile {
     texture: TextureHandle,
     bytes: usize,
@@ -234,6 +239,7 @@ pub struct Viewer {
     pending: Option<Task>,
     running: Option<Running>,
     deferred_image: Option<DeferredImage>,
+    held_archive_image: Option<HeldArchiveImage>,
     status: String,
     cache: ImageCache,
     current: Option<Arc<Pixels>>,
@@ -296,6 +302,7 @@ impl Viewer {
             pending: None,
             running: None,
             deferred_image: None,
+            held_archive_image: None,
             status: "打开图片、文件夹，或 ZIP／RAR／7z 压缩包".into(),
             cache: ImageCache {
                 budget: settings_ui::recommended_cache_mib() as usize * MIB,
@@ -692,6 +699,9 @@ impl Viewer {
         self.selected = Some(index);
         self.full_raw = full_raw;
         self.browser = false;
+        if self.held_archive_image.is_some() {
+            self.extra.presentation.retain_drawn_target_preview();
+        }
         self.extra.presentation.begin_target(index, self.entries[index].name.clone());
         if arrow.is_some() {
             self.extra.presentation.allow_immediate_preview();
@@ -712,7 +722,19 @@ impl Viewer {
             self.deferred_image = Some(DeferredImage { index, full_raw, request, arrow });
             return;
         }
+        let held_archive_arrow = arrow.filter(|_| worker::is_archive_jpeg_load(&request));
         self.load_selected(index, full_raw, request);
+        self.held_archive_image = held_archive_arrow.and_then(|arrow| {
+            let task = self.pending.as_ref()?;
+            if !matches!(task.operation, Operation::Load { index: target, preload: false, .. } if target == index) {
+                return None;
+            }
+            Some(HeldArchiveImage {
+                id: task.id,
+                arrow,
+                release: Arc::new(AtomicBool::new(false)),
+            })
+        });
     }
 
     fn load_selected(&mut self, index: usize, full_raw: bool, request: Request) {
@@ -774,6 +796,14 @@ impl Viewer {
             return self.pending.as_ref().is_some_and(|task| matches!(task.operation, Operation::Load { preload: false, .. }));
         }
         false
+    }
+
+    fn release_archive_image(&mut self, ctx: &egui::Context) {
+        let Some(held) = self.held_archive_image.as_ref() else { return; };
+        if held.id != self.serial || self.browser || !ctx.input(|input| input.focused && input.key_down(held.arrow)) {
+            let held = self.held_archive_image.take().unwrap();
+            held.release.store(true, Ordering::Relaxed);
+        }
     }
 
     fn set_current(&mut self, index: usize, full_raw: bool, image: Arc<Pixels>) {
@@ -1199,6 +1229,9 @@ impl Viewer {
         let cancel = Arc::new(AtomicBool::new(false));
         let thread_cancel = cancel.clone();
         let id = task.id;
+        let archive_release = self.held_archive_image.as_ref()
+            .filter(|held| held.id == id)
+            .map(|held| held.release.clone());
         let reload = matches!(task.operation, Operation::Reload { .. } | Operation::SvgRefine { .. });
         let startup_context = if context.is_none() {
             self.startup_image.as_ref().map(|startup| startup.repaint_context.clone())
@@ -1213,11 +1246,14 @@ impl Viewer {
                 }
             };
             let request = task.request.clone();
-            let result = if preview_index.is_some() {
-                worker::execute_with_preview(task.request, thread_cancel, |preview| {
-                    let _ = preview_tx.try_send(preview);
-                    repaint();
-                })
+            let send_preview = |preview| {
+                let _ = preview_tx.try_send(preview);
+                repaint();
+            };
+            let result = if let Some(release) = archive_release {
+                worker::execute_with_held_preview(task.request, thread_cancel, release, send_preview)
+            } else if preview_index.is_some() {
+                worker::execute_with_preview(task.request, thread_cancel, send_preview)
             } else {
                 worker::execute(task.request, thread_cancel)
             };
@@ -1238,6 +1274,14 @@ impl Viewer {
 
     fn navigate_with_arrow(&mut self, forward: bool, end: bool, arrow: Option<(egui::Key, bool)>) {
         if self.defer_directory_navigation(forward, end) { return; }
+        if let (Some((arrow, true)), Some(held)) = (arrow, self.held_archive_image.as_ref()) {
+            if held.id == self.serial && held.arrow == arrow
+                && !self.extra.presentation.has_drawn_target()
+                && (self.pending.is_some() || self.running.is_some())
+            {
+                return;
+            }
+        }
         if let Some(index) = self.navigation_target(forward, end) {
             self.nav_forward = forward;
             let full_raw = arrow.is_some()
@@ -2345,6 +2389,7 @@ impl eframe::App for Viewer {
             }
         }
         self.replay_directory_navigation(ctx);
+        self.release_archive_image(ctx);
         if self.finish_deferred_image(ctx) || self.pending.is_some() && self.running.is_none() {
             self.start_pending_task(ctx);
         }
@@ -3042,6 +3087,38 @@ mod tests {
         assert!(matches!(&viewer.pending.as_ref().unwrap().operation, Operation::Load { index: 1, preload: false, .. }));
         viewer.install_source(folder.path().to_owned(), None, Vec::new());
         assert_eq!(viewer.cache.budget, 0);
+    }
+
+    #[test]
+    fn held_archive_jpeg_coalesces_unready_repeats_and_releases_the_same_task() {
+        let entries = ["a.jpg", "b.jpg", "c.jpg", "d.jpg"].into_iter().map(|name| Entry {
+            name: name.into(), size: 1024, directory: false, archive: false, modified: None,
+        }).collect();
+        let mut viewer = browser_ui::tests::viewer(entries);
+        viewer.source = Some(PathBuf::from("photos.zip"));
+        viewer.selected = Some(0);
+        let right = egui::Key::ArrowRight;
+        let left = egui::Key::ArrowLeft;
+        viewer.navigate_with_arrow(true, false, Some((right, false)));
+        assert!(viewer.held_archive_image.is_none());
+        viewer.navigate_with_arrow(true, false, Some((right, true)));
+        let waiting = viewer.held_archive_image.as_ref().unwrap().id;
+        viewer.navigate_with_arrow(true, false, Some((right, true)));
+        assert_eq!(viewer.selected, Some(2));
+        assert_eq!(viewer.pending.as_ref().unwrap().id, waiting);
+
+        viewer.navigate_with_arrow(false, false, Some((left, true)));
+        assert_eq!(viewer.selected, Some(1));
+        let held = viewer.held_archive_image.as_ref().unwrap();
+        assert_eq!(held.arrow, left);
+        assert_ne!(held.id, waiting);
+        let id = held.id;
+        let release = held.release.clone();
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| viewer.release_archive_image(ctx));
+        assert!(release.load(Ordering::Relaxed));
+        assert_eq!(viewer.pending.as_ref().unwrap().id, id);
+        assert!(viewer.held_archive_image.is_none());
     }
 
     #[test]

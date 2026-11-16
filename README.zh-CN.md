@@ -8,7 +8,21 @@
 
 面向 **Windows x64** 的 Rust 看图项目。用熟悉的快捷键、Picasa 式胶片带和平滑缩放浏览相机 RAW、静态 SVG、GIF/WebP 动画、Photoshop 合成图及 ZIP／RAR／7z 里的照片。看图时也能直接读二维码、复制图片里的文字。
 
-[下载 v0.7.6](https://github.com/walker1911/RustView/releases/tag/v0.7.6) · [English](README.en.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
+[下载 v0.7.7](https://github.com/walker1911/RustView/releases/tag/v0.7.7) · [English](README.en.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
+
+## v0.7.7 包内 JPEG 连续翻图
+
+长按左右键浏览 ZIP／RAR／7z 时，支持快速预览的未缓存 JPEG 会先显示目标图自己的低清预览。松键后，同一个读取任务用已提取的 JPEG 生成清晰图。翻得很快时，仍在读取的旧目标可以取消，画面保留最近已显示的图片，并标明正在读取的目标文件名。
+
+| 同机实测中位耗时 | v0.7.6 | v0.7.7 |
+|---|---:|---:|
+| 普通 ZIP，长按到目标图可见 | 445 ms | 337 ms |
+| 加密固实 RAR，长按到目标图可见 | 725 ms | 633 ms |
+| 加密固实 7z，长按到目标图可见 | 1,818 ms | 1,705 ms |
+| 本地万张 JPEG，首张清晰图／长按到目标图可见 | 494／49 ms | 495／49 ms |
+| 本地混合 RAW，首张清晰图／长按到目标图可见 | 498／91 ms | 507／90 ms |
+
+压缩包每种格式 8 对，本地两组各 24 对。新版三种包内大 JPEG 的松键补清晰中位数约为 0.53–0.55 秒，ZIP 最慢一次到目标图可见为 793 ms。混合 RAW 的首张清晰图配对中位耗时增加约 11 ms。加密固实 7z 的进程树私有提交内存采样峰值从 784.1 降至 661.4 MiB，混合 RAW 从 429.8 升至 508.7 MiB。压缩包窗口测试未采到白屏或串图，取消、反向翻图和关窗测试结束后未见残留工作进程或临时文件。[v0.7.7 更新说明与实测详情](docs/RELEASE-v0.7.7.md)
 
 ## v0.7.6 兼容性修复
 
@@ -69,7 +83,7 @@
 | **本地文件夹跳图** | 按文件名或当前浏览序号查找图片。 |
 | **最近打开** | 从文件菜单重新打开最近的图片、文件夹或压缩包，最多显示 20 项。文件夹和压缩包可续看或从第一张打开，历史保存在本地目录库。 |
 | **自动刷新本地目录** | 更新当前目录的文件列表与缩略图，当前图被其他软件保存后原位重读。 |
-| **连续翻图** | 左右键切换，上下键缩放。点按读取完整图，按住左右键可快速预览未缓存的本地 JPEG 和符合条件的 RAW。平直胶片带平滑跟随，当前图居中并显示文件名和 `1/84` 序号。 |
+| **连续翻图** | 左右键切换，上下键缩放。点按读取完整图，按住左右键可快速预览未缓存的本地 JPEG、符合条件的 RAW 和包内 JPEG。平直胶片带平滑跟随，当前图居中并显示文件名和 `1/84` 序号。 |
 | **看 Photoshop 文档** | 直接读取本地及 ZIP／RAR／7z 内 PSD/PSB 保存的合成图，支持超过 512 MiB 的大源文件。合成图不可用时可显示带标记的内嵌预览。 |
 | **浏览超大 TIFF** | 对符合条件的本地金字塔 TIFF／BigTIFF，先显示全景，放大后按需读取细节分块。 |
 | **识别二维码和图片文字** | 后台扫码并自动识字，可在图上拖选文字，也可手动识别整图或选区。[二维码说明](docs/RELEASE-v0.6.8.md) |
@@ -120,7 +134,7 @@ v0.4.0 对[本地及ZIP／RAR／7z内的PSD/PSB](docs/PSD.md)提供源文件例�
 
 ## 下载与运行
 
-1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.6/RustView-0.7.6-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.7.6/RustView-0.7.6-win-x64-offline.zip.sha256)
+1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.7/RustView-0.7.7-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.7.7/RustView-0.7.7-win-x64-offline.zip.sha256)
 2. 完整解压，双击 `RustView.exe` 或 `Start-RustView.cmd`。图像引擎、运行库、Tesseract 和简体中文及英文模型均随包提供，首次启动即可离线看图和识别文字。
 3. 打开或拖入文件夹、图片、ZIP／RAR／7z。请保留完整目录。
 

@@ -8,7 +8,21 @@
 
 An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, static SVG, Photoshop composites, and pictures inside compressed archives. Read QR codes and copy text from pictures while staying in the viewer.
 
-[Download v0.7.6](https://github.com/walker1911/RustView/releases/tag/v0.7.6) · [简体中文](README.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+[Download v0.7.7](https://github.com/walker1911/RustView/releases/tag/v0.7.7) · [简体中文](README.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+
+## Archive JPEG browsing in v0.7.7
+
+Hold Left or Right in a ZIP, RAR, or 7z archive to see a low-resolution preview of the selected JPEG when the file supports fast previews and is uncached. On key release, the same read job uses the extracted JPEG to produce the clear image. During rapid browsing, RustView can cancel reads for earlier selections and keeps the last drawn image visible with the pending target filename.
+
+| Median measured on the same PC | v0.7.6 | v0.7.7 |
+|---|---:|---:|
+| Plain ZIP, held arrow to target visible | 445 ms | 337 ms |
+| Encrypted solid RAR, held arrow to target visible | 725 ms | 633 ms |
+| Encrypted solid 7z, held arrow to target visible | 1,818 ms | 1,705 ms |
+| Local folder with 10,000 JPEGs, first clear image / held arrow to target visible | 494 / 49 ms | 495 / 49 ms |
+| Local mixed RAW, first clear image / held arrow to target visible | 498 / 91 ms | 507 / 90 ms |
+
+The test ran eight matched pairs per archive format and 24 per local workload. Median time to a clear image after releasing the arrow key was 0.53–0.55 seconds across the three archive formats in v0.7.7. The slowest ZIP trial reached the target image in 793 ms. The median paired change in time to the first clear image was about 11 ms slower for mixed RAW. Sampled peak private commit across the viewer and its workers went from 784.1 to 661.4 MiB for encrypted solid 7z and from 429.8 to 508.7 MiB for mixed RAW. The archive window tests found no blank frames or wrong images. Cancellation, reversal, and closure tests ended with no worker processes or temporary files left behind. [v0.7.7 release notes and benchmark details](docs/RELEASE-v0.7.7.md)
 
 ## Compatibility fix in v0.7.6
 
@@ -67,7 +81,7 @@ Graphite is the default background. Under **视图 → 看图背景 → 照片�
 | **Jump within a local folder** | Find a picture by name or by its number in the current browsing order. |
 | **Reopen recent items** | Return to up to 20 recently opened images, folders, or archives from the File menu. Resume a folder or archive, or open its first image. History stays in the local catalog. |
 | **Follow local changes** | Refresh the open local folder automatically and reload the current image in place when another program saves it. |
-| **Keep browsing** | Left/right changes images and up/down zooms. Tap to load the full image or hold an arrow key for quick previews of uncached local JPEGs and eligible RAWs. A flat, animated filmstrip keeps the selected photo centered, with a filename and `1/84` counter. |
+| **Keep browsing** | Left/right changes images and up/down zooms. Tap to load the full image or hold an arrow key for quick previews of uncached local JPEGs, eligible RAWs, and eligible archive JPEGs. A flat, animated filmstrip keeps the selected photo centered, with a filename and `1/84` counter. |
 | **View modern formats** | Common images, static SVG, LibRaw-supported RAW and ProRAW DNG, plus HEIC/HEIF, AVIF, and JPEG XL. |
 | **Open Photoshop documents** | View saved PSD/PSB composites locally or inside ZIP/RAR/7z, including sources larger than 512 MiB. Use a labeled embedded preview if the full composite is unavailable and the document includes a usable thumbnail. |
 | **Browse huge TIFFs** | View supported local tiled pyramidal TIFF/BigTIFF files using their overview and on-demand detail tiles. |
@@ -114,7 +128,7 @@ v0.4.0 permits [local and ZIP/RAR/7z-contained PSD/PSB](docs/PSD.md) sources up 
 
 ## Download and use
 
-1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.6/RustView-0.7.6-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.7.6/RustView-0.7.6-win-x64-offline.zip.sha256)
+1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.7/RustView-0.7.7-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.7.7/RustView-0.7.7-win-x64-offline.zip.sha256)
 2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. The package includes the image engines, runtime libraries, and Tesseract with Simplified Chinese and English models. Viewing and OCR work offline from the first launch.
 3. Open or drag in a folder, picture, or archive. Keep the complete extracted folder.
 

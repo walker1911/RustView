@@ -1,7 +1,7 @@
 {
-  "application": "rust-viewer 0.7.6",
+  "application": "rust-viewer 0.7.7",
   "target": "x86_64-pc-windows-msvc",
-  "cargo_lock_sha256": "8bd9b2fde70c89c94724a8c61bccc581e5fd91b5ad85ad744177f8a07156a609",
+  "cargo_lock_sha256": "01046eb510a22a207c7d495f273ebf97371e6b3c019614a3001485131a5636eb",
   "selection_command": "cargo metadata --offline --locked --filter-platform x86_64-pc-windows-msvc --format-version 1",
   "package_count": 243,
   "document_count": 480,

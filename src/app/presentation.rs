@@ -172,6 +172,28 @@ impl State {
     pub fn has_target_preview(&self, index: usize) -> bool {
         self.target.as_ref().is_some_and(|target| target.index == index && target.preview.is_some())
     }
+    pub(super) fn has_drawn_target(&self) -> bool {
+        self.target.as_ref().is_some_and(|target| {
+            target.preview.as_ref().is_some_and(|preview| preview.texture.is_some())
+                || self.frame.as_ref().is_some_and(|frame| {
+                    frame.epoch == self.epoch && frame.index == target.index && frame.name == target.name
+                })
+        })
+    }
+    pub(super) fn retain_drawn_target_preview(&mut self) {
+        let Some(target) = self.target.as_ref() else { return; };
+        let Some(preview) = target.preview.as_ref() else { return; };
+        let Some(overview) = preview.texture.clone() else { return; };
+        self.frame = Some(Frame {
+            epoch: self.epoch,
+            index: target.index,
+            name: target.name.clone(),
+            token: 0,
+            dimensions: [preview.pixels.source_width, preview.pixels.source_height],
+            overview,
+            placement: preview.pixels.placement(),
+        });
+    }
     pub fn waiting_elapsed(&self) -> Duration {
         self.target.as_ref().map(|target| target.started.elapsed()).unwrap_or_default()
     }
