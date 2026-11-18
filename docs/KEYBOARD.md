@@ -11,13 +11,14 @@ This reference is generated from RustView’s own dispatcher and project-authore
 | Manage / 管理 | Enter | Open the focused item / 打开焦点项目 |
 | Single-image View / 单图查看 | Left / Right | Previous / next image / 上一张、下一张 |
 | Single-image View / 单图查看 | Up / Down | Smooth zoom in / out / 平滑放大、缩小 |
+| Fixed-reference Compare / 固定参考图比较 | Left / Right | Change image B / 切换对照图 B |
 | View / 查看 | G | Pause, resume or replay GIF/WebP / 图像动画暂停、恢复、重播 |
 | View / 查看 | E | Exposure clipping overlay / 曝光提示覆盖层 |
 | View / 查看 | Ctrl+Left / Ctrl+Right | Previous / next image / 上一张、下一张 |
 
 Alt+S / Pause retains no slideshow behavior: slideshow support is intentionally absent. 不启用自动翻图幻灯片。
 
-Compare uses its own bindings and then falls back to View, excluding the new bare arrow defaults. The processing workspace uses its local apply binding and then View bindings, also excluding those arrows; text fields retain text-edit shortcuts. 比较和处理工作区先处理本地按键，再查查看模式，但不继承新的无修饰方向键；管理界面仍用方向键移动网格焦点，处理工作区的 Ctrl+A 在无文本焦点时应用工具参数。按住新的查看方向键可连续翻图或缩放；已有自定义快捷键优先。
+Compare and the processing workspace use their own bindings before View bindings. The bare arrow defaults apply in the contexts listed above, and text fields retain text-edit shortcuts. 比较和处理工作区先处理本地按键，再查查看模式。查看与比较中的无修饰方向键按上表生效。管理界面用方向键移动网格焦点，处理工作区的 Ctrl+A 在无文本焦点时应用工具参数。按住查看方向键可连续翻图或缩放。已有自定义快捷键优先。
 
 ## Manage / 管理
 

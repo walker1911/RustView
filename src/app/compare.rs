@@ -14,8 +14,15 @@ pub(super) struct Comparison {
     slots: Vec<Slot>,
     active: usize,
     generation: u64,
+    fixed: Option<ParallelLayout>,
+    read: Option<(u64, usize)>,
     pub linked_zoom: bool,
     pub linked_pan: bool,
+}
+struct ParallelLayout {
+    indices: Vec<usize>,
+    active: usize,
+    panes: usize,
 }
 struct Slot {
     index: usize,
@@ -77,6 +84,59 @@ impl Slot {
             }
         }
     }
+    fn dimensions(&self) -> Vec2 {
+        if self.rotation % 2 == 0 {
+            egui::vec2(self.width as f32, self.height as f32)
+        } else {
+            egui::vec2(self.height as f32, self.width as f32)
+        }
+    }
+    fn copy_view(&mut self, reference: &Self) {
+        self.scale = reference.scale;
+        self.target = reference.target;
+        self.pan = reference.pan;
+        self.fit = reference.fit;
+        self.zoom_anchor = reference.zoom_anchor;
+        self.rotation = reference.rotation;
+        self.flip_x = reference.flip_x;
+        self.flip_y = reference.flip_y;
+        self.last_interaction = reference.last_interaction;
+    }
+    fn detail_region(&self, view: Rect, ppp: f32) -> Option<[u32; 4]> {
+        let preview_scale = self.pixels.as_ref()?.width as f32 / self.width as f32;
+        if self.scale * ppp <= preview_scale * 1.2
+            || self.last_interaction.elapsed() <= Duration::from_millis(140)
+            || (self.scale / self.target - 1.0).abs() >= 0.001
+        {
+            return None;
+        }
+        let bounds = visible_image_bounds(
+            view,
+            view.center() + self.pan,
+            self.scale,
+            self.rotation,
+            self.flip_x,
+            self.flip_y,
+            self.width,
+            self.height,
+        )
+        .intersect(Rect::from_min_size(
+            Pos2::ZERO,
+            egui::vec2(self.width as f32, self.height as f32),
+        ));
+        if !bounds.is_positive() {
+            return None;
+        }
+        let x = (bounds.min.x.floor() as u32).min(self.width - 1);
+        let y = (bounds.min.y.floor() as u32).min(self.height - 1);
+        let region = [
+            x,
+            y,
+            (bounds.max.x.ceil() as u32).saturating_sub(x).clamp(1, self.width - x),
+            (bounds.max.y.ceil() as u32).saturating_sub(y).clamp(1, self.height - y),
+        ];
+        (self.requested_region != Some(region)).then_some(region)
+    }
 }
 fn comparison_fit(mode: FitMode, viewport: Vec2, image: Vec2, ppp: f32) -> f32 {
     match mode {
@@ -112,6 +172,82 @@ fn coarse_regions(full: Rect, detail: Option<Rect>) -> Vec<Rect> {
     .collect()
 }
 impl Comparison {
+    pub(super) fn is_fixed_reference(&self) -> bool {
+        self.fixed.is_some()
+    }
+    pub(super) fn track_read(&mut self, id: u64, slot: usize) {
+        self.read = Some((id, slot));
+    }
+    fn reference_index(&self) -> Option<usize> {
+        self.fixed.as_ref().map(|_| self.slots[0].index)
+    }
+    fn shown_slot(&self, show_reference: bool) -> usize {
+        if show_reference || self.slots[1].texture.is_none() && self.slots[0].texture.is_some() {
+            0
+        } else {
+            1
+        }
+    }
+    fn sync_fixed_view(&mut self, view_changed: bool) {
+        let (a, b) = self.slots.split_at_mut(1);
+        b[0].copy_view(&a[0]);
+        if view_changed {
+            b[0].requested_region = None;
+        }
+    }
+    fn navigation_target(&self, action: Action) -> Option<usize> {
+        let current = self.active_index()?;
+        let position = self.pool.iter().position(|&i| i == current)?;
+        let reference = self.reference_index();
+        let candidate = |&&index: &&usize| Some(index) != reference;
+        match action {
+            Action::Next => self.pool[position + 1..].iter().find(candidate),
+            Action::Previous => self.pool[..position].iter().rev().find(candidate),
+            Action::First => self.pool.iter().find(candidate),
+            Action::Last => self.pool.iter().rev().find(candidate),
+            _ => None,
+        }
+        .copied()
+    }
+    fn enter_fixed(&mut self, panes: usize) {
+        let mut slots = std::mem::take(&mut self.slots);
+        self.fixed = Some(ParallelLayout {
+            indices: slots.iter().map(|s| s.index).collect(),
+            active: self.active,
+            panes,
+        });
+        let a = slots.remove(self.active);
+        let position = self.pool.iter().position(|&i| i == a.index).unwrap_or(0);
+        let index = self.pool[position + 1..]
+            .iter()
+            .chain(self.pool[..position].iter().rev())
+            .copied()
+            .find(|&i| i != a.index)
+            .expect("fixed comparison requires two candidates");
+        let b = slots.iter().position(|s| s.index == index).map_or_else(
+            || Slot::new(index, self.generation),
+            |i| slots.remove(i),
+        );
+        self.slots = vec![a, b];
+        self.active = 1;
+        self.sync_fixed_view(true);
+    }
+    fn exit_fixed(&mut self) -> usize {
+        let layout = self.fixed.take().expect("comparison is fixed");
+        let mut slots = std::mem::take(&mut self.slots);
+        self.slots = layout
+            .indices
+            .into_iter()
+            .map(|index| {
+                slots.iter().position(|s| s.index == index).map_or_else(
+                    || Slot::new(index, self.generation),
+                    |i| slots.remove(i),
+                )
+            })
+            .collect();
+        self.active = layout.active;
+        layout.panes
+    }
     pub fn active_index(&self) -> Option<usize> {
         self.slots.get(self.active).map(|s| s.index)
     }
@@ -161,6 +297,7 @@ impl Viewer {
             generation,
             linked_zoom: true,
             linked_pan: true,
+            ..Comparison::default()
         };
         self.extra.compare = self.extra.comparison.slots.len().min(4);
         self.browser = false;
@@ -247,15 +384,26 @@ impl Viewer {
         if self.extra.compare == 0 {
             return;
         }
+        self.extra.comparison.read = None;
         let Some(s) = self
             .extra
             .comparison
             .slots
             .get_mut(slot)
-            .filter(|s| s.generation == generation)
+            .filter(|s| s.generation == generation && region.is_none_or(|r| s.requested_region == Some(r)))
         else {
             return;
         };
+        if let Some(region) = region {
+            let size = [output.reply.width as usize, output.reply.height as usize];
+            let texture = ctx.load_texture(
+                format!("compare-detail-{slot}-{generation}"),
+                egui::ColorImage::from_rgba_unmultiplied(size, &output.rgba),
+                egui::TextureOptions::LINEAR,
+            );
+            s.detail = Some((texture, region));
+            return;
+        }
         let image = Arc::new(Pixels {
             width: output.reply.width,
             height: output.reply.height,
@@ -275,23 +423,23 @@ impl Viewer {
             ),
             egui::TextureOptions::LINEAR,
         );
-        if let Some(region) = region {
-            if s.requested_region == Some(region) {
-                s.detail = Some((texture, region));
-            }
-        } else {
-            s.width = output.reply.source_width.max(image.width);
-            s.height = output.reply.source_height.max(image.height);
-            s.pixels = Some(image.clone());
-            s.texture = Some(texture);
-            s.error = None;
-        }
-        if region.is_none() && slot == self.extra.comparison.active {
+        s.width = output.reply.source_width.max(image.width);
+        s.height = output.reply.source_height.max(image.height);
+        s.pixels = Some(image);
+        s.texture = Some(texture);
+        s.error = None;
+        if slot == self.extra.comparison.active {
             self.comparison_active(slot);
         }
-        self.status = "比较图像已读取；滚轮缩放，拖动平移，可切换联动".into();
+        self.status = if self.extra.comparison.is_fixed_reference() {
+            "固定 A/B 比较 · ←/→ 切换 B · 滚轮缩放 · 拖动平移"
+        } else {
+            "比较图像已读取；滚轮缩放，拖动平移，可切换联动"
+        }
+        .into();
     }
     pub(super) fn comparison_error(&mut self, slot: usize, message: String) {
+        self.extra.comparison.read = None;
         if let Some(s) = self.extra.comparison.slots.get_mut(slot) {
             s.error = Some(message);
             s.requested = false;
@@ -324,7 +472,59 @@ impl Viewer {
         let record = self.current.as_ref().and_then(|p| p.record.clone());
         self.sync_workspace_source(record.as_deref());
     }
+    fn cancel_comparison_read(&mut self, only_slot: Option<usize>) {
+        let c = &mut self.extra.comparison;
+        let Some((id, slot)) = c.read.filter(|&(_, slot)| only_slot.is_none_or(|i| i == slot)) else {
+            return;
+        };
+        c.read = None;
+        if let Some(s) = c.slots.get_mut(slot) {
+            s.requested = false;
+            s.requested_region = None;
+        }
+        if self.pending.as_ref().is_some_and(|p| p.id == id) {
+            self.pending = None;
+        }
+        if let Some(read) = self.running.as_ref().filter(|r| r.id == id) {
+            read.cancel.store(true, Ordering::Relaxed);
+        }
+        if id == self.serial {
+            self.serial += 1;
+        }
+    }
+    fn toggle_fixed_comparison(&mut self) {
+        self.cancel_comparison_read(None);
+        let c = &mut self.extra.comparison;
+        if c.is_fixed_reference() {
+            self.extra.compare = c.exit_fixed();
+        } else {
+            c.enter_fixed(self.extra.compare);
+            self.extra.compare = c.slots.len();
+        }
+        self.comparison_active(self.extra.comparison.active);
+    }
     fn comparison_replace(&mut self, index: usize) {
+        if self.extra.comparison.is_fixed_reference() {
+            let c = &self.extra.comparison;
+            if c.reference_index() == Some(index)
+                || c.active_index() == Some(index)
+                    && (c.slots[1].pixels.is_some() || self.running.is_some() || self.pending.is_some())
+            {
+                return;
+            }
+            // Preserve A's first preview. A detail can wait until the new B is visible.
+            let only_slot = c.slots[0].pixels.is_none().then_some(1);
+            self.cancel_comparison_read(only_slot);
+            let c = &mut self.extra.comparison;
+            c.generation = c.generation.wrapping_add(1);
+            c.slots[1] = Slot::new(index, c.generation);
+            c.sync_fixed_view(false);
+            self.selected = Some(index);
+            self.current = None;
+            self.current_key = None;
+            return;
+        }
+        self.cancel_comparison_read(None);
         let c = &mut self.extra.comparison;
         c.generation = c.generation.wrapping_add(1);
         if let Some(s) = c.slots.get_mut(c.active) {
@@ -332,11 +532,6 @@ impl Viewer {
         }
         self.current = None;
         self.current_key = None;
-        self.serial += 1;
-        self.pending = None;
-        if let Some(r) = &self.running {
-            r.cancel.store(true, Ordering::Relaxed);
-        }
     }
     pub(super) fn comparison_action(&mut self, action: Action, ctx: &egui::Context) -> bool {
         if self.extra.compare == 0 {
@@ -390,6 +585,9 @@ impl Viewer {
                         if s.rotation != 0 {
                             edits.push(crate::editing::Edit::Rotate90 { turns: s.rotation });
                         }
+                        if self.extra.comparison.is_fixed_reference() {
+                            self.cancel_comparison_read(None);
+                        }
                         self.queue(
                             Request::Render {
                                 source: Box::new(source),
@@ -410,7 +608,11 @@ impl Viewer {
             }
             Action::Next | Action::Previous | Action::First | Action::Last => {
                 let c = &self.extra.comparison;
-                if let Some(index) = c.active_index() {
+                if c.is_fixed_reference() {
+                    if let Some(index) = c.navigation_target(action) {
+                        self.comparison_replace(index);
+                    }
+                } else if let Some(index) = c.active_index() {
                     let p = c.pool.iter().position(|i| *i == index).unwrap_or(0);
                     let n = match action {
                         Action::Next => (p + 1).min(c.pool.len() - 1),
@@ -431,10 +633,12 @@ impl Viewer {
             | Action::RotateRight
             | Action::FlipHorizontal
             | Action::FlipVertical => {
-                let linked = self.extra.comparison.linked_zoom;
-                let active = self.extra.comparison.active;
-                for (i, s) in self.extra.comparison.slots.iter_mut().enumerate() {
-                    if i != active && !linked {
+                let c = &mut self.extra.comparison;
+                let fixed = c.is_fixed_reference();
+                let owner = if fixed { 0 } else { c.active };
+                let linked = !fixed && c.linked_zoom;
+                for (i, s) in c.slots.iter_mut().enumerate() {
+                    if i != owner && !linked {
                         continue;
                     }
                     match action {
@@ -466,28 +670,40 @@ impl Viewer {
                     s.last_interaction = Instant::now();
                     s.requested_region = None;
                 }
+                if fixed {
+                    c.sync_fixed_view(true);
+                }
+                let active = c.active;
                 self.comparison_active(active);
                 true
             }
-            Action::LegacyCommand(2164..=2167) => {
-                if let Action::LegacyCommand(id) = action {
+            Action::LegacyCommand(id @ 2164..=2167) => {
+                if !self.extra.comparison.is_fixed_reference() {
                     self.extra.compare = (id - 2163) as usize;
                 }
                 true
             }
             Action::LegacyCommand(2160) => {
-                self.extra.comparison.linked_pan = !self.extra.comparison.linked_pan;
+                let c = &mut self.extra.comparison;
+                if !c.is_fixed_reference() {
+                    c.linked_pan = !c.linked_pan;
+                }
                 true
             }
             Action::LegacyCommand(2277) => {
-                self.extra.comparison.linked_zoom = !self.extra.comparison.linked_zoom;
+                let c = &mut self.extra.comparison;
+                if !c.is_fixed_reference() {
+                    c.linked_zoom = !c.linked_zoom;
+                }
                 true
             }
             Action::LegacyCommand(id @ (2300 | 2301)) => {
-                let active = self.extra.comparison.active;
-                let linked = self.extra.comparison.linked_zoom;
-                for (i, s) in self.extra.comparison.slots.iter_mut().enumerate() {
-                    if i == active || linked {
+                let c = &mut self.extra.comparison;
+                let fixed = c.is_fixed_reference();
+                let owner = if fixed { 0 } else { c.active };
+                let linked = !fixed && c.linked_zoom;
+                for (i, s) in c.slots.iter_mut().enumerate() {
+                    if i == owner || linked {
                         s.fit = Some(if id == 2300 {
                             FitMode::Width
                         } else {
@@ -496,6 +712,10 @@ impl Viewer {
                         s.zoom_anchor = None;
                         s.pan = Vec2::ZERO;
                     }
+                }
+                if fixed {
+                    c.slots[0].requested_region = None;
+                    c.sync_fixed_view(true);
                 }
                 true
             }
@@ -509,80 +729,133 @@ impl Viewer {
         let mut sync = None;
         let mut detail = None;
         let mut compare_cell = Vec2::ZERO;
+        let mut toggle_fixed = false;
+        let mut show_reference = false;
         ui.horizontal(|ui| {
             if ui.button("完成比较").clicked() {
                 close = true;
             }
-            for n in 1..=4 {
-                ui.selectable_value(&mut self.extra.compare, n, format!("{n}图"));
+            let c = &mut self.extra.comparison;
+            if c.is_fixed_reference() {
+                toggle_fixed = ui.button("返回并排比较").clicked();
+                let hold = ui.add_enabled(
+                    c.slots[0].texture.is_some(),
+                    egui::Button::new("按住看参考图 A"),
+                );
+                show_reference = hold.is_pointer_button_down_on()
+                    && ctx.input(|i| i.focused && i.pointer.primary_down());
+            } else {
+                for n in 1..=4 {
+                    ui.selectable_value(&mut self.extra.compare, n, format!("{n}图"));
+                }
+                ui.checkbox(&mut c.linked_zoom, "联动缩放");
+                ui.checkbox(&mut c.linked_pan, "联动平移");
+                toggle_fixed = ui
+                    .add_enabled(c.pool.len() > 1, egui::Button::new("固定参考图 A"))
+                    .clicked();
             }
-            ui.checkbox(&mut self.extra.comparison.linked_zoom, "联动缩放");
-            ui.checkbox(&mut self.extra.comparison.linked_pan, "联动平移");
         });
+        if close {
+            self.close_comparison();
+            return;
+        }
+        if toggle_fixed {
+            self.toggle_fixed_comparison();
+            ctx.request_repaint();
+        }
+        let fixed = self.extra.comparison.is_fixed_reference();
+        let panes = if fixed { 1 } else { self.extra.compare };
         let total = self.extra.comparison.pool.len();
-        ui.horizontal(|ui| {
-            egui::ScrollArea::vertical()
-                .id_salt("comparison-list")
-                .max_width(180.0)
-                .show_rows(ui, 26.0, total, |ui, range| {
-                    for p in range {
-                        let index = self.extra.comparison.pool[p];
-                        if let Some(entry) = self.entries.get(index) {
-                            if ui
-                                .selectable_label(
-                                    self.extra.comparison.active_index() == Some(index),
-                                    &entry.name,
-                                )
-                                .clicked()
-                            {
-                                replace = Some(index);
+        let layout = egui::Layout::left_to_right(egui::Align::Min);
+        ui.allocate_ui_with_layout(ui.available_size(), layout, |ui| {
+            let mut draw_candidates = |ui: &mut egui::Ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("comparison-list")
+                    .max_width(180.0)
+                    .auto_shrink([!fixed, true])
+                    .show_rows(ui, 26.0, total, |ui, range| {
+                        if fixed {
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                        }
+                        for p in range {
+                            let c = &self.extra.comparison;
+                            let index = c.pool[p];
+                            if let Some(entry) = self.entries.get(index) {
+                                let selected = c.active_index() == Some(index);
+                                let response = if fixed {
+                                    let size = [ui.available_width(), 26.0];
+                                    if c.reference_index() == Some(index) {
+                                        ui.add_sized(size, egui::Label::new(format!("A · {}", entry.name)))
+                                    } else {
+                                        let label: egui::WidgetText = if selected {
+                                            format!("B · {}", entry.name).into()
+                                        } else {
+                                            entry.name.as_str().into()
+                                        };
+                                        ui.add_sized(size, egui::SelectableLabel::new(selected, label))
+                                    }
+                                    .on_hover_text(&entry.name)
+                                } else {
+                                    ui.selectable_label(selected, &entry.name)
+                                };
+                                if response.clicked() {
+                                    replace = Some(index);
+                                }
                             }
                         }
-                    }
-                });
+                    });
+            };
+            if fixed {
+                ui.allocate_ui_with_layout(
+                    egui::vec2(180.0, ui.available_height()),
+                    egui::Layout::top_down(egui::Align::Min),
+                    draw_candidates,
+                );
+            } else {
+                draw_candidates(ui);
+            }
             let available = ui.available_rect_before_wrap();
-            let columns = if self.extra.compare <= 1 { 1 } else { 2 };
-            let rows = self.extra.compare.div_ceil(columns);
+            let columns = if panes == 1 { 1 } else { 2 };
+            let rows = panes.div_ceil(columns);
             let cell = egui::vec2(
                 available.width() / columns as f32,
                 available.height() / rows as f32,
             );
             compare_cell = cell;
             let scroll = ctx.input(|i| i.raw_scroll_delta.y);
+            let ppp = ctx.pixels_per_point();
             let now = Instant::now();
-            for number in 0..self.extra.compare {
+            let c = &mut self.extra.comparison;
+            for pane in 0..panes {
                 let rect = Rect::from_min_size(
                     available.min
                         + egui::vec2(
-                            (number % columns) as f32 * cell.x,
-                            (number / columns) as f32 * cell.y,
+                            (pane % columns) as f32 * cell.x,
+                            (pane / columns) as f32 * cell.y,
                         ),
                     cell,
                 )
                 .shrink(4.0);
                 let response = ui.interact(
                     rect,
-                    ui.make_persistent_id(("compare-slot", number)),
+                    ui.make_persistent_id(("compare-slot", pane)),
                     Sense::click_and_drag(),
                 );
                 let painter = ui.painter_at(rect);
                 painter.rect_filled(rect, 2.0, Color32::from_gray(22));
-                let Some(s) = self.extra.comparison.slots.get_mut(number) else {
+                let Some(s) = c.slots.get_mut(pane) else {
                     continue;
                 };
-                if response.clicked() || response.dragged() || response.hovered() && scroll != 0.0 {
-                    active = Some(number);
+                let zoomed = response.hovered() && scroll != 0.0;
+                let dragged = response.dragged();
+                if !fixed && (response.clicked() || dragged || zoomed) {
+                    active = Some(pane);
                 }
-                let dimensions = if s.rotation % 2 == 0 {
-                    egui::vec2(s.width as f32, s.height as f32)
-                } else {
-                    egui::vec2(s.height as f32, s.width as f32)
-                };
                 if let Some(mode) = s.fit {
-                    s.scale = comparison_fit(mode, rect.size(), dimensions, ctx.pixels_per_point());
+                    s.scale = comparison_fit(mode, rect.size(), s.dimensions(), ppp);
                     s.target = s.scale;
                 }
-                if response.hovered() && scroll != 0.0 {
+                if zoomed {
                     let mouse = response.hover_pos().unwrap_or(rect.center());
                     let anchor = (mouse - rect.center() - s.pan) / s.scale;
                     let target = (s.target * (scroll * 0.0025).exp()).clamp(0.0001, 64.0);
@@ -591,25 +864,42 @@ impl Viewer {
                     s.fit = None;
                     s.last_interaction = now;
                     s.requested_region = None;
-                    sync = Some((number, target, s.pan / rect.size(), true));
+                    sync = Some((pane, target, s.pan / rect.size(), true));
                 }
-                if response.dragged() {
+                if dragged {
                     s.zoom_anchor = None;
                     s.pan += response.drag_delta();
                     s.fit = None;
                     s.last_interaction = now;
                     s.requested_region = None;
-                    sync = Some((number, s.target, s.pan / rect.size(), false));
+                    sync = Some((pane, s.target, s.pan / rect.size(), false));
                 }
                 if response.double_clicked() {
                     s.fit = Some(FitMode::Inside);
                     s.zoom_anchor = None;
                     s.pan = Vec2::ZERO;
+                    if fixed {
+                        s.last_interaction = now;
+                        s.requested_region = None;
+                        ctx.request_repaint();
+                    }
                 }
                 s.advance_zoom(ctx.input(|i| i.stable_dt));
                 if (s.scale / s.target - 1.0).abs() > 0.0001 {
                     ctx.request_repaint();
                 }
+                let number = if fixed {
+                    c.sync_fixed_view(zoomed || dragged || response.double_clicked());
+                    detail = [1, 0].into_iter().find_map(|i| {
+                        let s = &c.slots[i];
+                        s.detail_region(rect, ppp)
+                            .map(|r| (i, s.index, s.generation, r))
+                    });
+                    c.shown_slot(show_reference)
+                } else {
+                    pane
+                };
+                let s = &mut c.slots[number];
                 let center = rect.center() + s.pan;
                 let geometry = Pixels {
                     width: s.width,
@@ -628,7 +918,7 @@ impl Viewer {
                 if s.texture.is_some() || s.detail.is_some() {
                     super::paint_transparency(
                         &painter,
-                        Rect::from_center_size(center, dimensions * s.scale),
+                        Rect::from_center_size(center, s.dimensions() * s.scale),
                     );
                 }
                 if let Some(t) = &s.texture {
@@ -722,36 +1012,10 @@ impl Viewer {
                             );
                         }
                     }
-                    let preview_scale = p.width as f32 / s.width as f32;
-                    if number == self.extra.comparison.active
-                        && s.scale * ctx.pixels_per_point() > preview_scale * 1.2
-                        && s.last_interaction.elapsed() > Duration::from_millis(140)
-                        && (s.scale / s.target - 1.0).abs() < 0.001
-                    {
-                        let b = visible_image_bounds(
-                            rect, center, s.scale, s.rotation, s.flip_x, s.flip_y, s.width,
-                            s.height,
-                        )
-                        .intersect(full);
-                        if b.is_positive() {
-                            let x = (b.min.x.floor() as u32).min(s.width - 1);
-                            let y = (b.min.y.floor() as u32).min(s.height - 1);
-                            let region = [
-                                x,
-                                y,
-                                (b.max.x.ceil() as u32)
-                                    .saturating_sub(x)
-                                    .min(s.width - x)
-                                    .max(1),
-                                (b.max.y.ceil() as u32)
-                                    .saturating_sub(y)
-                                    .min(s.height - y)
-                                    .max(1),
-                            ];
-                            if s.requested_region != Some(region) {
-                                detail = Some((number, s.index, s.generation, region));
-                            }
-                        }
+                    if !fixed && number == c.active {
+                        detail = s
+                            .detail_region(rect, ppp)
+                            .map(|r| (number, s.index, s.generation, r));
                     }
                 } else {
                     painter.text(
@@ -762,7 +1026,7 @@ impl Viewer {
                         Color32::GRAY,
                     );
                 }
-                if number == self.extra.comparison.active {
+                if !fixed && number == c.active {
                     painter.rect_stroke(
                         rect,
                         2.0,
@@ -775,17 +1039,39 @@ impl Viewer {
                     .get(s.index)
                     .map(|e| e.name.as_str())
                     .unwrap_or("");
+                let prefix = if fixed {
+                    if number == 0 { "A · " } else { "B · " }
+                } else {
+                    ""
+                };
+                let label = if fixed && s.texture.is_none() {
+                    format!("{prefix}{label}")
+                } else {
+                    format!("{prefix}{label} · {}×{}", s.width, s.height)
+                };
                 painter.text(
                     rect.left_bottom() - egui::vec2(0.0, 6.0),
                     egui::Align2::LEFT_BOTTOM,
-                    format!("{label} · {}×{}", s.width, s.height),
+                    label,
                     egui::TextStyle::Small.resolve(ui.style()),
                     Color32::WHITE,
                 );
+                if fixed && number == 0 && c.slots[1].texture.is_none() {
+                    let b = &c.slots[1];
+                    let name = self.entries.get(b.index).map_or("", |entry| &entry.name);
+                    let state = b.error.as_deref().unwrap_or("正在读取…");
+                    painter.text(
+                        rect.left_top() + egui::vec2(6.0, 6.0),
+                        egui::Align2::LEFT_TOP,
+                        format!("B · {name} · {state}"),
+                        egui::TextStyle::Small.resolve(ui.style()),
+                        Color32::WHITE,
+                    );
+                }
             }
             ui.allocate_rect(available, Sense::hover());
         });
-        if let Some((source, scale, pan, zoom)) = sync {
+        if let Some((source, scale, pan, zoom)) = sync.filter(|_| !fixed) {
             let c = &mut self.extra.comparison;
             let anchor = c
                 .slots
@@ -818,9 +1104,19 @@ impl Viewer {
         }
         if let Some(index) = replace {
             self.comparison_replace(index);
+            ctx.request_repaint();
         }
         if let Some((slot, index, generation, region)) = detail {
-            if self.running.is_none() && self.pending.is_none() {
+            let target_ready = !fixed || {
+                let b = &self.extra.comparison.slots[1];
+                b.pixels.is_some() || b.error.is_some()
+            };
+            if self.running.is_none()
+                && self.pending.is_none()
+                && target_ready
+                && self.extra.comparison.slots.get(slot).is_some_and(|s| s.generation == generation)
+                && (!fixed || !self.password_dialog && !self.closing)
+            {
                 if let Some(source) = self.make_load(index, self.full_raw) {
                     self.extra.comparison.slots[slot].requested_region = Some(region);
                     self.queue(
@@ -846,9 +1142,6 @@ impl Viewer {
             .any(|s| s.last_interaction.elapsed() < Duration::from_millis(200))
         {
             ctx.request_repaint_after(Duration::from_millis(50));
-        }
-        if close {
-            self.close_comparison();
         }
     }
     pub(super) fn copy_worker_image(&mut self, output: worker::Output) {
@@ -878,6 +1171,7 @@ mod tests {
             generation: 1,
             linked_zoom: true,
             linked_pan: true,
+            ..Comparison::default()
         };
         assert_eq!(c.slots.len(), 4);
         assert_eq!(c.active_index(), Some(0));

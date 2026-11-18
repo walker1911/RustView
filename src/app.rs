@@ -434,6 +434,9 @@ impl Viewer {
             self.stop_animation();
         }
         self.serial += 1;
+        if let Operation::Compare { slot, .. } = &operation {
+            self.extra.comparison.track_read(self.serial, *slot);
+        }
         if let Some(active) = &self.running {
             active.cancel.store(true, Ordering::Relaxed);
         }
@@ -2363,6 +2366,14 @@ impl eframe::App for Viewer {
             };
             #[cfg(not(windows))]
             let action = ctx.input(|i| shortcuts::action_with_view_arrows(i, self.browser, single_view));
+            let action = action.or_else(|| {
+                if self.extra.compare == 0 || !self.extra.comparison.is_fixed_reference() {
+                    return None;
+                }
+                [Action::Previous, Action::Next].into_iter().find(|action| {
+                    held_navigation_key(ctx, &native_events, *action).is_some()
+                })
+            });
             let management_navigation = self.browser && ctx.input(|i| i.events.iter().any(|e| matches!(e,
                 egui::Event::Key { key: egui::Key::ArrowUp | egui::Key::ArrowDown | egui::Key::ArrowLeft | egui::Key::ArrowRight | egui::Key::Home | egui::Key::End | egui::Key::PageUp | egui::Key::PageDown, pressed: true, modifiers, .. } if !modifiers.ctrl && !modifiers.alt)));
             let focused_button_key = (self.extra.edit_dialog.is_some() && ctx.wants_keyboard_input()

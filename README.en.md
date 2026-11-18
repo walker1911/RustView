@@ -8,7 +8,19 @@
 
 An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, static SVG, Photoshop composites, and pictures inside compressed archives. Read QR codes and copy text from pictures while staying in the viewer.
 
-[Download v0.7.9](https://github.com/walker1911/RustView/releases/tag/v0.7.9) · [简体中文](README.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+[Download v0.8.0](https://github.com/walker1911/RustView/releases/tag/v0.8.0) · [简体中文](README.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+
+## v0.8.0 adds fixed-reference A/B comparison
+
+Select at least two images in Manage, press `Ctrl+Alt+R`, select your reference image, and choose **固定参考图 A** (Fix reference A). Use Left and Right to change B. Hold **按住看参考图 A** (Hold to show A) to see A, and release to return to B. Both images share a canvas, zoom, and pan, so you can inspect the same spot at 1:1. Choose **返回并排比较** (Return to side-by-side comparison) to go back to the grid. [v0.8.0 release notes](docs/RELEASE-v0.8.0.md#english)
+
+| Same-PC comparison, v0.7.9 → v0.8.0 | Median to first sharp image | Median held arrow to visible target |
+|---|---:|---:|
+| 10,000 JPEGs | 521 → 527 ms | 48.8 → 48.7 ms |
+| Mixed RAW | 513 → 534 ms | 90.5 → 90.1 ms |
+| 241-image ZIP | 1,335 → 1,311 ms | 337.4 → 338.0 ms |
+
+**The first sharp image in the mixed RAW workload was slightly slower in both batches.** The combined P95 went from 562 to 620 ms. Sampled ZIP process-tree peak private commit was 553.3 → 591.4 MiB in the first batch and 554.1 → 553.3 MiB with the launch order reversed. Fixed-reference desktop checks passed with PSD, transparent PNG, and mixed RAW. The tested windows closed with no surviving workers or temporary files. [Full results and test method](docs/RELEASE-v0.8.0.md#english)
 
 ## v0.7.9 adds drag-to-jump navigation inside archives
 
@@ -101,7 +113,7 @@ Graphite is the default background. Under **视图 → 看图背景 → 照片�
 | **Open Photoshop documents** | View saved PSD/PSB composites locally or inside ZIP/RAR/7z, including sources larger than 512 MiB. Use a labeled embedded preview if the full composite is unavailable and the document includes a usable thumbnail. |
 | **Browse huge TIFFs** | View supported local tiled pyramidal TIFF/BigTIFF files using their overview and on-demand detail tiles. |
 | **Read QR codes and image text** | Scan the current image for QR codes, drag to select automatically recognized text, or request whole-image and selected-area OCR. [QR support](docs/RELEASE-v0.6.8.md) |
-| **Zoom and compare** | Pointer-anchored zoom, panning, visible detail tiles, and up to four linked or independent comparison views. |
+| **Zoom and compare** | Pointer-anchored zoom, panning, and detail in the visible region. Compare up to four images side by side or use fixed-reference A/B on one canvas. |
 | **Play and export animation** | Stream GIF/WebP with timing, disposal, and loop handling; export complete animations. |
 | **Work from the source** | RAW adjustments, crop, resize, color, sharpening, text/watermarks, real 16-bit PNG/TIFF, processing records, and presets. |
 | **Manage a collection** | Rename previews, folder/XMP moves, ratings, labels, explicit EXIF/IPTC/XMP editing, and contact sheets. |
@@ -143,7 +155,7 @@ v0.4.0 permits [local and ZIP/RAR/7z-contained PSD/PSB](docs/PSD.md) sources up 
 
 ## Download and use
 
-1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.7.9/RustView-0.7.9-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.7.9/RustView-0.7.9-win-x64-offline.zip.sha256)
+1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.8.0/RustView-0.8.0-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.8.0/RustView-0.8.0-win-x64-offline.zip.sha256)
 2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. The package includes the image engines, runtime libraries, and Tesseract with Simplified Chinese and English models. Viewing and OCR work offline from the first launch.
 3. Open or drag in a folder, picture, or archive. Keep the complete extracted folder.
 
@@ -184,7 +196,7 @@ pwsh -File .\tools\build.ps1 -Offline
 
 See [BUILDING.md](BUILDING.md) for checksums and validation steps.
 
-v0.7.9 passed 301 unit tests. Windows desktop checks exercised drag-to-jump, cancelling mid-read, and closing mid-read in a large ZIP and encrypted solid RAR and 7z archives. [v0.7.9 validation](docs/VALIDATION.md#v079-windows-x64)
+v0.8.0 passed 301 unit tests. Windows desktop checks covered fixing A, 1:1 alignment, zooming and panning, rapid B changes, and cleanup on close. [v0.8.0 validation](docs/VALIDATION.md#v080-windows-x64)
 
 Release checks cover static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnails, and large encrypted-RAR cancellation. Windows desktop checks for v0.7.5 covered local SVG opens, drag and drop, thumbnails, checkerboard transparency, detail after zoom, and browsing SVGs in encrypted ZIP, RAR, and 7z archives. Cancelling or closing during SVG rendering left no worker processes or temporary files in these tests. [v0.7.5 release notes and benchmarks](docs/RELEASE-v0.7.5.md) · [Prior validation](docs/VALIDATION.md)
 

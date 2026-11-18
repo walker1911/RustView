@@ -1,5 +1,15 @@
 # Validation / 验证记录
 
+## v0.8.0 Windows x64
+
+本地单测通过 **301 项**，默认跳过 3 项可选测试。原生窗口用同尺寸 PSD 和透明 PNG 验证了缩放、平移、1:1 像素对齐、按住看 A、松手回 B，以及快速左右切换 B。尼康 Z6、佳能 EOS R 和索尼 a7 III 的 RAW 样本也通过了 A/B 切换。两组关窗后均未发现残留进程或临时文件。
+
+与 v0.7.9 在同一台电脑交替测试。万张 JPEG 和混合 RAW 各 24 对，241 张图的 ZIP 测 12 对。混合 RAW 首张清晰图的中位数为 513 → 534 ms，两轮均稍慢。 [v0.8.0 更新说明与实测数据](RELEASE-v0.8.0.md)
+
+The local suite passed **301 unit tests**, with three optional tests skipped. Native Windows checks covered zoom, pan, 1:1 alignment, holding to show A, releasing to show B, and rapid B changes with a same-size PSD and transparent PNGs. Switching also passed with Nikon Z6, Canon EOS R, and Sony a7 III RAW samples. Both sessions closed with no surviving processes or temporary files.
+
+The same-PC comparison against v0.7.9 used 24 pairs each for 10,000 JPEGs and mixed RAW and 12 pairs for a 241-image ZIP. Median time to the first sharp mixed RAW image went from 513 to 534 ms and was slightly slower in both batches. [v0.8.0 release notes and benchmarks](RELEASE-v0.8.0.md#english)
+
 ## v0.7.9 Windows x64
 
 本地 Windows x64 单测通过 **301 项**，默认跳过 3 项可选测试。原生窗口测试用三个 241 页的压缩包验证了底部页码入口、拖动时的目标信息和缓存缩略图、松手后的目标读取，以及左右键继续翻图。ZIP、加密固实 RAR 和 7z 各自都在拖动期间保持零提取，松手后提取目标页一次。Esc、读取途中点击「取消」和关窗测试均通过，续看位置仍为最后实际显示的图片，观测到的工作进程已退出，临时目录为空。
