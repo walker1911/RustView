@@ -8,7 +8,43 @@
 
 An archive-first photo viewer for **Windows x64**, written in Rust. Familiar keys, a Picasa-style filmstrip, smooth zoom, camera RAW, static SVG, Photoshop composites, and pictures inside compressed archives. Read QR codes and copy text from pictures while staying in the viewer.
 
-[Download v0.8.0](https://github.com/walker1911/RustView/releases/tag/v0.8.0) · [简体中文](README.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+[Download v0.8.1](https://github.com/walker1911/RustView/releases/tag/v0.8.1) · [简体中文](README.md) · [Compatibility](docs/COMPATIBILITY.md) · [Build guide](BUILDING.md)
+
+## v0.8.1 draws the first sharp RAW image earlier and adds an A/B divider
+
+When you double-click a local RAW file, RustView draws the sharp frame before initializing the fonts and catalog. In fixed-reference comparison, select **分割对照** (Split comparison) and drag the divider to reveal both images on one canvas. Both sides share zoom, pan, and 1:1 coordinates. Left and Right change B, and holding **按住看参考图 A** temporarily shows all of A. [v0.8.1 release notes](docs/RELEASE-v0.8.1.md#english)
+
+### Default RAW viewing
+
+Default browsing uses the RAW file's embedded camera preview when available. The same Windows PC ran v0.8.0 and v0.8.1. Six pairs per format used the same file, detecting sharp pixels in either the initial canvas or the canvas with the filmstrip visible.
+
+| Sample | Median to first sharp image |
+|---|---:|
+| Nikon Z6 NEF | 409 → 403 ms |
+| Canon EOS R CR3 | 457 → 449 ms |
+| Sony a7 III ARW | 337 → 338 ms |
+| Apple iPhone 12 Pro DNG | 433 → 410 ms |
+| All four formats | 420 → 407 ms |
+
+Combined P95 went from 471 to 453 ms. **When sampling waits for the filmstrip layout to settle, the older method still shows a median paired increase of about 25 ms.** The median held-arrow time to a visible mixed RAW target went from 89.7 to 90.7 ms. [Full results and test method](docs/RELEASE-v0.8.1.md#english)
+
+### Full RAW rendering
+
+Eight separate pairs per format timed full decoding and pixel transfer through the supervised worker. All four images also passed the desktop check using **完整 RAW 解码** (Full RAW decoding).
+
+| Sample | Median full RAW render | Peak process-tree private commit |
+|---|---:|---:|
+| NEF | 3,344 → 3,359.5 ms | 310.0 → 310.0 MiB |
+| CR3 | 3,961 → 3,985 ms | 384.7 → 384.7 MiB |
+| ARW | 3,062.5 → 3,063 ms | 307.0 → 307.0 MiB |
+| DNG | 1,179.5 → 1,172 ms | 227.1 → 227.0 MiB |
+
+### 10,000 JPEGs and ZIP
+
+| Same-PC comparison, v0.8.0 → v0.8.1 | Median to first sharp image | Median held arrow to visible target | Peak process-tree private commit |
+|---|---:|---:|---:|
+| 10,000 JPEGs | 416 → 421 ms | 49.3 → 48.9 ms | 437.1 → 437.3 MiB |
+| 241-image ZIP | 1,286 → 1,291 ms | 336.9 → 337.2 ms | 591.1 → 561.6 MiB |
 
 ## v0.8.0 adds fixed-reference A/B comparison
 
@@ -113,7 +149,7 @@ Graphite is the default background. Under **视图 → 看图背景 → 照片�
 | **Open Photoshop documents** | View saved PSD/PSB composites locally or inside ZIP/RAR/7z, including sources larger than 512 MiB. Use a labeled embedded preview if the full composite is unavailable and the document includes a usable thumbnail. |
 | **Browse huge TIFFs** | View supported local tiled pyramidal TIFF/BigTIFF files using their overview and on-demand detail tiles. |
 | **Read QR codes and image text** | Scan the current image for QR codes, drag to select automatically recognized text, or request whole-image and selected-area OCR. [QR support](docs/RELEASE-v0.6.8.md) |
-| **Zoom and compare** | Pointer-anchored zoom, panning, and detail in the visible region. Compare up to four images side by side or use fixed-reference A/B on one canvas. |
+| **Zoom and compare** | Pointer-anchored zoom, panning, and detail in the visible region. Compare up to four images side by side or drag a divider within fixed-reference A/B on one canvas. |
 | **Play and export animation** | Stream GIF/WebP with timing, disposal, and loop handling; export complete animations. |
 | **Work from the source** | RAW adjustments, crop, resize, color, sharpening, text/watermarks, real 16-bit PNG/TIFF, processing records, and presets. |
 | **Manage a collection** | Rename previews, folder/XMP moves, ratings, labels, explicit EXIF/IPTC/XMP editing, and contact sheets. |
@@ -155,7 +191,7 @@ v0.4.0 permits [local and ZIP/RAR/7z-contained PSD/PSB](docs/PSD.md) sources up 
 
 ## Download and use
 
-1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.8.0/RustView-0.8.0-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.8.0/RustView-0.8.0-win-x64-offline.zip.sha256)
+1. Download the complete Windows x64 package. [Offline ZIP](https://github.com/walker1911/RustView/releases/download/v0.8.1/RustView-0.8.1-win-x64-offline.zip) · [SHA-256 checksum](https://github.com/walker1911/RustView/releases/download/v0.8.1/RustView-0.8.1-win-x64-offline.zip.sha256)
 2. Fully extract it and double-click `RustView.exe` or `Start-RustView.cmd`. The package includes the image engines, runtime libraries, and Tesseract with Simplified Chinese and English models. Viewing and OCR work offline from the first launch.
 3. Open or drag in a folder, picture, or archive. Keep the complete extracted folder.
 
@@ -196,7 +232,7 @@ pwsh -File .\tools\build.ps1 -Offline
 
 See [BUILDING.md](BUILDING.md) for checksums and validation steps.
 
-v0.8.0 passed 301 unit tests. Windows desktop checks covered fixing A, 1:1 alignment, zooming and panning, rapid B changes, and cleanup on close. [v0.8.0 validation](docs/VALIDATION.md#v080-windows-x64)
+v0.8.1 passed 302 unit tests. Windows desktop checks covered the A/B divider, 1:1 alignment, checkerboard transparency, rapid B changes, and full RAW rendering for all four samples. [v0.8.1 validation](docs/VALIDATION.md#v081-windows-x64)
 
 Release checks cover static images and archives, GIF/WebP animation, PSD/PSB composites, thumbnails, and large encrypted-RAR cancellation. Windows desktop checks for v0.7.5 covered local SVG opens, drag and drop, thumbnails, checkerboard transparency, detail after zoom, and browsing SVGs in encrypted ZIP, RAR, and 7z archives. Cancelling or closing during SVG rendering left no worker processes or temporary files in these tests. [v0.7.5 release notes and benchmarks](docs/RELEASE-v0.7.5.md) · [Prior validation](docs/VALIDATION.md)
 

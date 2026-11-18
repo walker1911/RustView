@@ -1839,12 +1839,18 @@ fn read_pixels(
         return Err("图片输出超过预算或数据长度错误".into());
     }
     let mut file = fs::File::open(path).map_err(|e| e.to_string())?;
-    let mut pixels = vec![0; expected];
-    for chunk in pixels.chunks_mut(4 * 1024 * 1024) {
+    let mut pixels = Vec::new();
+    pixels.try_reserve_exact(expected).map_err(|_| "无法分配图片输出内存")?;
+    while pixels.len() < expected {
         if cancel.load(Ordering::Relaxed) {
             return Err("已取消".into());
         }
-        file.read_exact(chunk).map_err(|e| e.to_string())?;
+        let length = (expected - pixels.len()).min(4 * 1024 * 1024);
+        let read = (&mut file).take(length as u64)
+            .read_to_end(&mut pixels).map_err(|e| e.to_string())?;
+        if read != length {
+            return Err("图片数据未完整写入".into());
+        }
     }
     Ok(pixels)
 }

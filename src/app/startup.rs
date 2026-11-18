@@ -4,24 +4,46 @@ use super::*;
 enum Phase {
     Loading,
     PhotoDrawn,
+    SharpDrawn,
     FontsQueued(u64),
 }
 
 pub(super) struct ImageStartup {
     serial: u64,
     phase: Phase,
+    raw: bool,
     traced_first_update: bool,
     pub(super) repaint_context: Arc<std::sync::OnceLock<egui::Context>>,
 }
 
 impl ImageStartup {
-    pub(super) fn new(serial: u64) -> Self {
+    pub(super) fn new(serial: u64, raw: bool) -> Self {
         Self {
             serial,
             phase: Phase::Loading,
+            raw,
             traced_first_update: false,
             repaint_context: Arc::default(),
         }
+    }
+
+    fn record_photo_draw(&mut self, sharp: bool, has_preview: bool) -> bool {
+        let first = matches!(self.phase, Phase::Loading) && (sharp || has_preview);
+        if first {
+            crate::trace_startup("first_photo_drawn");
+            self.phase = Phase::PhotoDrawn;
+        }
+        if self.raw && sharp && matches!(self.phase, Phase::PhotoDrawn) {
+            self.phase = Phase::SharpDrawn;
+            crate::trace_startup("first_raw_overview_drawn");
+            return true;
+        }
+        first && !self.raw
+    }
+
+    fn can_initialize_ui(&self) -> bool {
+        matches!(self.phase, Phase::SharpDrawn)
+            || !self.raw && matches!(self.phase, Phase::PhotoDrawn)
     }
 }
 
@@ -54,7 +76,7 @@ impl Viewer {
                 self.startup_image = None;
                 return;
             }
-            Phase::PhotoDrawn if ctx.output(|output| output.num_completed_passes == 0) => {
+            _ if startup.can_initialize_ui() && ctx.output(|output| output.num_completed_passes == 0) => {
                 self.finish_startup_ui(ctx);
                 return;
             }
@@ -71,8 +93,11 @@ impl Viewer {
         }
         // egui activates the new definitions at the beginning of the next pass.
         startup.phase = Phase::FontsQueued(ctx.cumulative_pass_nr());
+        crate::trace_startup("startup_fonts_begin");
         configure_fonts(ctx);
+        crate::trace_startup("startup_catalog_begin");
         self.initialize_catalog();
+        crate::trace_startup("startup_catalog_ready");
         ctx.request_repaint();
     }
 
@@ -108,11 +133,7 @@ impl Viewer {
                 });
         }
         let startup = self.startup_image.as_mut().unwrap();
-        if matches!(startup.phase, Phase::Loading)
-            && (self.current.is_some() || self.extra.presentation.has_frame())
-        {
-            crate::trace_startup("first_photo_drawn");
-            startup.phase = Phase::PhotoDrawn;
+        if startup.record_photo_draw(self.current.is_some(), self.extra.presentation.has_frame()) {
             ctx.request_repaint();
         }
         true
@@ -158,5 +179,24 @@ pub(super) fn configure_fonts(ctx: &egui::Context) {
         }
         ctx.set_fonts(fonts);
         break;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_defers_startup_ui_until_its_sharp_frame() {
+        let mut raw = ImageStartup::new(1, true);
+        assert!(!raw.record_photo_draw(false, true));
+        assert!(!raw.can_initialize_ui());
+        assert!(raw.record_photo_draw(true, true));
+        assert!(raw.can_initialize_ui());
+        assert!(!raw.record_photo_draw(true, true));
+
+        let mut jpeg = ImageStartup::new(1, false);
+        assert!(jpeg.record_photo_draw(false, true));
+        assert!(jpeg.can_initialize_ui());
     }
 }

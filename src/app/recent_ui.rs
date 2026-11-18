@@ -560,7 +560,7 @@ mod tests {
         let ctx = egui::Context::default();
         let mut viewer = Viewer::empty();
         viewer.browser = false;
-        viewer.startup_image = Some(super::super::startup::ImageStartup::new(0));
+        viewer.startup_image = Some(super::super::startup::ImageStartup::new(0, false));
         viewer.track_recent_open(first.clone(), RecentKind::Image);
         viewer.recent_image_drawn(1, &ctx);
         viewer.flush_recent_open(false);

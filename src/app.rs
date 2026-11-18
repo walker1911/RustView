@@ -358,10 +358,11 @@ impl Viewer {
         app.load_settings();
         if let Some(path) = initial {
             app.open_path(path);
-            if app.pending.as_ref().is_some_and(|task| {
+            if let Some(task) = app.pending.as_ref().filter(|task| {
                 matches!(task.operation, Operation::Load { index: 0, preload: false, .. })
             }) {
-                app.startup_image = Some(startup::ImageStartup::new(app.serial));
+                let raw = worker::local_raw_load(&task.request).is_some();
+                app.startup_image = Some(startup::ImageStartup::new(app.serial, raw));
                 if let Some(task) = app.pending.take_if(|task| !Self::is_animation_candidate(&task.request)) {
                     // The existing supervised read can overlap renderer creation.
                     app.dispatch_worker(task, None);
@@ -940,6 +941,7 @@ impl Viewer {
             .filter(|(index, _)| self.extra.presentation.target_index() == Some(*index))
         {
             if let Ok(preview) = receiver.try_recv() {
+                crate::trace_startup("image_preview_accepted");
                 self.extra.presentation.stage_preview(*index, preview.into());
             }
         }
@@ -1108,6 +1110,7 @@ impl Viewer {
                                     let reloading = matches!(operation, Operation::Reload { .. });
                                     let preload = matches!(operation, Operation::Load { preload: true, .. });
                                     if !preload {
+                                        crate::trace_startup("image_result_received");
                                         self.extra.page_index = output.reply.page_index;
                                         self.extra.page_total = output.reply.page_total.max(1);
                                     }
@@ -1150,6 +1153,7 @@ impl Viewer {
                                             self.pyramid = Some(view);
                                         }
                                         self.schedule_preload();
+                                        crate::trace_startup("image_result_installed");
                                     }
                                 }
                             }
@@ -1737,6 +1741,7 @@ impl Viewer {
     fn ensure_overview(&mut self, ctx: &egui::Context) {
         if self.overview.is_none() {
             if let Some(image) = &self.current {
+                crate::trace_startup("overview_build_begin");
                 self.overview = Some(ctx.load_texture(
                     "overview",
                     egui::ColorImage::from_rgba_unmultiplied(
@@ -1745,6 +1750,7 @@ impl Viewer {
                     ),
                     egui::TextureOptions::LINEAR,
                 ));
+                crate::trace_startup("overview_upload_queued");
             }
         }
     }

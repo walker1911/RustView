@@ -14,15 +14,16 @@ pub(super) struct Comparison {
     slots: Vec<Slot>,
     active: usize,
     generation: u64,
-    fixed: Option<ParallelLayout>,
+    fixed: Option<FixedComparison>,
     read: Option<(u64, usize)>,
     pub linked_zoom: bool,
     pub linked_pan: bool,
 }
-struct ParallelLayout {
+struct FixedComparison {
     indices: Vec<usize>,
     active: usize,
     panes: usize,
+    split: Option<f32>,
 }
 struct Slot {
     index: usize,
@@ -102,6 +103,119 @@ impl Slot {
         self.flip_y = reference.flip_y;
         self.last_interaction = reference.last_interaction;
     }
+    fn paint(&mut self, painter: &egui::Painter, rect: Rect, exposure_warning: bool) {
+        let center = rect.center() + self.pan;
+        let geometry = Pixels {
+            width: self.width,
+            height: self.height,
+            rgba: Vec::new(),
+            preview: Vec::new(),
+            preview_width: 0,
+            preview_height: 0,
+            note: String::new(),
+            record: None,
+            svg_size: None,
+        };
+        let full =
+            Rect::from_min_max(Pos2::ZERO, egui::pos2(self.width as f32, self.height as f32));
+        let uv = Rect::from_min_max(Pos2::ZERO, egui::pos2(1.0, 1.0));
+        if self.texture.is_some() || self.detail.is_some() {
+            super::paint_transparency(
+                painter,
+                Rect::from_center_size(center, self.dimensions() * self.scale),
+            );
+        }
+        if let Some(t) = &self.texture {
+            let hole = self.detail.as_ref().map(|(_, [x, y, w, h])| {
+                Rect::from_min_size(
+                    egui::pos2(*x as f32, *y as f32),
+                    egui::vec2(*w as f32, *h as f32),
+                )
+            });
+            for coarse in coarse_regions(full, hole) {
+                let texture_uv = Rect::from_min_max(
+                    egui::pos2(
+                        coarse.min.x / self.width as f32,
+                        coarse.min.y / self.height as f32,
+                    ),
+                    egui::pos2(
+                        coarse.max.x / self.width as f32,
+                        coarse.max.y / self.height as f32,
+                    ),
+                );
+                paint_quad(
+                    painter,
+                    t.id(),
+                    coarse,
+                    texture_uv,
+                    &geometry,
+                    center,
+                    self.scale,
+                    self.rotation,
+                    self.flip_x,
+                    self.flip_y,
+                );
+            }
+        }
+        if let Some((t, [x, y, w, h])) = &self.detail {
+            paint_quad(
+                painter,
+                t.id(),
+                Rect::from_min_size(
+                    egui::pos2(*x as f32, *y as f32),
+                    egui::vec2(*w as f32, *h as f32),
+                ),
+                uv,
+                &geometry,
+                center,
+                self.scale,
+                self.rotation,
+                self.flip_x,
+                self.flip_y,
+            );
+        }
+        if let Some(p) = self.pixels.as_ref().filter(|_| exposure_warning) {
+            if self.mask.is_none() {
+                let rgba = p
+                    .rgba
+                    .chunks_exact(4)
+                    .flat_map(|p| {
+                        if p[3] == 0 {
+                            [0, 0, 0, 0]
+                        } else if p[..3].iter().any(|c| *c >= 250) {
+                            [255, 0, 0, 160]
+                        } else if p[..3].iter().all(|c| *c <= 5) {
+                            [0, 80, 255, 160]
+                        } else {
+                            [0, 0, 0, 0]
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                self.mask = Some(painter.ctx().load_texture(
+                    "comparison-exposure-warning",
+                    egui::ColorImage::from_rgba_unmultiplied(
+                        [p.width as usize, p.height as usize],
+                        &rgba,
+                    ),
+                    egui::TextureOptions::NEAREST,
+                ));
+            }
+            if let Some(t) = &self.mask {
+                paint_quad(
+                    painter,
+                    t.id(),
+                    full,
+                    uv,
+                    &geometry,
+                    center,
+                    self.scale,
+                    self.rotation,
+                    self.flip_x,
+                    self.flip_y,
+                );
+            }
+        }
+    }
     fn detail_region(&self, view: Rect, ppp: f32) -> Option<[u32; 4]> {
         let preview_scale = self.pixels.as_ref()?.width as f32 / self.width as f32;
         if self.scale * ppp <= preview_scale * 1.2
@@ -148,6 +262,33 @@ fn comparison_fit(mode: FitMode, viewport: Vec2, image: Vec2, ppp: f32) -> f32 {
     }
     .clamp(0.0001, 64.0)
 }
+
+fn paint_comparison_divider(painter: &egui::Painter, rect: Rect, x: f32, ppp: f32) {
+    let vertical = [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())];
+    painter.line_segment(vertical, egui::Stroke::new(3.0 / ppp, Color32::from_black_alpha(160)));
+    painter.line_segment(vertical, egui::Stroke::new(1.0 / ppp, Color32::from_white_alpha(210)));
+
+    let grip = Rect::from_center_size(egui::pos2(x, rect.center().y), egui::vec2(23.0, 16.0));
+    painter.rect_filled(grip, 4.0, Color32::from_black_alpha(190));
+    for offset in [-3.0, 3.0] {
+        painter.line_segment(
+            [
+                egui::pos2(x + offset, grip.top() + 4.0),
+                egui::pos2(x + offset, grip.bottom() - 4.0),
+            ],
+            egui::Stroke::new(1.0 / ppp, Color32::from_white_alpha(210)),
+        );
+    }
+
+    let font = FontId::proportional(12.0);
+    if x - rect.left() > 25.0 {
+        painter.text(rect.left_top() + egui::vec2(8.0, 7.0), egui::Align2::LEFT_TOP, "A", font.clone(), Color32::WHITE);
+    }
+    if rect.right() - x > 25.0 {
+        painter.text(rect.right_top() + egui::vec2(-8.0, 7.0), egui::Align2::RIGHT_TOP, "B", font, Color32::WHITE);
+    }
+}
+
 fn coarse_regions(full: Rect, detail: Option<Rect>) -> Vec<Rect> {
     let Some(hole) = detail
         .map(|r| r.intersect(full))
@@ -211,10 +352,11 @@ impl Comparison {
     }
     fn enter_fixed(&mut self, panes: usize) {
         let mut slots = std::mem::take(&mut self.slots);
-        self.fixed = Some(ParallelLayout {
+        self.fixed = Some(FixedComparison {
             indices: slots.iter().map(|s| s.index).collect(),
             active: self.active,
             panes,
+            split: None,
         });
         let a = slots.remove(self.active);
         let position = self.pool.iter().position(|&i| i == a.index).unwrap_or(0);
@@ -736,7 +878,7 @@ impl Viewer {
                 close = true;
             }
             let c = &mut self.extra.comparison;
-            if c.is_fixed_reference() {
+            if let Some(fixed) = &mut c.fixed {
                 toggle_fixed = ui.button("返回并排比较").clicked();
                 let hold = ui.add_enabled(
                     c.slots[0].texture.is_some(),
@@ -744,6 +886,9 @@ impl Viewer {
                 );
                 show_reference = hold.is_pointer_button_down_on()
                     && ctx.input(|i| i.focused && i.pointer.primary_down());
+                if ui.selectable_label(fixed.split.is_some(), "分割对照").clicked() {
+                    fixed.split = fixed.split.is_none().then_some(0.5);
+                }
             } else {
                 for n in 1..=4 {
                     ui.selectable_value(&mut self.extra.compare, n, format!("{n}图"));
@@ -825,6 +970,7 @@ impl Viewer {
             let scroll = ctx.input(|i| i.raw_scroll_delta.y);
             let ppp = ctx.pixels_per_point();
             let now = Instant::now();
+            let exposure_warning = self.extra.exposure_warning;
             let c = &mut self.extra.comparison;
             for pane in 0..panes {
                 let rect = Rect::from_min_size(
@@ -843,10 +989,32 @@ impl Viewer {
                 );
                 let painter = ui.painter_at(rect);
                 painter.rect_filled(rect, 2.0, Color32::from_gray(22));
+                let split_ready = fixed && !show_reference && rect.is_positive()
+                    && c.slots.iter().all(|slot| slot.texture.is_some());
+                let split = c.fixed.as_mut()
+                    .filter(|_| split_ready)
+                    .and_then(|fixed| fixed.split.as_mut())
+                    .map(|fraction| {
+                        let x = rect.left() + *fraction * rect.width();
+                        let handle = Rect::from_min_max(
+                            egui::pos2(x - 9.0, rect.top()),
+                            egui::pos2(x + 9.0, rect.bottom()),
+                        ).intersect(rect);
+                        let divider = ui.interact(
+                            handle, ui.make_persistent_id("compare-split"), Sense::drag(),
+                        ).on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
+                        if divider.dragged_by(egui::PointerButton::Primary) {
+                            *fraction = (*fraction + divider.drag_delta().x / rect.width()).clamp(0.0, 1.0);
+                        }
+                        let edge = painter.round_to_pixel(rect.left() + *fraction * rect.width());
+                        (edge.clamp(rect.left(), rect.right()), divider)
+                    });
                 let Some(s) = c.slots.get_mut(pane) else {
                     continue;
                 };
-                let zoomed = response.hovered() && scroll != 0.0;
+                let pointer = response.hover_pos()
+                    .or_else(|| split.as_ref().and_then(|(_, divider)| divider.hover_pos()));
+                let zoomed = pointer.is_some() && scroll != 0.0;
                 let dragged = response.dragged();
                 if !fixed && (response.clicked() || dragged || zoomed) {
                     active = Some(pane);
@@ -856,7 +1024,7 @@ impl Viewer {
                     s.target = s.scale;
                 }
                 if zoomed {
-                    let mouse = response.hover_pos().unwrap_or(rect.center());
+                    let mouse = pointer.unwrap_or(rect.center());
                     let anchor = (mouse - rect.center() - s.pan) / s.scale;
                     let target = (s.target * (scroll * 0.0025).exp()).clamp(0.0001, 64.0);
                     s.zoom_anchor = Some((mouse - rect.center(), anchor));
@@ -899,119 +1067,20 @@ impl Viewer {
                 } else {
                     pane
                 };
+                if let Some((x, _)) = split {
+                    let left = Rect::from_min_max(rect.min, egui::pos2(x, rect.bottom()));
+                    let right = Rect::from_min_max(egui::pos2(x, rect.top()), rect.max);
+                    for (slot, clip) in c.slots.iter_mut().zip([left, right]) {
+                        if clip.is_positive() {
+                            slot.paint(&painter.with_clip_rect(clip), rect, exposure_warning);
+                        }
+                    }
+                    paint_comparison_divider(&painter, rect, x, ppp);
+                    continue;
+                }
                 let s = &mut c.slots[number];
-                let center = rect.center() + s.pan;
-                let geometry = Pixels {
-                    width: s.width,
-                    height: s.height,
-                    rgba: Vec::new(),
-                    preview: Vec::new(),
-                    preview_width: 0,
-                    preview_height: 0,
-                    note: String::new(),
-                    record: None,
-                    svg_size: None,
-                };
-                let full =
-                    Rect::from_min_max(Pos2::ZERO, egui::pos2(s.width as f32, s.height as f32));
-                let uv = Rect::from_min_max(Pos2::ZERO, egui::pos2(1.0, 1.0));
-                if s.texture.is_some() || s.detail.is_some() {
-                    super::paint_transparency(
-                        &painter,
-                        Rect::from_center_size(center, s.dimensions() * s.scale),
-                    );
-                }
-                if let Some(t) = &s.texture {
-                    let hole = s.detail.as_ref().map(|(_, [x, y, w, h])| {
-                        Rect::from_min_size(
-                            egui::pos2(*x as f32, *y as f32),
-                            egui::vec2(*w as f32, *h as f32),
-                        )
-                    });
-                    for coarse in coarse_regions(full, hole) {
-                        let texture_uv = Rect::from_min_max(
-                            egui::pos2(
-                                coarse.min.x / s.width as f32,
-                                coarse.min.y / s.height as f32,
-                            ),
-                            egui::pos2(
-                                coarse.max.x / s.width as f32,
-                                coarse.max.y / s.height as f32,
-                            ),
-                        );
-                        paint_quad(
-                            &painter,
-                            t.id(),
-                            coarse,
-                            texture_uv,
-                            &geometry,
-                            center,
-                            s.scale,
-                            s.rotation,
-                            s.flip_x,
-                            s.flip_y,
-                        );
-                    }
-                }
-                if let Some((t, [x, y, w, h])) = &s.detail {
-                    paint_quad(
-                        &painter,
-                        t.id(),
-                        Rect::from_min_size(
-                            egui::pos2(*x as f32, *y as f32),
-                            egui::vec2(*w as f32, *h as f32),
-                        ),
-                        uv,
-                        &geometry,
-                        center,
-                        s.scale,
-                        s.rotation,
-                        s.flip_x,
-                        s.flip_y,
-                    );
-                }
-                if let Some(p) = &s.pixels {
-                    if self.extra.exposure_warning {
-                        if s.mask.is_none() {
-                            let rgba = p
-                                .rgba
-                                .chunks_exact(4)
-                                .flat_map(|p| {
-                                    if p[3] == 0 {
-                                        [0, 0, 0, 0]
-                                    } else if p[..3].iter().any(|c| *c >= 250) {
-                                        [255, 0, 0, 160]
-                                    } else if p[..3].iter().all(|c| *c <= 5) {
-                                        [0, 80, 255, 160]
-                                    } else {
-                                        [0, 0, 0, 0]
-                                    }
-                                })
-                                .collect::<Vec<_>>();
-                            s.mask = Some(ctx.load_texture(
-                                format!("compare-warning-{number}"),
-                                egui::ColorImage::from_rgba_unmultiplied(
-                                    [p.width as usize, p.height as usize],
-                                    &rgba,
-                                ),
-                                egui::TextureOptions::NEAREST,
-                            ));
-                        }
-                        if let Some(t) = &s.mask {
-                            paint_quad(
-                                &painter,
-                                t.id(),
-                                full,
-                                uv,
-                                &geometry,
-                                center,
-                                s.scale,
-                                s.rotation,
-                                s.flip_x,
-                                s.flip_y,
-                            );
-                        }
-                    }
+                s.paint(&painter, rect, exposure_warning);
+                if s.pixels.is_some() {
                     if !fixed && number == c.active {
                         detail = s
                             .detail_region(rect, ppp)

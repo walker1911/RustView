@@ -1,5 +1,15 @@
 # Validation / 验证记录
 
+## v0.8.1 Windows x64
+
+本地单测通过 **302 项**，默认跳过 3 项可选测试。原生窗口使用同尺寸 PSD 和透明 PNG 验证了分割线拖动、1:1 像素对齐、透明棋盘格、按住和松开参考图，以及快速切换 B。NEF、CR3、ARW、DNG 均通过「完整 RAW 解码」窗口检查。相应测试关窗后未发现进程或临时文件残留。
+
+与 v0.8.0 同机交替测试。RAW 默认浏览 24 对，完整显影 32 对，万张 JPEG 和混合 RAW 连翻各 24 对，241 张图的 ZIP 测 8 对。采样识别胶片带出现前后的清晰画面时，默认浏览的首张清晰图中位数为 420.20 → 407.49 ms。沿用等待胶片带布局稳定的口径，逐对中位数仍多约 25 ms。 [v0.8.1 更新说明与实测数据](RELEASE-v0.8.1.md)
+
+The local suite passed **302 unit tests**, with three optional tests skipped. Native Windows checks covered divider dragging, 1:1 alignment, checkerboard transparency, holding and releasing the reference, and rapidly switching B using a PSD and transparent PNGs of the same size. NEF, CR3, ARW, and DNG each passed a full RAW decoding window check. The tested windows closed with no surviving processes or temporary files.
+
+Alternating same-PC tests against v0.8.0 included 24 default RAW startup pairs, 32 full-development pairs, 24 pairs each for 10,000 JPEGs and mixed RAW browsing, and eight for the 241-image ZIP. The median time to the first sharp RAW frame went from 420.20 to 407.49 ms when sampling either filmstrip layout. Waiting for the filmstrip layout to settle still added about 25 ms at the paired median. [v0.8.1 release notes and benchmarks](RELEASE-v0.8.1.md#english)
+
 ## v0.8.0 Windows x64
 
 本地单测通过 **301 项**，默认跳过 3 项可选测试。原生窗口用同尺寸 PSD 和透明 PNG 验证了缩放、平移、1:1 像素对齐、按住看 A、松手回 B，以及快速左右切换 B。尼康 Z6、佳能 EOS R 和索尼 a7 III 的 RAW 样本也通过了 A/B 切换。两组关窗后均未发现残留进程或临时文件。

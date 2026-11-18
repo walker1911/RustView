@@ -8,7 +8,43 @@
 
 面向 **Windows x64** 的 Rust 看图项目。用熟悉的快捷键、Picasa 式胶片带和平滑缩放浏览相机 RAW、静态 SVG、GIF/WebP 动画、Photoshop 合成图及 ZIP／RAR／7z 里的照片。看图时也能直接读二维码、复制图片里的文字。
 
-[下载 v0.8.0](https://github.com/walker1911/RustView/releases/tag/v0.8.0) · [English](README.en.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
+[下载 v0.8.1](https://github.com/walker1911/RustView/releases/tag/v0.8.1) · [English](README.en.md) · [兼容说明](docs/COMPATIBILITY.md) · [构建指南](BUILDING.md)
+
+## v0.8.1 RAW 首图与 A/B 拖动分割线
+
+双击本地 RAW 时，RustView 将清晰帧的绘制排在字体与图库初始化之前。查看固定 A/B 对照时，点「分割对照」，拖动中线即可在同一张画布上比较两图。滚轮缩放、拖动平移与 1:1 坐标由两图共享，左右键更换 B，按住「按住看参考图 A」可暂时查看完整的 A。[v0.8.1 更新说明](docs/RELEASE-v0.8.1.md)
+
+### RAW 默认浏览
+
+默认浏览优先使用 RAW 文件内可用的相机预览。在同一台 Windows 电脑上对照 v0.8.0 与 v0.8.1，各格式以同一份样本测 6 对，通过像素识别胶片带出现前后的清晰帧。
+
+| 样本 | 首张清晰图中位数 |
+|---|---:|
+| 尼康 Z6 NEF | 409 → 403 ms |
+| 佳能 EOS R CR3 | 457 → 449 ms |
+| 索尼 a7 III ARW | 337 → 338 ms |
+| 苹果 iPhone 12 Pro DNG | 433 → 410 ms |
+| 四种合计 | 420 → 407 ms |
+
+合计 P95 为 471 → 453 ms。**沿用旧口径，等胶片带布局稳定再采样时，逐对差值的中位数仍增加约 25 ms。** 混合 RAW 长按到目标图可见的中位数为 89.7 → 90.7 ms。[详细数据与测试方法](docs/RELEASE-v0.8.1.md)
+
+### RAW 完整显影
+
+每种格式另测 8 对，计时包含独立工作进程的完整解码与像素传输。四种文件也都通过了 Windows 窗口里的「完整 RAW 解码」检查。
+
+| 样本 | 完整显影中位数 | 进程树私有内存峰值 |
+|---|---:|---:|
+| NEF | 3,344 → 3,359.5 ms | 310.0 → 310.0 MiB |
+| CR3 | 3,961 → 3,985 ms | 384.7 → 384.7 MiB |
+| ARW | 3,062.5 → 3,063 ms | 307.0 → 307.0 MiB |
+| DNG | 1,179.5 → 1,172 ms | 227.1 → 227.0 MiB |
+
+### 万张 JPEG 与 ZIP
+
+| 同机对照，v0.8.0 → v0.8.1 | 首张清晰图中位数 | 长按到目标图可见中位数 | 进程树私有内存峰值 |
+|---|---:|---:|---:|
+| 万张 JPEG | 416 → 421 ms | 49.3 → 48.9 ms | 437.1 → 437.3 MiB |
+| 241 张图的 ZIP | 1,286 → 1,291 ms | 336.9 → 337.2 ms | 591.1 → 561.6 MiB |
 
 ## v0.8.0 固定 A/B 对照
 
@@ -115,7 +151,7 @@
 | **浏览超大 TIFF** | 对符合条件的本地金字塔 TIFF／BigTIFF，先显示全景，放大后按需读取细节分块。 |
 | **识别二维码和图片文字** | 后台扫码并自动识字，可在图上拖选文字，也可手动识别整图或选区。[二维码说明](docs/RELEASE-v0.6.8.md) |
 | **接纳现代格式** | 常见图片、静态 SVG、LibRaw 支持的相机 RAW、苹果 ProRAW DNG，以及由内置引擎读取的 HEIC/HEIF、AVIF、JPEG XL。 |
-| **平滑缩放与比较** | 保持鼠标指向位置缩放，拖动平移，按可见区域上传细节。支持最多四图并排，以及同画布固定 A/B 对照。 |
+| **平滑缩放与比较** | 保持鼠标指向位置缩放，拖动平移，按可见区域上传细节。支持最多四图并排，也可在同画布固定 A/B，并拖动分割线。 |
 | **完整动画** | GIF/WebP 按帧时序、透明合成与循环信息播放；支持整段动画导出。 |
 | **从原始源处理** | RAW 调节、裁剪、尺寸、色彩、锐化、文字与水印；导出真正的 16 位 PNG/TIFF，保存处理记录与预设。 |
 | **整理与输出** | 批量改名前预览、文件夹与 XMP 伴随迁移、评级和标签、显式读写 EXIF/IPTC/XMP，以及接触表排版。 |
@@ -161,7 +197,7 @@ v0.4.0 对[本地及ZIP／RAR／7z内的PSD/PSB](docs/PSD.md)提供源文件例�
 
 ## 下载与运行
 
-1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.8.0/RustView-0.8.0-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.8.0/RustView-0.8.0-win-x64-offline.zip.sha256)
+1. 下载 Windows x64 完整离线包。[离线 ZIP](https://github.com/walker1911/RustView/releases/download/v0.8.1/RustView-0.8.1-win-x64-offline.zip) · [SHA-256 校验文件](https://github.com/walker1911/RustView/releases/download/v0.8.1/RustView-0.8.1-win-x64-offline.zip.sha256)
 2. 完整解压，双击 `RustView.exe` 或 `Start-RustView.cmd`。图像引擎、运行库、Tesseract 和简体中文及英文模型均随包提供，首次启动即可离线看图和识别文字。
 3. 打开或拖入文件夹、图片、ZIP／RAR／7z。请保留完整目录。
 
@@ -204,7 +240,7 @@ pwsh -File .\tools\build.ps1 -Offline
 
 ## 验证到哪一步
 
-v0.8.0 通过 301 项单测。原生窗口测试验证了固定 A、1:1 对齐、缩放和平移、快速更换 B，以及关窗清理。[v0.8.0 验证记录](docs/VALIDATION.md#v080-windows-x64)
+v0.8.1 通过 302 项单测。原生窗口测试验证了 A/B 分割线、1:1 对齐、透明棋盘格、快速换 B，以及四种 RAW 的完整显影。[v0.8.1 验证记录](docs/VALIDATION.md#v081-windows-x64)
 
 发行检查覆盖静态图与压缩包、GIF/WebP 动画、PSD/PSB 合成图、缩略图和大型加密 RAR 的取消清理。v0.7.5 在 Windows 桌面验证了 SVG 本地打开、拖入、缩略图、透明棋盘格、放大后补清晰，以及加密 ZIP／RAR／7z 的打开和翻图。实测在 SVG 渲染时取消或关闭窗口，未发现残留工作进程或临时文件。[v0.7.5 更新说明与实测数据](docs/RELEASE-v0.7.5.md) · [历次验证记录](docs/VALIDATION.md)
 
